@@ -1,16 +1,21 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { Effect, parseSpark, type SparkDoc } from "../../src/index.js";
 import { stateHash, dtSequence } from "./_statehash.js";
 
 const fixtures = resolve(dirname(fileURLToPath(import.meta.url)), "../fixtures");
-function loadDoc(name: string): SparkDoc {
-  const parsed = parseSpark(readFileSync(resolve(fixtures, name), "utf8"));
-  if (!parsed.ok) throw new Error(`fixture ${name} failed to parse`);
+const presetsDir = resolve(dirname(fileURLToPath(import.meta.url)), "../../../../presets");
+function loadFrom(base: string, name: string): SparkDoc {
+  const parsed = parseSpark(readFileSync(resolve(base, name), "utf8"));
+  if (!parsed.ok) throw new Error(`${name} failed to parse: ${JSON.stringify(parsed.errors)}`);
   return parsed.doc!;
 }
+const loadDoc = (name: string): SparkDoc => loadFrom(fixtures, name);
+const presetNames = readdirSync(presetsDir)
+  .filter((f) => f.endsWith(".spark"))
+  .sort();
 
 describe("determinism (Gate 1)", () => {
   it("two runs with the same doc/seed/dt-sequence are bit-identical over 600 steps", () => {
@@ -49,14 +54,27 @@ describe("determinism (Gate 1)", () => {
 });
 
 describe("preset snapshots (Gate 1)", () => {
-  // Hash of full state after 60 steps at dt=1/60. Any change to the sim (or a
-  // fixture) changes this digest and requires explicit human sign-off — presets
-  // are fixtures (SLICE_ONE session guidance). Extend as presets are added.
-  for (const name of ["explosion.spark"]) {
+  // Hash of full state after 60 steps at dt=1/60 for EVERY preset. Any change to
+  // the sim (or a preset) changes this digest and requires explicit human
+  // sign-off — presets are fixtures (SLICE_ONE session guidance).
+  for (const name of presetNames) {
     it(`${name} state @60 steps is stable`, () => {
-      const fx = new Effect(loadDoc(name), { seed: 1337 });
+      const fx = new Effect(loadFrom(presetsDir, name), { seed: 1337 });
       for (let i = 0; i < 60; i++) fx.step(1 / 60);
       expect(stateHash(fx)).toMatchSnapshot();
     });
   }
+
+  it("every preset validates and is deterministic across two runs", () => {
+    for (const name of presetNames) {
+      const doc = loadFrom(presetsDir, name);
+      const a = new Effect(doc, { seed: 1337 });
+      const b = new Effect(doc, { seed: 1337 });
+      for (let i = 0; i < 120; i++) {
+        a.step(1 / 60);
+        b.step(1 / 60);
+      }
+      expect(stateHash(a), name).toBe(stateHash(b));
+    }
+  });
 });
