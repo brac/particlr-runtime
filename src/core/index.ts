@@ -3,8 +3,12 @@ export { mulberry32, deriveLayerSeed, type Rng } from "./prng.js";
 export { EASING, ease, type EaseFn } from "./easing.js";
 export {
   sampleScalarInit,
+  drawScalarInit,
   evalCurve,
   evalScalarTrack,
   evalGradient,
   type RGBA,
 } from "./tracks.js";
+export { sampleShape, type SpawnSample } from "./shapes.js";
+export { ParticlePool } from "./pool.js";
+export { LayerSim } from "./layerSim.js";

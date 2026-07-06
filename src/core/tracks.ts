@@ -12,10 +12,21 @@ export interface RGBA {
   a: number;
 }
 
-/** Sample a per-particle initial value at spawn (one draw for range mode). */
+/** Sample a per-particle initial value at spawn (one draw only for range mode). */
 export function sampleScalarInit(init: ScalarInit, rng: Rng): number {
   if (init.mode === "range") return init.min + (init.max - init.min) * rng();
   return init.value;
+}
+
+/**
+ * Spawn-time draw for an initial value that ALWAYS consumes exactly one uniform,
+ * even in constant mode (which discards it). This keeps the PRNG draw count per
+ * spawn fixed and mode-independent, which the determinism contract requires
+ * (§2.7). Use this in the spawn routine; use sampleScalarInit elsewhere.
+ */
+export function drawScalarInit(init: ScalarInit, rng: Rng): number {
+  const u = rng();
+  return init.mode === "range" ? init.min + (init.max - init.min) * u : init.value;
 }
 
 /**
