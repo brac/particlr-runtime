@@ -1,0 +1,13 @@
+{
+  "//": "Emit config for the whole package including the Pixi adapter (needs DOM lib). Produces dist/ with declarations.",
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "outDir": "dist",
+    "rootDir": "src",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true
+  },
+  "include": ["src"]
+}

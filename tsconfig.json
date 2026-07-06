@@ -1,0 +1,10 @@
+{
+  "//": "Typecheck config for the Node-safe surface (format + core + public index). No DOM lib on purpose: referencing a browser global here is a compile error, which enforces the CLAUDE.md invariant that core/format run in Node.",
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022"],
+    "noEmit": true,
+    "types": []
+  },
+  "include": ["src/format", "src/core", "src/index.ts"]
+}

@@ -1,0 +1,44 @@
+{
+  "name": "@sparkr/runtime",
+  "version": "0.0.0",
+  "description": "Framework-agnostic particle simulation core + Pixi v8 adapter for the .spark format.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./pixi": {
+      "types": "./dist/pixi/index.d.ts",
+      "import": "./dist/pixi/index.js"
+    },
+    "./spark.schema.json": "./dist/spark.schema.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "build": "tsc -p tsconfig.build.json",
+    "gen-schema": "tsx scripts/gen-schema.ts",
+    "size": "node scripts/check-size.mjs"
+  },
+  "peerDependencies": {
+    "pixi.js": "^8.0.0"
+  },
+  "peerDependenciesMeta": {
+    "pixi.js": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.2",
+    "pixi.js": "^8.6.6",
+    "ts-json-schema-generator": "^2.3.0",
+    "tsx": "^4.19.2"
+  }
+}
