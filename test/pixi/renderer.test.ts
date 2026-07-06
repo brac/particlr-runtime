@@ -77,29 +77,84 @@ describe("PixiSparkRenderer — user textures (P0.1)", () => {
   });
 });
 
-describe("PixiSparkRenderer — dead particles stay hidden after count shrinks (P4.2)", () => {
-  it("re-hides particles that died since the last sync", () => {
+describe("PixiSparkRenderer — render list tracks live count, not capacity (P4.2)", () => {
+  it("keeps particleChildren equal to the live count as it rises and falls", () => {
     // A short-burst, non-looping effect: particle count rises then falls to 0.
     const doc = loadDoc("sparks"); // single burst at t=0, no continuous rate
     doc.looping = false; // let the burst die out instead of re-firing each cycle
     const fx = new Effect(doc, { seed: doc.seed });
     const r = new PixiSparkRenderer(fx);
-    const parts = pcOf(r).particleChildren;
+    const pc = pcOf(r);
+    // Nothing simulated yet: the container holds no particles despite the pool
+    // being preallocated to maxParticles.
+    expect(pc.particleChildren.length).toBe(0);
 
-    // Advance to a live frame and sync — some particles are visible.
+    // Advance to a live frame and sync — the render list equals the live count
+    // (dead slots are absent, not merely alpha 0), and each is visible.
     for (let i = 0; i < 20; i++) fx.step(1 / 60);
     r.sync();
     const live = fx.layers[0]!.count;
     expect(live).toBeGreaterThan(0);
-    let visible = parts.filter((p) => p.alpha > 0).length;
-    expect(visible).toBe(live);
+    expect(pc.particleChildren.length).toBe(live);
+    expect(pc.particleChildren.every((p) => p.alpha > 0)).toBe(true);
 
     // Run long past the burst's lifetime so every particle dies, then sync.
     for (let i = 0; i < 120; i++) fx.step(1 / 60);
     r.sync();
     expect(fx.layers[0]!.count).toBe(0);
-    visible = parts.filter((p) => p.alpha > 0).length;
-    expect(visible).toBe(0); // the optimized zeroing still hides all dead slots
+    expect(pc.particleChildren.length).toBe(0); // drained, nothing to upload or draw
+    r.destroy();
+  });
+
+  it("caps the render list far below capacity for a sparse high-capacity layer", () => {
+    // The pathological shape: huge maxParticles, few live. The container must
+    // never carry capacity-many children.
+    const doc = loadDoc("rain");
+    const layer = doc.layers[0]!;
+    layer.emission.maxParticles = 5000;
+    layer.emission.bursts = [];
+    layer.emission.prewarm = true;
+    layer.emission.rateOverTime = { mode: "constant", value: 30 };
+    layer.initial.life = { mode: "constant", value: 1 }; // ~30 live steady state
+    const fx = new Effect(doc, { seed: 1 });
+    const r = new PixiSparkRenderer(fx);
+    for (let i = 0; i < 60; i++) fx.step(1 / 60);
+    r.sync();
+    const live = fx.layers[0]!.count;
+    expect(live).toBeLessThan(200); // sparse
+    expect(pcOf(r).particleChildren.length).toBe(live); // not 5000
+    r.destroy();
+  });
+
+  it("re-renders a slot correctly after it dies and is reused (burst → die → burst)", () => {
+    // Guards the giant-particle bug's cousin: a slot removed from the container
+    // then re-added must carry fresh vertex/scale data, not a stale upload.
+    const doc = loadDoc("sparks");
+    doc.looping = true;
+    doc.duration = 0.5; // burst re-fires each short cycle
+    const fx = new Effect(doc, { seed: doc.seed });
+    const r = new PixiSparkRenderer(fx);
+    const pc = pcOf(r);
+
+    // First burst alive.
+    for (let i = 0; i < 6; i++) fx.step(1 / 60);
+    r.sync();
+    expect(pc.particleChildren.length).toBeGreaterThan(0);
+
+    // Let it fully die (render list drains), then the next cycle re-bursts.
+    for (let i = 0; i < 30; i++) fx.step(1 / 60);
+    r.sync();
+    expect(pc.particleChildren.length).toBe(fx.layers[0]!.count);
+
+    for (let i = 0; i < 6; i++) fx.step(1 / 60);
+    r.sync();
+    expect(pc.particleChildren.length).toBeGreaterThan(0);
+    // The reused slot carries THIS frame's computed scale (size × invFrameWidth),
+    // not a frozen leftover or a default-1 giant-particle quad.
+    const v = viewOf(r);
+    const reused = pc.particleChildren[0]!;
+    expect(reused.scaleX).toBeCloseTo(v.buffers.size[0]! * v.invFrameWidth, 10);
+    expect(reused.scaleX).toBeLessThan(1); // not a full-texture giant
     r.destroy();
   });
 });

@@ -116,9 +116,11 @@ interface LayerView {
   /** Sliced frame textures (row-major), or null for a single-frame layer.
    * `sync()` assigns `particles[j].texture = frames[frameIndex]`. (P4.1) */
   frames: Texture[] | null;
-  /** Live particle count at the previous sync — so we only re-zero the range
-   * that just died instead of the whole capacity every frame (P4.2). */
-  prevCount: number;
+  /** Highest render-list length whose static attributes have been uploaded.
+   * A particle's static data (UVs) is constant once written, so the container is
+   * only marked dirty when the live count reaches a *new* peak — a near-capacity
+   * layer whose count jitters at its top never re-uploads the static buffer. (P4.2) */
+  renderHighWater: number;
 }
 
 export interface PixiSparkRendererOptions {
@@ -192,16 +194,19 @@ export class PixiSparkRenderer {
       });
       pc.blendMode = blendOf(layer.blend);
 
+      // Preallocate the full pool of Particle objects (one-time; no per-frame
+      // allocation churn) but do NOT add them to the container. sync() keeps
+      // pc.particleChildren equal to exactly the live prefix particles[0..count),
+      // so the per-frame vertex upload and draw scale with the LIVE count, not
+      // maxParticles capacity — a 40k-cap layer showing 100 particles uploads
+      // 100, not 40 000 (P4.2). The pool array below owns every Particle.
       const particles: Particle[] = [];
       for (let k = 0; k < max; k++) {
         const p = new Particle({ texture: particleTex });
         p.anchorX = 0.5;
         p.anchorY = 0.5;
-        p.alpha = 0;
         particles.push(p);
-        pc.addParticle(p);
       }
-      pc.update();
 
       this.container.addChild(pc);
       const view: LayerView = {
@@ -211,7 +216,7 @@ export class PixiSparkRenderer {
         invFrameWidth: sliced.invFrameWidth,
         flipbook: fb,
         frames: sliced.frames,
-        prevCount: 0,
+        renderHighWater: 0,
       };
       this.views.push(view);
 
@@ -261,14 +266,36 @@ export class PixiSparkRenderer {
           if (frames) part.texture = frames[b.frame[j]!]!;
         }
       }
-      // Only re-hide the particles that were live last frame but are dead now.
-      // Everything at index >= max(count, prevCount) was already alpha 0 from an
-      // earlier frame, so this is identical output at a fraction of the writes
-      // (P4.2). Constructor pre-zeros all particles, seeding the invariant.
-      for (let j = count; j < view.prevCount; j++) {
-        view.particles[j]!.alpha = 0;
+      this.syncRenderList(view, count);
+    }
+  }
+
+  /**
+   * Keep `pc.particleChildren` equal to exactly the live prefix
+   * `particles[0..count)`. The core pool is swap-compacted, so those are the
+   * live particles in stable render order; dead slots are never in the container
+   * and thus never uploaded, drawn, or rasterized (P4.2).
+   *
+   * The draw count (`length*6` indices) and the per-frame dynamic upload both
+   * read `particleChildren.length` directly, so shrinking needs no bookkeeping.
+   * Only the *static* attribute buffer needs an explicit `update()` — and only
+   * when the list reaches a length never populated before, since a particle's
+   * static data (UVs) is constant once written. This keeps a layer whose live
+   * count jitters at its capacity peak from re-uploading the whole static buffer
+   * every frame.
+   */
+  private syncRenderList(view: LayerView, count: number): void {
+    const children = view.pc.particleChildren;
+    if (children.length !== count) {
+      if (count < children.length) {
+        children.length = count; // shrink: drop the just-died tail (no realloc, no static re-upload)
+      } else {
+        for (let j = children.length; j < count; j++) children.push(view.particles[j]!); // grow back
       }
-      view.prevCount = count;
+    }
+    if (count > view.renderHighWater) {
+      view.pc.update(); // first time these slots render — upload their static attributes
+      view.renderHighWater = count;
     }
   }
 
