@@ -1,21 +1,43 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`preset snapshots (Gate 1) > confetti.spark state @60 steps is stable 1`] = `"2fda59af"`;
+exports[`preset snapshots (Gate 1) > blizzard.spark state @60 steps is stable 1`] = `"a8d3f397"`;
+
+exports[`preset snapshots (Gate 1) > bubbles.spark state @60 steps is stable 1`] = `"4b68e517"`;
+
+exports[`preset snapshots (Gate 1) > coin-fountain.spark state @60 steps is stable 1`] = `"69605c8d"`;
+
+exports[`preset snapshots (Gate 1) > confetti.spark state @60 steps is stable 1`] = `"7af2e9a1"`;
+
+exports[`preset snapshots (Gate 1) > dust-puff.spark state @60 steps is stable 1`] = `"449c839a"`;
+
+exports[`preset snapshots (Gate 1) > ember-field.spark state @60 steps is stable 1`] = `"268f23ca"`;
 
 exports[`preset snapshots (Gate 1) > explosion.spark state @60 steps is stable 1`] = `"70a20ede"`;
 
-exports[`preset snapshots (Gate 1) > fire.spark state @60 steps is stable 1`] = `"7acacd80"`;
+exports[`preset snapshots (Gate 1) > falling-leaves.spark state @60 steps is stable 1`] = `"e1dded78"`;
+
+exports[`preset snapshots (Gate 1) > fire.spark state @60 steps is stable 1`] = `"169cb25a"`;
+
+exports[`preset snapshots (Gate 1) > healing-aura.spark state @60 steps is stable 1`] = `"bdd155ac"`;
 
 exports[`preset snapshots (Gate 1) > hit-flash.spark state @60 steps is stable 1`] = `"69691905"`;
 
-exports[`preset snapshots (Gate 1) > magic-burst.spark state @60 steps is stable 1`] = `"3a184479"`;
+exports[`preset snapshots (Gate 1) > laser-impact.spark state @60 steps is stable 1`] = `"d13fa33a"`;
+
+exports[`preset snapshots (Gate 1) > magic-burst.spark state @60 steps is stable 1`] = `"b47f6d50"`;
+
+exports[`preset snapshots (Gate 1) > muzzle-flash.spark state @60 steps is stable 1`] = `"d13fa33a"`;
 
 exports[`preset snapshots (Gate 1) > pickup-sparkle.spark state @60 steps is stable 1`] = `"ef1c81da"`;
 
-exports[`preset snapshots (Gate 1) > rain.spark state @60 steps is stable 1`] = `"80fc0236"`;
+exports[`preset snapshots (Gate 1) > portal.spark state @60 steps is stable 1`] = `"789f8e6b"`;
 
-exports[`preset snapshots (Gate 1) > smoke.spark state @60 steps is stable 1`] = `"07c67ad5"`;
+exports[`preset snapshots (Gate 1) > rain.spark state @60 steps is stable 1`] = `"b0db7f15"`;
 
-exports[`preset snapshots (Gate 1) > snow.spark state @60 steps is stable 1`] = `"b941e76d"`;
+exports[`preset snapshots (Gate 1) > smoke.spark state @60 steps is stable 1`] = `"a5cbf794"`;
 
-exports[`preset snapshots (Gate 1) > sparks.spark state @60 steps is stable 1`] = `"e23c62b5"`;
+exports[`preset snapshots (Gate 1) > snow.spark state @60 steps is stable 1`] = `"4d429703"`;
+
+exports[`preset snapshots (Gate 1) > sparks.spark state @60 steps is stable 1`] = `"921625d1"`;
+
+exports[`preset snapshots (Gate 1) > waterfall-mist.spark state @60 steps is stable 1`] = `"5a7a27bd"`;
