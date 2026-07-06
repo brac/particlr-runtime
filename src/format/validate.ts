@@ -27,6 +27,8 @@ interface Ctx {
   errors: ValidationIssue[];
   warnings: ValidationIssue[];
   textureNames: Set<string>;
+  duration: number; // for burst-timing warnings; 0 if the field is invalid
+  looping: boolean;
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
@@ -134,6 +136,28 @@ function checkScalarTrackOrNull(ctx: Ctx, v: unknown, path: string): void {
   checkScalarTrack(ctx, v, path);
 }
 
+// Emission rate is the one track that must be bounded above: an astronomical
+// rate (e.g. 1e15) otherwise asks the sim to spawn trillions of particles in a
+// single step. The pool caps actual spawns, but the ceiling keeps a document
+// from *requesting* work that large. Applied only to rateOverTime. (P1.3)
+const MAX_RATE = 100_000;
+function checkRateCeiling(ctx: Ctx, v: unknown, path: string): void {
+  if (!isObject(v)) return; // shape errors already reported by checkScalarTrack
+  const over = (n: unknown, p: string): void => {
+    if (typeof n === "number" && Number.isFinite(n) && n > MAX_RATE)
+      err(ctx, p, `rate must be <= ${MAX_RATE}`);
+  };
+  if (v.mode === "constant") over(v.value, `${path}.value`);
+  else if (v.mode === "range") {
+    over(v.min, `${path}.min`);
+    over(v.max, `${path}.max`);
+  } else if (v.mode === "curve" && Array.isArray(v.keys)) {
+    v.keys.forEach((k, i) => {
+      if (isObject(k)) over(k.v, `${path}.keys[${i}].v`);
+    });
+  }
+}
+
 function checkGradient(ctx: Ctx, v: unknown, path: string): void {
   if (!isObject(v) || !Array.isArray(v.keys)) {
     err(ctx, path, "must be a GradientTrack with a keys array");
@@ -201,8 +225,12 @@ function checkFlipbook(ctx: Ctx, v: unknown, path: string): void {
     err(ctx, path, "frames must be a Flipbook object or null");
     return;
   }
-  if (!isInt(v.cols) || (v.cols as number) < 1) err(ctx, `${path}.cols`, "cols must be an integer >= 1");
-  if (!isInt(v.rows) || (v.rows as number) < 1) err(ctx, `${path}.rows`, "rows must be an integer >= 1");
+  // Bound cols/rows: the core frame index is a Uint16Array, so cols*rows must
+  // stay well under 65536; 64 per axis is far more than any real sprite sheet. (P2.3)
+  if (!isInt(v.cols) || (v.cols as number) < 1 || (v.cols as number) > 64)
+    err(ctx, `${path}.cols`, "cols must be an integer in [1,64]");
+  if (!isInt(v.rows) || (v.rows as number) < 1 || (v.rows as number) > 64)
+    err(ctx, `${path}.rows`, "rows must be an integer in [1,64]");
   if (!isNum(v.fps) || (v.fps as number) <= 0) err(ctx, `${path}.fps`, "fps must be a number > 0");
   checkEnum(ctx, v.mode, FLIPBOOK_MODES, `${path}.mode`);
 }
@@ -237,6 +265,7 @@ function checkEmission(ctx: Ctx, v: unknown, path: string): void {
     return;
   }
   checkScalarTrack(ctx, v.rateOverTime, `${path}.rateOverTime`);
+  checkRateCeiling(ctx, v.rateOverTime, `${path}.rateOverTime`);
   if (!Array.isArray(v.bursts)) {
     err(ctx, `${path}.bursts`, "bursts must be an array");
   } else {
@@ -248,9 +277,21 @@ function checkEmission(ctx: Ctx, v: unknown, path: string): void {
       }
       if (checkNumber(ctx, b.time, `${bp}.time`) && (b.time as number) < 0)
         err(ctx, `${bp}.time`, "time must be >= 0");
-      if (!isInt(b.count) || (b.count as number) < 0) err(ctx, `${bp}.count`, "count must be an integer >= 0");
+      if (!isInt(b.count) || (b.count as number) < 0 || (b.count as number) > 10000)
+        err(ctx, `${bp}.count`, "count must be an integer in [0,10000]");
       if (checkNumber(ctx, b.spread, `${bp}.spread`) && (b.spread as number) < 0)
         err(ctx, `${bp}.spread`, "spread must be >= 0");
+      // Authoring-trap warnings: a burst whose (spread) window exceeds the
+      // per-cycle emission window silently loses sub-events. (P2.2 / P2.3)
+      if (ctx.duration > 0 && isNum(b.time) && isNum(b.spread)) {
+        const delay = isNum(v.delay) ? v.delay : 0;
+        const windowEnd = ctx.duration - delay;
+        if (b.time > windowEnd) {
+          warn(ctx, `${bp}.time`, "burst time is past the emission window (duration − delay); this burst will not fire");
+        } else if (b.time + b.spread > windowEnd) {
+          warn(ctx, `${bp}`, "burst spread extends past the emission window; trailing sub-events will not fire");
+        }
+      }
     });
   }
   if (checkNumber(ctx, v.delay, `${path}.delay`) && (v.delay as number) < 0)
@@ -318,12 +359,14 @@ function checkLayer(ctx: Ctx, v: unknown, path: string): void {
 }
 
 export function validateSpark(input: unknown): ValidationResult {
-  const ctx: Ctx = { errors: [], warnings: [], textureNames: new Set() };
+  const ctx: Ctx = { errors: [], warnings: [], textureNames: new Set(), duration: 0, looping: false };
 
   if (!isObject(input)) {
     err(ctx, "", "document must be an object");
     return { ok: false, errors: ctx.errors, warnings: ctx.warnings };
   }
+  if (isNum(input.duration)) ctx.duration = input.duration;
+  if (isBool(input.looping)) ctx.looping = input.looping;
 
   // schemaVersion (E11): >1 is a hard refusal; <1 / non-int is invalid.
   const sv = input.schemaVersion;
@@ -352,7 +395,10 @@ export function validateSpark(input: unknown): ValidationResult {
     err(ctx, "duration", "duration must be >= 0.05 seconds", "duration-floor");
 
   if (!isBool(input.looping)) err(ctx, "looping", "looping must be a boolean");
-  checkNumber(ctx, input.seed, "seed");
+  // Seed must be an integer in [0, 2^32): the sim coerces with `>>> 0`, so a
+  // fractional or negative seed would round-trip a value the sim never uses. (P2.3)
+  if (!isInt(input.seed) || (input.seed as number) < 0 || (input.seed as number) >= 2 ** 32)
+    err(ctx, "seed", "seed must be an integer in [0, 4294967296)");
 
   // textures (optional). Collect names first so texture refs can be checked.
   if (input.textures !== undefined) {

@@ -35,6 +35,9 @@ export function drawScalarInit(init: ScalarInit, rng: Rng): number {
  */
 export function evalCurve(keys: readonly CurveKey[], t: number): number {
   const n = keys.length;
+  // validateSpark guarantees >= 1 key; guard for hand-built inputs so the
+  // failure is a clear message rather than an opaque undefined dereference.
+  if (n === 0) throw new Error("evalCurve: curve must have at least one key");
   const first = keys[0]!;
   if (n === 1) return first.v;
   const last = keys[n - 1]!;
@@ -74,6 +77,7 @@ export function evalScalarTrack(track: ScalarTrack, t: number, particleRand: num
 export function evalGradient(track: GradientTrack, t: number, out: RGBA): RGBA {
   const keys = track.keys;
   const n = keys.length;
+  if (n === 0) throw new Error("evalGradient: gradient must have at least one key");
   const first = keys[0]!;
   const write = (k: { r: number; g: number; b: number; a: number }): RGBA => {
     out.r = k.r;

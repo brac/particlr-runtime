@@ -34,6 +34,12 @@ export class Effect {
   private prewarming = false;
 
   constructor(doc: SparkDoc, opts?: { seed?: number }) {
+    // A non-positive duration would make the looping emit loop never terminate
+    // (room stays 0). Fail loud rather than hang; validateSpark enforces the
+    // full 0.05 floor for authored documents. (P2.3)
+    if (!(doc.duration > 0)) {
+      throw new Error("SparkDoc.duration must be > 0 (run validateSpark first — the floor is 0.05s)");
+    }
     this.doc = doc;
     this.effectSeed = (opts?.seed ?? doc.seed) >>> 0;
     this.sims = doc.layers.map((layer, i) => new LayerSim(layer, deriveLayerSeed(this.effectSeed, i)));
@@ -140,29 +146,52 @@ export class Effect {
       const localStart = t0 - delay;
       const localEnd = t1 - delay;
 
+      // Bursts fire BEFORE continuous emission when both land in the same step:
+      // burst particles take their PRNG draws first and win contested pool slots
+      // near the cap (normative order — IMPLEMENTATION_PLAN §emission). (P2.1)
+      // Suppressed during prewarm (continuous only, E5).
+      if (!this.prewarming) {
+        for (const burst of em.bursts) {
+          const count = burst.count;
+          if (count <= 0) continue;
+          // At most `capacity` particles can ever exist, so iterating past it
+          // can only produce capped no-ops — bound a hostile count (e.g. 2^31)
+          // to <= capacity iterations. Sub-event *times* still use the full
+          // `count` denominator, so any doc with count <= capacity (every preset
+          // and every validated doc) is unaffected. (P1.3)
+          const iterations = Math.min(count, ls.pool.capacity);
+          if (count > iterations) ls.capped = true;
+          for (let k = 0; k < iterations; k++) {
+            // Sub-events spread evenly across [time, time + spread] *inclusive*:
+            // with count >= 2 the last lands exactly at time + spread. (P2.2)
+            const sk = count === 1 ? burst.time : burst.time + (burst.spread * k) / (count - 1);
+            const lowerOk = inclusiveLower ? localStart <= sk : localStart < sk;
+            if (lowerOk && sk <= localEnd) ls.spawn();
+          }
+        }
+      }
+
       // Continuous emission (skipped for non-prewarm layers during prewarm).
       if (!(this.prewarming && !em.prewarm) && localEnd > 0) {
         const activeStart = Math.max(localStart, 0);
         const activeDt = localEnd - activeStart;
         if (activeDt > 0) {
-          const rate = evalRate(em.rateOverTime, tNorm);
+          // Clamp negative rate to 0 so a dipping rate curve can't bank spurious
+          // spawn credit (floor(-0.5) then acc -= n would *add* a particle). (P2.3)
+          const rate = Math.max(0, evalRate(em.rateOverTime, tNorm));
           ls.acc += rate * activeDt;
           let n = Math.floor(ls.acc);
           ls.acc -= n;
-          while (n-- > 0) ls.spawn();
-        }
-      }
-
-      // Bursts (suppressed during prewarm — continuous only, E5).
-      if (!this.prewarming) {
-        for (const burst of em.bursts) {
-          const count = burst.count;
-          if (count <= 0) continue;
-          for (let k = 0; k < count; k++) {
-            const sk = count === 1 ? burst.time : burst.time + (burst.spread * k) / count;
-            const lowerOk = inclusiveLower ? localStart <= sk : localStart < sk;
-            if (lowerOk && sk <= localEnd) ls.spawn();
+          // Clamp to the pool's free slots. Spawns past capacity are dropped
+          // no-ops anyway (spawn() sets `capped` and draws nothing), so this is
+          // behavior-preserving — it just bounds a hostile rate (e.g. 1e15,
+          // which validates but yields n≈5e13) to at most `capacity` iterations.
+          const room = ls.pool.capacity - ls.pool.count;
+          if (n > room) {
+            ls.capped = true;
+            n = room;
           }
+          for (let s = 0; s < n; s++) ls.spawn();
         }
       }
     }

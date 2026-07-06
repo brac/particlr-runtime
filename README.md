@@ -129,6 +129,13 @@ Built-in textures are generated procedurally (pure math, no asset files, no
 canvas) so output is identical across browsers and GPUs. Blend modes map
 directly to Pixi's (`normal`/`add`/`multiply`/`screen`).
 
+Embedded **user textures** (`"user:<name>"` refs backed by a data URL in
+`doc.textures`) decode asynchronously: the layer renders the soft-circle
+built-in until the image is ready, then swaps in. Decoded user textures are
+cached by data URL and shared across renderer instances for the lifetime of the
+page — the runtime does not evict them (per-texture refcounting is a v1.5
+concern; a document embedding many large textures is out of scope for v1).
+
 ## Determinism contract
 
 Given identical `(document, seed, sequence of dt values)`, output is
