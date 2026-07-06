@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { BufferImageSource, ParticleContainer, Texture } from "pixi.js";
+import { BufferImageSource, ParticleContainer, Particle, Texture } from "pixi.js";
+import type { Flipbook } from "../../src/format/types.js";
 import { parseSpark } from "../../src/index.js";
 import { Effect } from "../../src/core/effect.js";
 import { PixiSparkRenderer } from "../../src/pixi/renderer.js";
@@ -121,6 +122,154 @@ describe("PixiSparkRenderer — every per-frame attribute is GPU-dynamic", () =>
         expect(props[key]!.dynamic, `${key} must be dynamic`).toBe(true);
       }
     }
+    r.destroy();
+  });
+});
+
+// White-box view of a layer's render state. Mirrors the existing `_properties`
+// cast below — a unit test may read the renderer's private slices to prove the
+// flipbook wiring without exposing them as public API.
+interface ViewProbe {
+  frames: Texture[] | null;
+  invFrameWidth: number;
+  buffers: { size: Float32Array };
+  particles: Particle[];
+}
+const viewOf = (r: PixiSparkRenderer, i = 0): ViewProbe =>
+  (r as unknown as { views: ViewProbe[] }).views[i]!;
+
+const uvsDynamic = (pc: ParticleContainer): boolean =>
+  (pc as ParticleContainer & { _properties: Record<string, { dynamic: boolean }> })._properties.uvs!.dynamic;
+
+// Flipbook a built-in texture: single-frame in practice, but the slicing +
+// frame-advance mechanism is texture-agnostic, so a built-in gives us the whole
+// pipeline synchronously (no async decode). Pin circle-soft (64×64) so cells are
+// a clean 32×32 — rain's own `spark` texture is 64×16.
+function flipbookDoc(fb: Flipbook) {
+  const doc = loadDoc("rain");
+  doc.layers[0]!.texture.ref = "circle-soft";
+  doc.layers[0]!.texture.frames = fb;
+  return doc;
+}
+
+describe("PixiSparkRenderer — flipbook rendering (P4.1)", () => {
+  it("slices a cols×rows sheet row-major with a top-left origin", () => {
+    const r = new PixiSparkRenderer(new Effect(flipbookDoc({ cols: 2, rows: 2, fps: 10, mode: "loop" }), { seed: 1 }));
+    const v = viewOf(r);
+    expect(v.frames).not.toBeNull();
+    expect(v.frames!.length).toBe(4);
+    // circle-soft is 64×64 → 32×32 cells; index i → col i%2, row ⌊i/2⌋.
+    const rect = (i: number) => ({ x: v.frames![i]!.frame.x, y: v.frames![i]!.frame.y, w: v.frames![i]!.frame.width, h: v.frames![i]!.frame.height });
+    expect(rect(0)).toEqual({ x: 0, y: 0, w: 32, h: 32 });
+    expect(rect(1)).toEqual({ x: 32, y: 0, w: 32, h: 32 });
+    expect(rect(2)).toEqual({ x: 0, y: 32, w: 32, h: 32 });
+    expect(rect(3)).toEqual({ x: 32, y: 32, w: 32, h: 32 });
+    // invFrameWidth is 1/cellWidth = cols/sheetWidth, not 1/sheetWidth.
+    expect(v.invFrameWidth).toBeCloseTo(2 / 64, 10);
+    r.destroy();
+  });
+
+  it("advances each particle's frame by age in loop mode", () => {
+    const fps = 10;
+    const cols = 2;
+    const fx = new Effect(flipbookDoc({ cols, rows: 2, fps, mode: "loop" }), { seed: 1 });
+    const r = new PixiSparkRenderer(fx);
+    const v = viewOf(r);
+    for (let i = 0; i < 30; i++) fx.step(1 / 60);
+    r.sync();
+    const count = fx.layers[0]!.count;
+    expect(count).toBeGreaterThan(0);
+    const total = cols * 2;
+    for (let j = 0; j < count; j++) {
+      const age = fx.layers[0]!.pool.age[j]!;
+      const expected = ((Math.floor(age * fps) % total) + total) % total;
+      const rect = v.particles[j]!.texture.frame;
+      const got = (rect.y / 32) * cols + rect.x / 32;
+      expect(got, `particle ${j} age ${age}`).toBe(expected);
+    }
+    r.destroy();
+  });
+
+  it("clamps to the last frame in once mode", () => {
+    const fps = 60;
+    const fx = new Effect(flipbookDoc({ cols: 2, rows: 2, fps, mode: "once" }), { seed: 1 });
+    const r = new PixiSparkRenderer(fx);
+    const v = viewOf(r);
+    // Step long enough that particle 0's age·fps exceeds the 4-frame count.
+    for (let i = 0; i < 40; i++) fx.step(1 / 60);
+    r.sync();
+    const age = fx.layers[0]!.pool.age[0]!;
+    expect(age * fps).toBeGreaterThan(4); // past the sheet
+    const rect = v.particles[0]!.texture.frame;
+    expect({ x: rect.x, y: rect.y }).toEqual({ x: 32, y: 32 }); // frame 3 (last)
+    r.destroy();
+  });
+
+  it("picks a stable per-particle frame in random mode", () => {
+    const fx = new Effect(flipbookDoc({ cols: 2, rows: 2, fps: 10, mode: "random" }), { seed: 1 });
+    const r = new PixiSparkRenderer(fx);
+    const v = viewOf(r);
+    for (let i = 0; i < 20; i++) fx.step(1 / 60);
+    r.sync();
+    const first = v.particles[0]!.texture;
+    fx.step(1 / 60);
+    r.sync();
+    expect(v.particles[0]!.texture).toBe(first); // same frame across syncs
+    r.destroy();
+  });
+
+  it("scales by frame width, not sheet width", () => {
+    const fx = new Effect(flipbookDoc({ cols: 2, rows: 2, fps: 10, mode: "loop" }), { seed: 1 });
+    const r = new PixiSparkRenderer(fx);
+    const v = viewOf(r);
+    for (let i = 0; i < 20; i++) fx.step(1 / 60);
+    r.sync();
+    const part = v.particles[0]!;
+    // scaleX == renderSize * invFrameWidth (frame basis), not / sheetWidth.
+    expect(part.scaleX).toBeCloseTo(v.buffers.size[0]! * v.invFrameWidth, 10);
+    expect(part.scaleX).not.toBeCloseTo(v.buffers.size[0]! / 64, 6); // would be the sheet-width bug
+    r.destroy();
+  });
+
+  it("leaves non-flipbook layers single-frame with static uvs", () => {
+    const r = new PixiSparkRenderer(new Effect(loadDoc("rain"), { seed: 1 }));
+    const v = viewOf(r);
+    expect(v.frames).toBeNull();
+    expect(uvsDynamic(pcOf(r))).toBe(false);
+    r.destroy();
+  });
+
+  it("marks uvs dynamic only when a flipbook is present", () => {
+    const r = new PixiSparkRenderer(new Effect(flipbookDoc({ cols: 2, rows: 2, fps: 10, mode: "loop" }), { seed: 1 }));
+    expect(uvsDynamic(pcOf(r))).toBe(true);
+    r.destroy();
+  });
+
+  it("treats a single-cell flipbook as a no-op", () => {
+    const r = new PixiSparkRenderer(new Effect(flipbookDoc({ cols: 1, rows: 1, fps: 10, mode: "loop" }), { seed: 1 }));
+    expect(viewOf(r).frames).toBeNull();
+    // uvs is still marked dynamic (frames !== null in the doc) but harmless.
+    r.destroy();
+  });
+
+  it("slices the flipbook only after an async user texture decodes", async () => {
+    const doc = loadDoc("rain");
+    doc.layers[0]!.texture.ref = "user:fb";
+    doc.textures = { fb: "data:image/png;base64,PLACEHOLDER-fb" };
+    doc.layers[0]!.texture.frames = { cols: 2, rows: 2, fps: 10, mode: "loop" };
+    const fx = new Effect(doc, { seed: doc.seed });
+    const r = new PixiSparkRenderer(fx, { loadTexture: async () => fakeTexture(128) });
+
+    // While the placeholder shows, frames is null and sync must not throw.
+    expect(viewOf(r).frames).toBeNull();
+    for (let i = 0; i < 10; i++) fx.step(1 / 60);
+    expect(() => r.sync()).not.toThrow();
+
+    await r.ready;
+    const v = viewOf(r);
+    expect(v.frames!.length).toBe(4);
+    expect(v.frames![0]!.frame.width).toBe(64); // 128px sheet / 2 cols
+    expect(v.invFrameWidth).toBeCloseTo(2 / 128, 10);
     r.destroy();
   });
 });

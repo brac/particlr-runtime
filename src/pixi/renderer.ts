@@ -9,10 +9,11 @@ import {
   ImageSource,
   Particle,
   ParticleContainer,
+  Rectangle,
   Texture,
   type BLEND_MODES,
 } from "pixi.js";
-import type { BlendMode, BuiltinTextureId, SparkDoc } from "../format/types.js";
+import type { BlendMode, BuiltinTextureId, Flipbook, SparkDoc } from "../format/types.js";
 import { BUILTIN_TEXTURE_IDS } from "../format/types.js";
 import { computeRenderState, makeRenderBuffers, type LayerRenderBuffers } from "../core/render.js";
 import type { Effect } from "../core/effect.js";
@@ -75,11 +76,46 @@ function blendOf(b: BlendMode): BLEND_MODES {
   return b;
 }
 
+// Slice a flipbook sheet into cols×rows frame Textures sharing the sheet's
+// source, row-major with a top-left origin (frame index i → col i%cols, row
+// i/cols) to match core's linear frame index (core/render.ts flipbookFrame).
+// Each frame's `orig`/`uvs` come from its Rectangle, so a particle wearing
+// frame i sizes and samples exactly that cell. (P4.1)
+function sliceFlipbook(sheet: Texture, fb: Flipbook): Texture[] {
+  const fw = sheet.width / fb.cols;
+  const fh = sheet.height / fb.rows;
+  const frames: Texture[] = [];
+  for (let row = 0; row < fb.rows; row++) {
+    for (let col = 0; col < fb.cols; col++) {
+      frames.push(new Texture({ source: sheet.source, frame: new Rectangle(col * fw, row * fh, fw, fh) }));
+    }
+  }
+  return frames;
+}
+
+/** Frame slices + inverse *frame* width for a resolved sheet. A single-cell (or
+ * absent) flipbook yields no slices and the whole-texture inverse width. (P4.1) */
+function framesFor(tex: Texture, fb: Flipbook | null): { frames: Texture[] | null; invFrameWidth: number } {
+  if (fb && fb.cols * fb.rows > 1) {
+    return { frames: sliceFlipbook(tex, fb), invFrameWidth: fb.cols / tex.width };
+  }
+  return { frames: null, invFrameWidth: 1 / tex.width };
+}
+
 interface LayerView {
   pc: ParticleContainer;
   particles: Particle[];
   buffers: LayerRenderBuffers;
-  invTexWidth: number;
+  /** Inverse of the rendered cell width: 1/frameWidth for a flipbook layer,
+   * 1/texWidth otherwise. `scaleX = size * invFrameWidth` makes a particle
+   * `size` px on screen regardless of sheet layout. (P4.1) */
+  invFrameWidth: number;
+  /** The layer's flipbook config, kept so an async texture swap can re-slice
+   * the decoded sheet. Null when the layer is single-frame. (P4.1) */
+  flipbook: Flipbook | null;
+  /** Sliced frame textures (row-major), or null for a single-frame layer.
+   * `sync()` assigns `particles[j].texture = frames[frameIndex]`. (P4.1) */
+  frames: Texture[] | null;
   /** Live particle count at the previous sync — so we only re-zero the range
    * that just died instead of the whole capacity every frame (P4.2). */
   prevCount: number;
@@ -121,9 +157,18 @@ export class PixiSparkRenderer {
 
     for (const ls of effect.layers) {
       const layer = ls.layer;
+      const fb = layer.texture.frames;
       const resolved = this.resolveTexture(layer.texture.ref, effect.doc);
       const tex = resolved.tex;
+      const isPending = resolved.pendingDataUrl !== undefined;
       const max = layer.emission.maxParticles;
+
+      // Slice the flipbook now only if the real sheet is already resolved. While
+      // a user texture is still decoding, `tex` is the single-frame placeholder;
+      // slicing that would be wrong, so frames stay null until applyTexture
+      // re-slices the decoded sheet. (P4.1)
+      const sliced = isPending ? { frames: null, invFrameWidth: 1 / tex.width } : framesFor(tex, fb);
+      const particleTex = sliced.frames ? sliced.frames[0]! : tex;
 
       const pc = new ParticleContainer({
         // Pixi's key for the scale-carrying attribute is `vertex` (quad corners
@@ -134,14 +179,22 @@ export class PixiSparkRenderer {
         // first-render count, that slot renders as a full-texture-size "giant
         // particle" at the newborn's position (and size-over-lifetime never
         // animates on the GPU). It must be dynamic like the others.
-        dynamicProperties: { position: true, rotation: true, vertex: true, color: true },
+        //
+        // `uvs` is dynamic ONLY for flipbook layers: sync() rewrites each live
+        // particle's texture to the current frame, and the uvs buffer must
+        // re-upload to follow. Note the key is `uvs` (plural) — `uv` would
+        // type-check (Record<string, boolean>) and silently do nothing, the
+        // same trap as the vertex/scale bug above. Non-flipbook layers keep uvs
+        // static so their upload cost — and every committed golden — is
+        // unchanged. (P4.1)
+        dynamicProperties: { position: true, rotation: true, vertex: true, color: true, uvs: fb !== null },
         texture: tex,
       });
       pc.blendMode = blendOf(layer.blend);
 
       const particles: Particle[] = [];
       for (let k = 0; k < max; k++) {
-        const p = new Particle({ texture: tex });
+        const p = new Particle({ texture: particleTex });
         p.anchorX = 0.5;
         p.anchorY = 0.5;
         p.alpha = 0;
@@ -151,12 +204,21 @@ export class PixiSparkRenderer {
       pc.update();
 
       this.container.addChild(pc);
-      const view: LayerView = { pc, particles, buffers: makeRenderBuffers(max), invTexWidth: 1 / tex.width, prevCount: 0 };
+      const view: LayerView = {
+        pc,
+        particles,
+        buffers: makeRenderBuffers(max),
+        invFrameWidth: sliced.invFrameWidth,
+        flipbook: fb,
+        frames: sliced.frames,
+        prevCount: 0,
+      };
       this.views.push(view);
 
       // A user texture starts as a synchronous built-in placeholder; kick off
-      // the async decode and swap it in when ready (also fixes invTexWidth,
-      // which the placeholder width would otherwise leave wrong). (P0.1)
+      // the async decode and swap it in when ready (also fixes invFrameWidth
+      // and slices the flipbook, which the placeholder would otherwise leave
+      // wrong/null). (P0.1/P4.1)
       if (resolved.pendingDataUrl !== undefined) {
         pending.push(this.loadUserTextureInto(view, resolved.pendingDataUrl, layer.texture.ref));
       }
@@ -178,7 +240,8 @@ export class PixiSparkRenderer {
         computeRenderState(ls, view.buffers);
         const p = ls.pool;
         const b = view.buffers;
-        const inv = view.invTexWidth;
+        const inv = view.invFrameWidth;
+        const frames = view.frames;
         for (let j = 0; j < count; j++) {
           const part = view.particles[j]!;
           part.x = p.x[j]!;
@@ -192,6 +255,10 @@ export class PixiSparkRenderer {
           const bl = Math.max(0, Math.min(255, Math.round(b.b[j]! * 255)));
           part.tint = (r << 16) | (g << 8) | bl;
           part.alpha = Math.max(0, Math.min(1, b.a[j]!));
+          // Flipbook: wear the current frame slice. Index is core-clamped to
+          // [0, cols*rows) (render.ts) and cols*rows ≤ 4096 < Uint16 max, so no
+          // bounds check is needed here. (P4.1)
+          if (frames) part.texture = frames[b.frame[j]!]!;
         }
       }
       // Only re-hide the particles that were live last frame but are dead now.
@@ -258,9 +325,15 @@ export class PixiSparkRenderer {
   }
 
   private applyTexture(view: LayerView, tex: Texture): void {
+    // Re-slice the flipbook from the freshly-decoded sheet (frames stayed null
+    // while the placeholder was showing) and repoint every particle. All frame
+    // slices share tex.source, so the container binds one source either way. (P4.1)
+    const sliced = framesFor(tex, view.flipbook);
+    view.frames = sliced.frames;
+    view.invFrameWidth = sliced.invFrameWidth;
     view.pc.texture = tex;
-    for (const p of view.particles) p.texture = tex;
+    const particleTex = sliced.frames ? sliced.frames[0]! : tex;
+    for (const p of view.particles) p.texture = particleTex;
     view.pc.update();
-    view.invTexWidth = 1 / tex.width;
   }
 }
