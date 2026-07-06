@@ -1,0 +1,3 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`preset snapshots (Gate 1) > explosion.spark state @60 steps is stable 1`] = `"70a20ede"`;
