@@ -12,3 +12,10 @@ export {
 export { sampleShape, type SpawnSample } from "./shapes.js";
 export { ParticlePool } from "./pool.js";
 export { LayerSim } from "./layerSim.js";
+export { Effect, MAX_DT } from "./effect.js";
+export {
+  computeRenderState,
+  makeRenderBuffers,
+  flipbookFrame,
+  type LayerRenderBuffers,
+} from "./render.js";

@@ -16,6 +16,8 @@ export class LayerSim {
   private rng: Rng;
   /** True if a spawn was dropped since the flag was last reset (E7). */
   capped = false;
+  /** Continuous-emission fractional accumulator (§2.8), owned by Effect. */
+  acc = 0;
 
   constructor(layer: Layer, layerSeed: number) {
     this.layer = layer;
@@ -31,6 +33,7 @@ export class LayerSim {
     this.rng = mulberry32(layerSeed);
     this.pool.clear();
     this.capped = false;
+    this.acc = 0;
   }
 
   /**
