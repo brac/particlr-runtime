@@ -1,0 +1,625 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$ref": "#/definitions/SparkDoc",
+  "definitions": {
+    "SparkDoc": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "type": "number",
+          "const": 1
+        },
+        "meta": {
+          "$ref": "#/definitions/SparkMeta"
+        },
+        "duration": {
+          "type": "number"
+        },
+        "looping": {
+          "type": "boolean"
+        },
+        "seed": {
+          "type": "number"
+        },
+        "textures": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "\"user:<name>\" data URLs, keyed by <name> (plan §2.11)."
+        },
+        "layers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Layer"
+          }
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "meta",
+        "duration",
+        "looping",
+        "seed",
+        "layers"
+      ]
+    },
+    "SparkMeta": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "createdWith": {
+          "type": "string"
+        },
+        "notes": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "createdWith",
+        "notes"
+      ]
+    },
+    "Layer": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "blend": {
+          "$ref": "#/definitions/BlendMode"
+        },
+        "texture": {
+          "$ref": "#/definitions/TextureRef"
+        },
+        "emission": {
+          "$ref": "#/definitions/Emission"
+        },
+        "shape": {
+          "$ref": "#/definitions/Shape"
+        },
+        "initial": {
+          "$ref": "#/definitions/InitialProps"
+        },
+        "overLifetime": {
+          "$ref": "#/definitions/OverLifetime"
+        },
+        "subEmitters": {
+          "type": "null"
+        },
+        "trail": {
+          "type": "null"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "enabled",
+        "blend",
+        "texture",
+        "emission",
+        "shape",
+        "initial",
+        "overLifetime",
+        "subEmitters",
+        "trail"
+      ]
+    },
+    "BlendMode": {
+      "type": "string",
+      "enum": [
+        "normal",
+        "add",
+        "multiply",
+        "screen"
+      ]
+    },
+    "TextureRef": {
+      "type": "object",
+      "properties": {
+        "ref": {
+          "type": "string"
+        },
+        "frames": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Flipbook"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "ref",
+        "frames"
+      ]
+    },
+    "Flipbook": {
+      "type": "object",
+      "properties": {
+        "cols": {
+          "type": "number"
+        },
+        "rows": {
+          "type": "number"
+        },
+        "fps": {
+          "type": "number"
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "loop",
+            "once",
+            "random"
+          ]
+        }
+      },
+      "required": [
+        "cols",
+        "rows",
+        "fps",
+        "mode"
+      ]
+    },
+    "Emission": {
+      "type": "object",
+      "properties": {
+        "rateOverTime": {
+          "$ref": "#/definitions/ScalarTrack"
+        },
+        "bursts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Burst"
+          }
+        },
+        "delay": {
+          "type": "number"
+        },
+        "prewarm": {
+          "type": "boolean"
+        },
+        "maxParticles": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "rateOverTime",
+        "bursts",
+        "delay",
+        "prewarm",
+        "maxParticles"
+      ]
+    },
+    "ScalarTrack": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "mode": {
+              "type": "string",
+              "const": "constant"
+            },
+            "value": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "mode",
+            "value"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "mode": {
+              "type": "string",
+              "const": "range"
+            },
+            "min": {
+              "type": "number"
+            },
+            "max": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "mode",
+            "min",
+            "max"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "mode": {
+              "type": "string",
+              "const": "curve"
+            },
+            "keys": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/CurveKey"
+              }
+            }
+          },
+          "required": [
+            "mode",
+            "keys"
+          ]
+        }
+      ]
+    },
+    "CurveKey": {
+      "type": "object",
+      "properties": {
+        "t": {
+          "type": "number"
+        },
+        "v": {
+          "type": "number"
+        },
+        "ease": {
+          "$ref": "#/definitions/Ease"
+        }
+      },
+      "required": [
+        "t",
+        "v"
+      ]
+    },
+    "Ease": {
+      "type": "string",
+      "enum": [
+        "linear",
+        "easeIn",
+        "easeOut",
+        "easeInOut",
+        "step"
+      ]
+    },
+    "Burst": {
+      "type": "object",
+      "properties": {
+        "time": {
+          "type": "number"
+        },
+        "count": {
+          "type": "number"
+        },
+        "spread": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "time",
+        "count",
+        "spread"
+      ]
+    },
+    "Shape": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "point"
+            },
+            "emitFrom": {
+              "$ref": "#/definitions/EmitFrom"
+            }
+          },
+          "required": [
+            "kind",
+            "emitFrom"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "circle"
+            },
+            "radius": {
+              "type": "number"
+            },
+            "emitFrom": {
+              "$ref": "#/definitions/EmitFrom"
+            }
+          },
+          "required": [
+            "kind",
+            "radius",
+            "emitFrom"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "cone"
+            },
+            "direction": {
+              "type": "number"
+            },
+            "spread": {
+              "type": "number"
+            },
+            "radius": {
+              "type": "number"
+            },
+            "emitFrom": {
+              "$ref": "#/definitions/EmitFrom"
+            }
+          },
+          "required": [
+            "kind",
+            "direction",
+            "spread",
+            "radius",
+            "emitFrom"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "rect"
+            },
+            "width": {
+              "type": "number"
+            },
+            "height": {
+              "type": "number"
+            },
+            "emitFrom": {
+              "$ref": "#/definitions/EmitFrom"
+            }
+          },
+          "required": [
+            "kind",
+            "width",
+            "height",
+            "emitFrom"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "edge"
+            },
+            "length": {
+              "type": "number"
+            },
+            "emitFrom": {
+              "$ref": "#/definitions/EmitFrom"
+            }
+          },
+          "required": [
+            "kind",
+            "length",
+            "emitFrom"
+          ]
+        }
+      ]
+    },
+    "EmitFrom": {
+      "type": "string",
+      "enum": [
+        "volume",
+        "surface"
+      ]
+    },
+    "InitialProps": {
+      "type": "object",
+      "properties": {
+        "life": {
+          "$ref": "#/definitions/ScalarInit"
+        },
+        "speed": {
+          "$ref": "#/definitions/ScalarInit"
+        },
+        "size": {
+          "$ref": "#/definitions/ScalarInit"
+        },
+        "rotation": {
+          "$ref": "#/definitions/ScalarInit"
+        },
+        "angularVelocity": {
+          "$ref": "#/definitions/ScalarInit"
+        }
+      },
+      "required": [
+        "life",
+        "speed",
+        "size",
+        "rotation",
+        "angularVelocity"
+      ]
+    },
+    "ScalarInit": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "mode": {
+              "type": "string",
+              "const": "constant"
+            },
+            "value": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "mode",
+            "value"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "mode": {
+              "type": "string",
+              "const": "range"
+            },
+            "min": {
+              "type": "number"
+            },
+            "max": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "mode",
+            "min",
+            "max"
+          ]
+        }
+      ]
+    },
+    "OverLifetime": {
+      "type": "object",
+      "properties": {
+        "size": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ScalarTrack"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "color": {
+          "$ref": "#/definitions/GradientTrack"
+        },
+        "rotation": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ScalarTrack"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "velocity": {
+          "$ref": "#/definitions/Velocity"
+        }
+      },
+      "required": [
+        "size",
+        "color",
+        "rotation",
+        "velocity"
+      ]
+    },
+    "GradientTrack": {
+      "type": "object",
+      "properties": {
+        "keys": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/GradientKey"
+          }
+        }
+      },
+      "required": [
+        "keys"
+      ]
+    },
+    "GradientKey": {
+      "type": "object",
+      "properties": {
+        "t": {
+          "type": "number"
+        },
+        "r": {
+          "type": "number"
+        },
+        "g": {
+          "type": "number"
+        },
+        "b": {
+          "type": "number"
+        },
+        "a": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "t",
+        "r",
+        "g",
+        "b",
+        "a"
+      ]
+    },
+    "Velocity": {
+      "type": "object",
+      "properties": {
+        "gravity": {
+          "$ref": "#/definitions/Vec2"
+        },
+        "drag": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ScalarTrack"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "speedMultiplier": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ScalarTrack"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "gravity",
+        "drag",
+        "speedMultiplier"
+      ]
+    },
+    "Vec2": {
+      "type": "object",
+      "properties": {
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "y"
+      ]
+    }
+  }
+}

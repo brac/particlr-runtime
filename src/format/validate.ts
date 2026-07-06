@@ -1,0 +1,379 @@
+// Structural + semantic validation of a raw parsed object against the .spark v1
+// schema (plan §2.12/§2.13). Never throws on bad data — it collects every issue
+// with a JSON-path so the editor can surface them all at once. Unknown fields
+// are ignored here (preserved elsewhere, plan §2.10).
+
+import {
+  BLEND_MODES,
+  BUILTIN_TEXTURE_IDS,
+  CURRENT_SCHEMA_VERSION,
+  EASES,
+  EMIT_FROM,
+  FLIPBOOK_MODES,
+  type SparkDoc,
+} from "./types.js";
+
+export interface ValidationIssue {
+  path: string;
+  message: string;
+  code?: string;
+}
+
+export type ValidationResult =
+  | { ok: true; doc: SparkDoc; warnings: ValidationIssue[] }
+  | { ok: false; errors: ValidationIssue[]; warnings: ValidationIssue[] };
+
+interface Ctx {
+  errors: ValidationIssue[];
+  warnings: ValidationIssue[];
+  textureNames: Set<string>;
+}
+
+const isObject = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null && !Array.isArray(v);
+const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+const isInt = (v: unknown): v is number => isNum(v) && Number.isInteger(v);
+const isStr = (v: unknown): v is string => typeof v === "string";
+const isBool = (v: unknown): v is boolean => typeof v === "boolean";
+
+function err(ctx: Ctx, path: string, message: string, code?: string): void {
+  ctx.errors.push(code ? { path, message, code } : { path, message });
+}
+function warn(ctx: Ctx, path: string, message: string, code?: string): void {
+  ctx.warnings.push(code ? { path, message, code } : { path, message });
+}
+
+function checkNumber(ctx: Ctx, v: unknown, path: string): boolean {
+  if (!isNum(v)) {
+    err(ctx, path, "must be a finite number");
+    return false;
+  }
+  return true;
+}
+
+function checkEnum<T extends string>(
+  ctx: Ctx,
+  v: unknown,
+  allowed: readonly T[],
+  path: string,
+): boolean {
+  if (!isStr(v) || !allowed.includes(v as T)) {
+    err(ctx, path, `must be one of: ${allowed.join(", ")}`);
+    return false;
+  }
+  return true;
+}
+
+function checkScalarInit(ctx: Ctx, v: unknown, path: string): void {
+  if (!isObject(v)) {
+    err(ctx, path, "must be a ScalarInit object");
+    return;
+  }
+  if (v.mode === "constant") {
+    checkNumber(ctx, v.value, `${path}.value`);
+  } else if (v.mode === "range") {
+    const okMin = checkNumber(ctx, v.min, `${path}.min`);
+    const okMax = checkNumber(ctx, v.max, `${path}.max`);
+    if (okMin && okMax && (v.min as number) > (v.max as number)) {
+      err(ctx, path, "range min must be <= max");
+    }
+  } else {
+    err(ctx, `${path}.mode`, 'must be "constant" or "range"');
+  }
+}
+
+function checkCurveKeys(ctx: Ctx, keys: unknown, path: string): void {
+  if (!Array.isArray(keys)) {
+    err(ctx, path, "curve keys must be an array");
+    return;
+  }
+  if (keys.length < 1) {
+    err(ctx, path, "curve must have at least one key", "empty-curve"); // E4
+    return;
+  }
+  let prevT = -Infinity;
+  keys.forEach((k, i) => {
+    const kp = `${path}[${i}]`;
+    if (!isObject(k)) {
+      err(ctx, kp, "curve key must be an object");
+      return;
+    }
+    if (checkNumber(ctx, k.t, `${kp}.t`)) {
+      const t = k.t as number;
+      if (t < 0 || t > 1) err(ctx, `${kp}.t`, "t must be in [0,1]");
+      if (t < prevT) err(ctx, `${kp}.t`, "curve keys must be sorted ascending by t"); // E12: dupes allowed
+      prevT = t;
+    }
+    checkNumber(ctx, k.v, `${kp}.v`);
+    if (k.ease !== undefined) checkEnum(ctx, k.ease, EASES, `${kp}.ease`);
+  });
+}
+
+function checkScalarTrack(ctx: Ctx, v: unknown, path: string): void {
+  if (!isObject(v)) {
+    err(ctx, path, "must be a ScalarTrack object");
+    return;
+  }
+  if (v.mode === "constant") {
+    checkNumber(ctx, v.value, `${path}.value`);
+  } else if (v.mode === "range") {
+    const okMin = checkNumber(ctx, v.min, `${path}.min`);
+    const okMax = checkNumber(ctx, v.max, `${path}.max`);
+    if (okMin && okMax && (v.min as number) > (v.max as number)) {
+      err(ctx, path, "range min must be <= max");
+    }
+  } else if (v.mode === "curve") {
+    checkCurveKeys(ctx, v.keys, `${path}.keys`);
+  } else {
+    err(ctx, `${path}.mode`, 'must be "constant", "range", or "curve"');
+  }
+}
+
+function checkScalarTrackOrNull(ctx: Ctx, v: unknown, path: string): void {
+  if (v === null) return;
+  checkScalarTrack(ctx, v, path);
+}
+
+function checkGradient(ctx: Ctx, v: unknown, path: string): void {
+  if (!isObject(v) || !Array.isArray(v.keys)) {
+    err(ctx, path, "must be a GradientTrack with a keys array");
+    return;
+  }
+  const keys = v.keys;
+  if (keys.length < 1) {
+    err(ctx, `${path}.keys`, "gradient must have at least one key", "empty-gradient");
+    return;
+  }
+  let prevT = -Infinity;
+  keys.forEach((k, i) => {
+    const kp = `${path}.keys[${i}]`;
+    if (!isObject(k)) {
+      err(ctx, kp, "gradient key must be an object");
+      return;
+    }
+    if (checkNumber(ctx, k.t, `${kp}.t`)) {
+      const t = k.t as number;
+      if (t < 0 || t > 1) err(ctx, `${kp}.t`, "t must be in [0,1]");
+      if (t < prevT) err(ctx, `${kp}.t`, "gradient keys must be sorted ascending by t");
+      prevT = t;
+    }
+    for (const ch of ["r", "g", "b", "a"] as const) {
+      if (checkNumber(ctx, k[ch], `${kp}.${ch}`)) {
+        const val = k[ch] as number;
+        if (val < 0 || val > 1) err(ctx, `${kp}.${ch}`, `${ch} must be in [0,1]`);
+      }
+    }
+  });
+}
+
+function checkShape(ctx: Ctx, v: unknown, path: string): void {
+  if (!isObject(v)) {
+    err(ctx, path, "must be a Shape object");
+    return;
+  }
+  checkEnum(ctx, v.emitFrom, EMIT_FROM, `${path}.emitFrom`);
+  switch (v.kind) {
+    case "point":
+      break;
+    case "circle":
+      checkNumber(ctx, v.radius, `${path}.radius`);
+      break;
+    case "cone":
+      checkNumber(ctx, v.direction, `${path}.direction`);
+      checkNumber(ctx, v.spread, `${path}.spread`);
+      checkNumber(ctx, v.radius, `${path}.radius`);
+      break;
+    case "rect":
+      checkNumber(ctx, v.width, `${path}.width`);
+      checkNumber(ctx, v.height, `${path}.height`);
+      break;
+    case "edge":
+      checkNumber(ctx, v.length, `${path}.length`);
+      break;
+    default:
+      err(ctx, `${path}.kind`, "must be one of: point, circle, cone, rect, edge");
+  }
+}
+
+function checkFlipbook(ctx: Ctx, v: unknown, path: string): void {
+  if (v === null) return;
+  if (!isObject(v)) {
+    err(ctx, path, "frames must be a Flipbook object or null");
+    return;
+  }
+  if (!isInt(v.cols) || (v.cols as number) < 1) err(ctx, `${path}.cols`, "cols must be an integer >= 1");
+  if (!isInt(v.rows) || (v.rows as number) < 1) err(ctx, `${path}.rows`, "rows must be an integer >= 1");
+  if (!isNum(v.fps) || (v.fps as number) <= 0) err(ctx, `${path}.fps`, "fps must be a number > 0");
+  checkEnum(ctx, v.mode, FLIPBOOK_MODES, `${path}.mode`);
+}
+
+function checkTexture(ctx: Ctx, v: unknown, path: string): void {
+  if (!isObject(v)) {
+    err(ctx, path, "must be a TextureRef object");
+    return;
+  }
+  if (!isStr(v.ref)) {
+    err(ctx, `${path}.ref`, "ref must be a string");
+  } else {
+    const ref = v.ref;
+    if ((BUILTIN_TEXTURE_IDS as readonly string[]).includes(ref)) {
+      // ok
+    } else if (ref.startsWith("user:")) {
+      const name = ref.slice("user:".length);
+      if (!ctx.textureNames.has(name)) {
+        // E10: missing entry is valid — warn, do not reject.
+        warn(ctx, `${path}.ref`, `user texture "${name}" has no embedded data; a built-in will be substituted`, "missing-texture");
+      }
+    } else {
+      err(ctx, `${path}.ref`, `unknown texture ref "${ref}" (must be a built-in id or "user:<name>")`);
+    }
+  }
+  checkFlipbook(ctx, v.frames === undefined ? null : v.frames, `${path}.frames`);
+}
+
+function checkEmission(ctx: Ctx, v: unknown, path: string): void {
+  if (!isObject(v)) {
+    err(ctx, path, "must be an Emission object");
+    return;
+  }
+  checkScalarTrack(ctx, v.rateOverTime, `${path}.rateOverTime`);
+  if (!Array.isArray(v.bursts)) {
+    err(ctx, `${path}.bursts`, "bursts must be an array");
+  } else {
+    v.bursts.forEach((b, i) => {
+      const bp = `${path}.bursts[${i}]`;
+      if (!isObject(b)) {
+        err(ctx, bp, "burst must be an object");
+        return;
+      }
+      if (checkNumber(ctx, b.time, `${bp}.time`) && (b.time as number) < 0)
+        err(ctx, `${bp}.time`, "time must be >= 0");
+      if (!isInt(b.count) || (b.count as number) < 0) err(ctx, `${bp}.count`, "count must be an integer >= 0");
+      if (checkNumber(ctx, b.spread, `${bp}.spread`) && (b.spread as number) < 0)
+        err(ctx, `${bp}.spread`, "spread must be >= 0");
+    });
+  }
+  if (checkNumber(ctx, v.delay, `${path}.delay`) && (v.delay as number) < 0)
+    err(ctx, `${path}.delay`, "delay must be >= 0");
+  if (!isBool(v.prewarm)) err(ctx, `${path}.prewarm`, "prewarm must be a boolean");
+  if (!isInt(v.maxParticles) || (v.maxParticles as number) < 1 || (v.maxParticles as number) > 10000)
+    err(ctx, `${path}.maxParticles`, "maxParticles must be an integer in [1,10000]");
+}
+
+function checkInitial(ctx: Ctx, v: unknown, path: string): void {
+  if (!isObject(v)) {
+    err(ctx, path, "must be an InitialProps object");
+    return;
+  }
+  for (const key of ["life", "speed", "size", "rotation", "angularVelocity"] as const) {
+    checkScalarInit(ctx, v[key], `${path}.${key}`);
+  }
+}
+
+function checkVec2(ctx: Ctx, v: unknown, path: string): void {
+  if (!isObject(v)) {
+    err(ctx, path, "must be a {x,y} object");
+    return;
+  }
+  checkNumber(ctx, v.x, `${path}.x`);
+  checkNumber(ctx, v.y, `${path}.y`);
+}
+
+function checkOverLifetime(ctx: Ctx, v: unknown, path: string): void {
+  if (!isObject(v)) {
+    err(ctx, path, "must be an OverLifetime object");
+    return;
+  }
+  checkScalarTrackOrNull(ctx, v.size, `${path}.size`);
+  checkGradient(ctx, v.color, `${path}.color`);
+  checkScalarTrackOrNull(ctx, v.rotation, `${path}.rotation`);
+  if (!isObject(v.velocity)) {
+    err(ctx, `${path}.velocity`, "must be a Velocity object");
+  } else {
+    checkVec2(ctx, v.velocity.gravity, `${path}.velocity.gravity`);
+    checkScalarTrackOrNull(ctx, v.velocity.drag, `${path}.velocity.drag`);
+    checkScalarTrackOrNull(ctx, v.velocity.speedMultiplier, `${path}.velocity.speedMultiplier`);
+  }
+}
+
+function checkLayer(ctx: Ctx, v: unknown, path: string): void {
+  if (!isObject(v)) {
+    err(ctx, path, "must be a Layer object");
+    return;
+  }
+  if (!isStr(v.id) || v.id.length === 0) err(ctx, `${path}.id`, "id must be a non-empty string");
+  if (!isStr(v.name)) err(ctx, `${path}.name`, "name must be a string");
+  if (!isBool(v.enabled)) err(ctx, `${path}.enabled`, "enabled must be a boolean");
+  checkEnum(ctx, v.blend, BLEND_MODES, `${path}.blend`);
+  checkTexture(ctx, v.texture, `${path}.texture`);
+  checkEmission(ctx, v.emission, `${path}.emission`);
+  checkShape(ctx, v.shape, `${path}.shape`);
+  checkInitial(ctx, v.initial, `${path}.initial`);
+  checkOverLifetime(ctx, v.overLifetime, `${path}.overLifetime`);
+  // Reserved fields (locked decision L8) must be null in v1.
+  if (v.subEmitters !== null && v.subEmitters !== undefined)
+    err(ctx, `${path}.subEmitters`, "subEmitters is reserved and must be null in v1", "reserved-field");
+  if (v.trail !== null && v.trail !== undefined)
+    err(ctx, `${path}.trail`, "trail is reserved and must be null in v1", "reserved-field");
+}
+
+export function validateSpark(input: unknown): ValidationResult {
+  const ctx: Ctx = { errors: [], warnings: [], textureNames: new Set() };
+
+  if (!isObject(input)) {
+    err(ctx, "", "document must be an object");
+    return { ok: false, errors: ctx.errors, warnings: ctx.warnings };
+  }
+
+  // schemaVersion (E11): >1 is a hard refusal; <1 / non-int is invalid.
+  const sv = input.schemaVersion;
+  if (!isInt(sv) || (sv as number) < 1) {
+    err(ctx, "schemaVersion", "schemaVersion must be a positive integer", "invalid-version");
+  } else if ((sv as number) > CURRENT_SCHEMA_VERSION) {
+    err(
+      ctx,
+      "schemaVersion",
+      `document schemaVersion ${sv} is newer than supported (${CURRENT_SCHEMA_VERSION})`,
+      "newer-version",
+    );
+  }
+
+  // meta
+  if (!isObject(input.meta)) {
+    err(ctx, "meta", "must be a meta object");
+  } else {
+    if (!isStr(input.meta.name)) err(ctx, "meta.name", "name must be a string");
+    if (!isStr(input.meta.createdWith)) err(ctx, "meta.createdWith", "createdWith must be a string");
+    if (!isStr(input.meta.notes)) err(ctx, "meta.notes", "notes must be a string");
+  }
+
+  // duration (E13)
+  if (checkNumber(ctx, input.duration, "duration") && (input.duration as number) < 0.05)
+    err(ctx, "duration", "duration must be >= 0.05 seconds", "duration-floor");
+
+  if (!isBool(input.looping)) err(ctx, "looping", "looping must be a boolean");
+  checkNumber(ctx, input.seed, "seed");
+
+  // textures (optional). Collect names first so texture refs can be checked.
+  if (input.textures !== undefined) {
+    if (!isObject(input.textures)) {
+      err(ctx, "textures", "textures must be an object of name -> data URL");
+    } else {
+      for (const [name, url] of Object.entries(input.textures)) {
+        ctx.textureNames.add(name);
+        if (!isStr(url)) err(ctx, `textures.${name}`, "texture data must be a string");
+      }
+    }
+  }
+
+  // layers (E14: 0 is valid; max 4)
+  if (!Array.isArray(input.layers)) {
+    err(ctx, "layers", "layers must be an array");
+  } else {
+    if (input.layers.length > 4) err(ctx, "layers", "a document may have at most 4 layers");
+    input.layers.forEach((l, i) => checkLayer(ctx, l, `layers[${i}]`));
+  }
+
+  if (ctx.errors.length > 0) return { ok: false, errors: ctx.errors, warnings: ctx.warnings };
+  return { ok: true, doc: input as unknown as SparkDoc, warnings: ctx.warnings };
+}

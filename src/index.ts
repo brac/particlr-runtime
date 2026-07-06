@@ -1,4 +1,6 @@
 // @sparkr/runtime — public entry (format + core only; never imports pixi).
-// Real exports arrive in WP-0.2 (format) and WP-1.x (core).
+// The Pixi v8 adapter is a separate entry: `@sparkr/runtime/pixi`.
+
+export * from "./format/index.js";
 
 export const RUNTIME_VERSION = "0.0.0";
