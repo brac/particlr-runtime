@@ -1,0 +1,10 @@
+{
+  "//": "Typecheck config for the Pixi adapter (needs DOM lib + pixi.js types). Separate from tsconfig.json so the core/format guard stays DOM-free.",
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "noEmit": true,
+    "types": []
+  },
+  "include": ["src/pixi"]
+}

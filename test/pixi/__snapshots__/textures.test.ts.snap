@@ -1,0 +1,11 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`procedural built-in textures (§2.11) > pixel digests are stable (regression guard) 1`] = `
+{
+  "circle-hard": "73578285",
+  "circle-soft": "8395a2c5",
+  "smoke": "5907ac1e",
+  "spark": "8bb032f5",
+  "square": "0f9509c5",
+}
+`;
