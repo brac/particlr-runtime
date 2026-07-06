@@ -1,0 +1,112 @@
+{
+  "schemaVersion": 1,
+  "meta": {
+    "name": "Unknowns",
+    "createdWith": "sparkr@0.x",
+    "notes": "",
+    "metaExtra": "kept"
+  },
+  "duration": 1,
+  "looping": false,
+  "seed": 1,
+  "layers": [
+    {
+      "id": "l1",
+      "name": "layer",
+      "enabled": true,
+      "blend": "normal",
+      "texture": {
+        "ref": "square",
+        "frames": null,
+        "textureExtra": 7
+      },
+      "emission": {
+        "rateOverTime": {
+          "mode": "constant",
+          "value": 5,
+          "trackExtra": true
+        },
+        "bursts": [],
+        "delay": 0,
+        "prewarm": false,
+        "maxParticles": 16,
+        "emissionExtra": [
+          1,
+          2,
+          3
+        ]
+      },
+      "shape": {
+        "kind": "point",
+        "emitFrom": "volume"
+      },
+      "initial": {
+        "life": {
+          "mode": "constant",
+          "value": 1
+        },
+        "speed": {
+          "mode": "constant",
+          "value": 0
+        },
+        "size": {
+          "mode": "constant",
+          "value": 10
+        },
+        "rotation": {
+          "mode": "constant",
+          "value": 0
+        },
+        "angularVelocity": {
+          "mode": "constant",
+          "value": 0
+        }
+      },
+      "overLifetime": {
+        "size": null,
+        "color": {
+          "keys": [
+            {
+              "t": 0,
+              "r": 1,
+              "g": 1,
+              "b": 1,
+              "a": 1,
+              "keyExtra": "x"
+            }
+          ]
+        },
+        "rotation": null,
+        "velocity": {
+          "gravity": {
+            "x": 0,
+            "y": 0
+          },
+          "drag": null,
+          "speedMultiplier": null
+        }
+      },
+      "subEmitters": null,
+      "trail": null,
+      "layerExtra": {
+        "nested": {
+          "deep": [
+            true,
+            null,
+            "value"
+          ]
+        }
+      }
+    }
+  ],
+  "futureField": {
+    "z": 1,
+    "a": [
+      1,
+      2
+    ],
+    "nested": {
+      "keep": "me"
+    }
+  }
+}
