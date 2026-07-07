@@ -82,6 +82,27 @@ export function computeRenderState(ls: LayerSim, buf: LayerRenderBuffers): void 
   const tintB = p.tintB;
   const tintA = p.tintA;
 
+  // By-speed remaps (schemaVersion 3, §M6): when the layer has a bySpeed module,
+  // the particle's instantaneous speed √(velX²+velY²) — the SAME definition the
+  // render module uses — is normalized over [range.min, range.max] and used to
+  // look up a size multiplier and/or a per-channel color multiplier. Zero PRNG
+  // draws, zero pool writes (bySpeed is a zero-draw module, §0.2). All config is
+  // hoisted; a bySpeed-null layer never enters the branch inside the loop, so its
+  // per-particle writes stay byte-identical to pre-M6 (goldens untouched).
+  const bySpeed = ls.layer.bySpeed;
+  const bsSize = bySpeed !== null ? bySpeed.size : null;
+  const bsColor = bySpeed !== null ? bySpeed.color : null;
+  const bsMin = bySpeed !== null ? bySpeed.range.min : 0;
+  const bsMax = bySpeed !== null ? bySpeed.range.max : 0;
+  // Window width; when 0 (degenerate range.min === range.max, which the validator
+  // allows) the remap is a hard step at the shared bound (tSpeed 1 at/above, 0
+  // below) rather than a divide-by-zero (FORMAT_SPEC "By-speed remaps").
+  const bsSpan = bsMax - bsMin;
+  const velX = p.velX;
+  const velY = p.velY;
+  // Scratch for the by-speed color gradient (avoids a per-particle allocation).
+  const bsRGBA: RGBA = { r: 0, g: 0, b: 0, a: 0 };
+
   for (let i = 0; i < p.count; i++) {
     const lifetime = p.lifetime[i]!;
     const age = p.age[i]!;
@@ -101,6 +122,26 @@ export function computeRenderState(ls: LayerSim, buf: LayerRenderBuffers): void 
       buf.g[i] = rgba.g;
       buf.b[i] = rgba.b;
       buf.a[i] = rgba.a;
+    }
+
+    // By-speed remap (§M6): multiply the render size and/or RGBA by a lookup at
+    // the speed-normalized t. The color multiply applies AFTER the over-lifetime
+    // gradient and the startColor tint (order: gradient × startColorTint ×
+    // bySpeedColor); the whole block is skipped when the layer has no bySpeed
+    // module, keeping the null path instruction-identical to the M5 loop above.
+    if (bySpeed !== null) {
+      const vx = velX[i]!;
+      const vy = velY[i]!;
+      const speed = Math.sqrt(vx * vx + vy * vy);
+      const tSpeed = bsSpan > 0 ? Math.min(1, Math.max(0, (speed - bsMin) / bsSpan)) : speed >= bsMax ? 1 : 0;
+      if (bsSize !== null) buf.size[i] = buf.size[i]! * evalScalarTrack(bsSize, tSpeed, 0);
+      if (bsColor !== null) {
+        evalGradient(bsColor, tSpeed, bsRGBA);
+        buf.r[i] = buf.r[i]! * bsRGBA.r;
+        buf.g[i] = buf.g[i]! * bsRGBA.g;
+        buf.b[i] = buf.b[i]! * bsRGBA.b;
+        buf.a[i] = buf.a[i]! * bsRGBA.a;
+      }
     }
 
     buf.frame[i] = flipbookFrame(frames, age, p.frameRand[i]!);

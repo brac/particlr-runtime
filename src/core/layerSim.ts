@@ -348,6 +348,19 @@ export class LayerSim {
     const vRandOrb = p.velRandOrbital;
     const vRandRad = p.velRandRadial;
 
+    // Rotation by speed (schemaVersion 3, §M6). bySpeed.rotation is deg/s added
+    // into the angular term SIM-SIDE (so the spin actually slows as drag slows the
+    // particle, unlike a render-only remap). Speed is √(velX²+velY²) from the
+    // CURRENT stored velocity (the same definition render.ts uses), read after the
+    // velocity integration below. Config hoisted; zero PRNG draws. A layer with no
+    // bySpeed.rotation never enters the branch, so the rotation line stays
+    // instruction-identical and every existing determinism snapshot is unchanged.
+    const bySpeed = this.layer.bySpeed;
+    const bsRot = bySpeed !== null ? bySpeed.rotation : null;
+    const bsRotMin = bySpeed !== null ? bySpeed.range.min : 0;
+    const bsRotMax = bySpeed !== null ? bySpeed.range.max : 0;
+    const bsRotSpan = bsRotMax - bsRotMin;
+
     let i = 0;
     while (i < p.count) {
       const lifetime = p.lifetime[i]!;
@@ -420,8 +433,17 @@ export class LayerSim {
         p.y[i] = ny + c.y * strength * dt;
       }
 
-      // rotation over lifetime = (angularVelocity + track) * dt (§2.5)
-      const extra = rotTrack ? evalScalarTrack(rotTrack, ageNorm, p.rand1[i]!) : 0;
+      // rotation over lifetime = (angularVelocity + track [+ bySpeed]) * dt (§2.5,
+      // §M6). The by-speed spin is added into the SAME angular term, evaluated at
+      // the speed-normalized t (degenerate zero-width range steps 0→1 at the shared
+      // bound). It reads the just-integrated vx/vy, so a stopped particle stops
+      // spinning. The stored angVel column is never modified.
+      let extra = rotTrack ? evalScalarTrack(rotTrack, ageNorm, p.rand1[i]!) : 0;
+      if (bsRot !== null) {
+        const speed = Math.sqrt(vx * vx + vy * vy);
+        const tSpeed = bsRotSpan > 0 ? Math.min(1, Math.max(0, (speed - bsRotMin) / bsRotSpan)) : speed >= bsRotMax ? 1 : 0;
+        extra += evalScalarTrack(bsRot, tSpeed, 0);
+      }
       p.rotation[i] = p.rotation[i]! + (p.angVel[i]! + extra) * dt;
 
       const newAge = age + dt;

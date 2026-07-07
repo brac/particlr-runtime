@@ -625,8 +625,8 @@ function checkLayer(ctx: Ctx, v: unknown, path: string): void {
     checkNoise(ctx, v.noise, `${path}.noise`);
   }
   if (v.bySpeed !== null && v.bySpeed !== undefined) {
+    // bySpeed behaves as of M6 — no "unimplemented" warning.
     checkBySpeed(ctx, v.bySpeed, `${path}.bySpeed`);
-    unimplemented("bySpeed");
   }
   if (v.startColor !== null && v.startColor !== undefined) {
     // startColor behaves as of M5 — no "unimplemented" warning.

@@ -34,6 +34,8 @@ exports[`preset snapshots (Gate 1) > healing-aura.prt state @60 steps is stable 
 
 exports[`preset snapshots (Gate 1) > hit-flash.prt state @60 steps is stable 1`] = `"69691905"`;
 
+exports[`preset snapshots (Gate 1) > impact-sparks.prt state @60 steps is stable 1`] = `"d4a35cb6"`;
+
 exports[`preset snapshots (Gate 1) > laser-impact.prt state @60 steps is stable 1`] = `"d13fa33a"`;
 
 exports[`preset snapshots (Gate 1) > level-up-burst.prt state @60 steps is stable 1`] = `"38221e01"`;
