@@ -164,6 +164,7 @@ export class Effect {
     for (const ls of this.sims) {
       ls.capped = false;
       ls.setEmitterStep(this.stepStartX, this.stepStartY, this.stepEndX, this.stepEndY, this.evx, this.evy);
+      ls.setClock(tStart); // schemaVersion 3: scroll the noise field over effect time
       if (ls.layer.enabled) ls.update(dt);
     }
     this.emit(dt);

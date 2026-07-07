@@ -616,8 +616,8 @@ function checkLayer(ctx: Ctx, v: unknown, path: string): void {
   const unimplemented = (field: string): void =>
     warn(ctx, `${path}.${field}`, `${field} is not yet implemented by this build`, "unimplemented");
   if (v.noise !== null && v.noise !== undefined) {
+    // noise behaves as of M2 — no "unimplemented" warning.
     checkNoise(ctx, v.noise, `${path}.noise`);
-    unimplemented("noise");
   }
   if (v.bySpeed !== null && v.bySpeed !== undefined) {
     checkBySpeed(ctx, v.bySpeed, `${path}.bySpeed`);

@@ -7,13 +7,27 @@ import { mulberry32, type Rng } from "./prng.js";
 import { drawScalarInit, evalScalarTrack } from "./tracks.js";
 import { ParticlePool } from "./pool.js";
 import { sampleShape } from "./shapes.js";
+import { curl2 } from "./noise.js";
 
 const RAD = Math.PI / 180;
+// De-synchronizes the noise phase of point/co-located spawns so fireflies from
+// one emitter don't wander in lockstep (§0.3). Multiplies the per-particle phase
+// into the x sample coordinate only.
+const PHASE_OFF = 37.0;
+// Offset from the layer seed to the noise seed (§0.3), so the turbulence field
+// is decorrelated from the spawn PRNG stream.
+const NOISE_SEED_OFFSET = 0x9e3779b9;
 
 export class LayerSim {
   readonly layer: Layer;
   readonly pool: ParticlePool;
   private rng: Rng;
+  /** The layer's base seed (schemaVersion 3); the noise field derives its own
+   * seed from this. Kept so reset() and noise sampling agree on the field. */
+  private layerSeed: number;
+  /** Effect clock at the start of the current step, pushed by Effect.advance
+   * (schemaVersion 3). Scrolls the noise field over effect time (§0.3). */
+  private clock = 0;
   /** True if a spawn was dropped since the flag was last reset (E7). */
   capped = false;
   /** Continuous-emission fractional accumulator (§2.8), owned by Effect. */
@@ -35,8 +49,11 @@ export class LayerSim {
 
   constructor(layer: Layer, layerSeed: number) {
     this.layer = layer;
-    this.pool = new ParticlePool(layer.emission.maxParticles);
+    // Optional pool columns are allocated only for the modules this layer uses
+    // (§0.2): a layer with noise null keeps the exact v2 pool footprint.
+    this.pool = new ParticlePool(layer.emission.maxParticles, { noise: layer.noise !== null });
     this.rng = mulberry32(layerSeed);
+    this.layerSeed = layerSeed;
   }
 
   get count(): number {
@@ -45,10 +62,17 @@ export class LayerSim {
 
   reset(layerSeed: number): void {
     this.rng = mulberry32(layerSeed);
+    this.layerSeed = layerSeed;
     this.pool.clear();
     this.capped = false;
     this.acc = 0;
     this.accDist = 0;
+  }
+
+  /** Push the effect clock (step start) into this sim (schemaVersion 3); the
+   * noise field scrolls with it. Zero-cost for layers without noise. */
+  setClock(t: number): void {
+    this.clock = t;
   }
 
   /** Record the emitter's motion over the current step (schemaVersion 2). */
@@ -96,6 +120,10 @@ export class LayerSim {
     const r2 = rng();
     const r3 = rng();
     const frameRand = rng();
+    // Draw 14 (§0.2): one noise-phase uniform, appended AFTER frameRand and ONLY
+    // when the layer has a noise module. A null-noise layer draws nothing here,
+    // keeping its spawn stream byte-identical to v2.
+    const noisePhase = this.layer.noise !== null ? rng() : 0;
 
     const i = p.spawn();
     const s = sampleShape(this.layer.shape, uPos1, uPos2, uDir);
@@ -128,6 +156,7 @@ export class LayerSim {
     p.rand2[i] = r2;
     p.rand3[i] = r3;
     p.frameRand[i] = frameRand;
+    if (p.noisePhase !== null) p.noisePhase[i] = noisePhase;
     return true;
   }
 
@@ -140,6 +169,18 @@ export class LayerSim {
     const drag = ol.velocity.drag;
     const speedMul = ol.velocity.speedMultiplier;
     const rotTrack = ol.rotation;
+
+    // Noise / turbulence (schemaVersion 3, §0.3). All config is hoisted out of
+    // the loop; when the layer has no noise module the per-particle branch below
+    // is never entered, so the update loop stays byte-identical to v2.
+    const noise = this.layer.noise;
+    const nStrength = noise !== null ? noise.strength : null;
+    const nFreq = noise !== null ? noise.frequency : 0;
+    const nScroll = noise !== null ? noise.scrollSpeed : 0;
+    const nOct = noise !== null ? noise.octaves : 1;
+    const nSeed = noise !== null ? (this.layerSeed + NOISE_SEED_OFFSET) >>> 0 : 0;
+    const nPhase = p.noisePhase;
+    const t = this.clock;
 
     let i = 0;
     while (i < p.count) {
@@ -161,6 +202,23 @@ export class LayerSim {
       p.y[i] = p.y[i]! + vy * sm * dt;
       p.velX[i] = vx;
       p.velY[i] = vy;
+
+      // Noise perturbation AFTER the position update (§0.3): a bounded,
+      // velocity-style position nudge — NOT accumulated into velX/velY, so there
+      // is no energy buildup and it is drag-independent. curl2 writes into its
+      // own module scratch (zero allocation).
+      if (noise !== null) {
+        const nx = p.x[i]!;
+        const ny = p.y[i]!;
+        const phase = nPhase![i]!;
+        const scroll = t * nScroll * nFreq;
+        const sx = nx * nFreq + scroll + phase * PHASE_OFF;
+        const sy = ny * nFreq + scroll * 0.773;
+        const c = curl2(sx, sy, nSeed, nOct);
+        const strength = evalScalarTrack(nStrength!, ageNorm, 0);
+        p.x[i] = nx + c.x * strength * dt;
+        p.y[i] = ny + c.y * strength * dt;
+      }
 
       // rotation over lifetime = (angularVelocity + track) * dt (§2.5)
       const extra = rotTrack ? evalScalarTrack(rotTrack, ageNorm, p.rand1[i]!) : 0;

@@ -28,6 +28,13 @@ export function stateHash(fx: Effect): string {
       const bytes = new Uint8Array(arr.buffer, arr.byteOffset, count * 4);
       h = fnv1a(bytes, h);
     }
+    // Optional schemaVersion-3 columns are folded in ONLY when present, so a
+    // preset with all modules null keeps its exact v2 digest (§0.2).
+    const np = ls.pool.noisePhase;
+    if (np !== null) {
+      const bytes = new Uint8Array(np.buffer, np.byteOffset, count * 4);
+      h = fnv1a(bytes, h);
+    }
   }
   return (h >>> 0).toString(16).padStart(8, "0");
 }

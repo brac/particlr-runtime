@@ -213,11 +213,20 @@ describe("validateParticle — schemaVersion 3 feature modules", () => {
     expect(validateParticle(makeDoc()).ok).toBe(true);
   });
 
-  it("warns 'unimplemented' for any non-null module (M0 ships surface, not behavior)", () => {
+  it("warns 'unimplemented' for a not-yet-landed module (M0 ships surface, not behavior)", () => {
+    // render (M1) and noise (M2) are implemented; use a module still awaiting its
+    // milestone (bySpeed, M6) as the representative not-yet-behaving module.
+    const l = makeLayer({ bySpeed: { range: { min: 0, max: 100 }, size: { mode: "constant", value: 1 }, color: null, rotation: null } });
+    const r = validateParticle(makeDoc({ layers: [l] }));
+    expect(r.ok).toBe(true);
+    expect(r.warnings.some((w) => w.code === "unimplemented" && w.path === "layers[0].bySpeed")).toBe(true);
+  });
+
+  it("does NOT warn 'unimplemented' for the noise module (implemented in M2)", () => {
     const l = makeLayer({ noise: { strength: { mode: "constant", value: 40 }, frequency: 0.01, scrollSpeed: 0.2, octaves: 2 } });
     const r = validateParticle(makeDoc({ layers: [l] }));
     expect(r.ok).toBe(true);
-    expect(r.warnings.some((w) => w.code === "unimplemented" && w.path === "layers[0].noise")).toBe(true);
+    expect(r.warnings.some((w) => w.code === "unimplemented" && w.path === "layers[0].noise")).toBe(false);
   });
 
   // noise
