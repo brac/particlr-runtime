@@ -51,7 +51,7 @@ export function makeLayer(overrides: Partial<Layer> = {}): Layer {
 export function makeDoc(overrides: Partial<SparkDoc> = {}): SparkDoc {
   return {
     schemaVersion: 2,
-    meta: { name: "Test", createdWith: "sparkr@0.x", notes: "" },
+    meta: { name: "Test", createdWith: "particlr@0.x", notes: "" },
     duration: 1.2,
     looping: true,
     seed: 1337,

@@ -1,20 +1,20 @@
-# @sparkr/runtime
+# @particlr/runtime
 
-The MIT-licensed particle runtime behind [sparkr](../../README.md) — a
+The MIT-licensed particle runtime behind [particlr](../../README.md) — a
 framework-agnostic simulation core plus a PixiJS v8 adapter. It plays back
 `.spark` effect documents **deterministically**: the same document, seed, and
-sequence of `dt` values always produce the same frames. The sparkr editor
+sequence of `dt` values always produce the same frames. The particlr editor
 previews through this exact package, so what you tune is what you ship.
 
 - **Zero runtime dependencies** in the core (`pixi.js` is an optional peer, used
   only by the `/pixi` adapter).
 - **Node-safe core** — no DOM, no `Math.random`, no wall-clock reads.
-- Ships the JSON Schema for `.spark` (`@sparkr/runtime/spark.schema.json`).
+- Ships the JSON Schema for `.spark` (`@particlr/runtime/spark.schema.json`).
 
 ## Install
 
 ```sh
-npm install @sparkr/runtime pixi.js
+npm install @particlr/runtime pixi.js
 ```
 
 `pixi.js@^8` is a peer dependency (only needed if you use the `/pixi` adapter).
@@ -25,8 +25,8 @@ This is the whole integration — load a `.spark`, step it each frame, render it
 
 ```ts
 import { Application } from "pixi.js";
-import { parseSpark, Effect } from "@sparkr/runtime";
-import { PixiSparkRenderer } from "@sparkr/runtime/pixi";
+import { parseSpark, Effect } from "@particlr/runtime";
+import { PixiSparkRenderer } from "@particlr/runtime/pixi";
 
 const app = new Application();
 await app.init({ background: "#000", width: 800, height: 600 });
@@ -46,7 +46,7 @@ app.ticker.add((ticker) => {
 
 A complete runnable version lives in [`samples/pixi-game`](../../samples/pixi-game).
 
-## Core API (`@sparkr/runtime`)
+## Core API (`@particlr/runtime`)
 
 ### Reading & writing documents
 
@@ -152,7 +152,7 @@ identical to the preview.
 | E15 | `teleportEmitter` (respawn/wrap) | jump with no velocity and no spawn interpolation across the gap; resets the distance accumulator |
 | E16 | prewarm on a world-space layer | prewarm runs at the initial emitter position with zero velocity; particles pile there |
 
-## Pixi adapter (`@sparkr/runtime/pixi`)
+## Pixi adapter (`@particlr/runtime/pixi`)
 
 ```ts
 class PixiSparkRenderer {
@@ -187,7 +187,7 @@ This is what makes seek/scrub exact and enables golden-frame testing.
 `.spark` is a small, versioned, declarative JSON document — see
 [`FORMAT_SPEC.md`](../../docs/FORMAT_SPEC.md) and the machine-readable
 [`spark.schema.json`](./src/format/spark.schema.json) shipped with this package
-(`import schema from "@sparkr/runtime/spark.schema.json"`).
+(`import schema from "@particlr/runtime/spark.schema.json"`).
 
 Because the format is small, documented, and agent-readable, a coding agent can
 author or tweak effects directly — "make the explosion 20% punchier and shift it

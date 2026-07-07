@@ -13,7 +13,7 @@ const dir = dirname(fileURLToPath(import.meta.url));
 
 const explosion: SparkDoc = {
   schemaVersion: 2,
-  meta: { name: "Explosion", createdWith: "sparkr@0.x", notes: "Flash + fireball + smoke. Slice One reference effect." },
+  meta: { name: "Explosion", createdWith: "particlr@0.x", notes: "Flash + fireball + smoke. Slice One reference effect." },
   duration: 1.2,
   looping: true,
   seed: 1337,
@@ -149,7 +149,7 @@ const explosion: SparkDoc = {
 // prove unknown-field preservation + byte-stable round-trip (plan §2.10).
 const unknowns = {
   schemaVersion: 2,
-  meta: { name: "Unknowns", createdWith: "sparkr@0.x", notes: "", metaExtra: "kept" },
+  meta: { name: "Unknowns", createdWith: "particlr@0.x", notes: "", metaExtra: "kept" },
   duration: 1,
   looping: false,
   seed: 1,

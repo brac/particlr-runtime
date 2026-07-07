@@ -1,5 +1,5 @@
 {
-  "name": "@sparkr/runtime",
+  "name": "@particlr/runtime",
   "version": "0.0.0",
   "description": "Framework-agnostic particle simulation core + Pixi v8 adapter for the .spark format.",
   "license": "MIT",

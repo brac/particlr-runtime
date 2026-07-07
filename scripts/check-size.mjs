@@ -23,7 +23,7 @@ const js = result.outputFiles[0].contents;
 const gzipped = gzipSync(js).length;
 const kb = (gzipped / 1024).toFixed(2);
 
-console.log(`@sparkr/runtime core: ${kb} KB gzipped (budget 15.00 KB)`);
+console.log(`@particlr/runtime core: ${kb} KB gzipped (budget 15.00 KB)`);
 
 if (gzipped > BUDGET_BYTES) {
   console.error(`FAIL: core exceeds 15 KB gzipped budget (${kb} KB).`);
