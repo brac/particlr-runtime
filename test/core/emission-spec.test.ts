@@ -1,12 +1,12 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { parseSpark, validateSpark } from "../../src/index.js";
+import { parseParticle, validateParticle } from "../../src/index.js";
 import { Effect } from "../../src/core/effect.js";
 
 function baseDoc() {
   // Start from a real preset and strip it to a single, controllable layer.
-  const doc = structuredClone(parseSpark(readFileSync(resolve(__dirname, "../../../../presets/sparks.spark"), "utf8")).doc!);
+  const doc = structuredClone(parseParticle(readFileSync(resolve(__dirname, "../../../../presets/sparks.prt"), "utf8")).doc!);
   return doc;
 }
 
@@ -36,7 +36,7 @@ describe("burst spread endpoint (P2.2)", () => {
 
 describe("burst-window validation warnings (P2.2 / P2.3)", () => {
   const doc = () => {
-    const d = structuredClone(parseSpark(readFileSync(resolve(__dirname, "../../../../presets/sparks.spark"), "utf8")).doc!);
+    const d = structuredClone(parseParticle(readFileSync(resolve(__dirname, "../../../../presets/sparks.prt"), "utf8")).doc!);
     d.looping = true;
     d.duration = 1;
     d.layers[0]!.emission.delay = 0;
@@ -46,7 +46,7 @@ describe("burst-window validation warnings (P2.2 / P2.3)", () => {
   it("warns when a burst's spread tail exceeds the emission window", () => {
     const d = doc();
     d.layers[0]!.emission.bursts = [{ time: 0.9, count: 10, spread: 0.5 }]; // 0.9+0.5 > 1
-    const res = validateSpark(d);
+    const res = validateParticle(d);
     expect(res.ok).toBe(true); // warning, not error
     expect(res.warnings.some((w) => /spread extends past/.test(w.message))).toBe(true);
   });
@@ -54,7 +54,7 @@ describe("burst-window validation warnings (P2.2 / P2.3)", () => {
   it("warns when a burst's time is past the emission window", () => {
     const d = doc();
     d.layers[0]!.emission.bursts = [{ time: 1.5, count: 4, spread: 0 }]; // > duration
-    const res = validateSpark(d);
+    const res = validateParticle(d);
     expect(res.ok).toBe(true);
     expect(res.warnings.some((w) => /past the emission window/.test(w.message))).toBe(true);
   });
@@ -62,7 +62,7 @@ describe("burst-window validation warnings (P2.2 / P2.3)", () => {
   it("does not warn for an in-window burst", () => {
     const d = doc();
     d.layers[0]!.emission.bursts = [{ time: 0.1, count: 4, spread: 0.2 }];
-    expect(validateSpark(d).warnings.length).toBe(0);
+    expect(validateParticle(d).warnings.length).toBe(0);
   });
 });
 
@@ -99,24 +99,24 @@ describe("Effect duration guard (P2.3)", () => {
 });
 
 describe("seed & flipbook validation (P2.3)", () => {
-  const doc = () => structuredClone(parseSpark(readFileSync(resolve(__dirname, "../../../../presets/sparks.spark"), "utf8")).doc!);
+  const doc = () => structuredClone(parseParticle(readFileSync(resolve(__dirname, "../../../../presets/sparks.prt"), "utf8")).doc!);
 
   it("rejects a fractional or negative seed", () => {
     const a = doc();
     a.seed = 1.5 as number;
-    expect(validateSpark(a).ok).toBe(false);
+    expect(validateParticle(a).ok).toBe(false);
     const b = doc();
     b.seed = -1 as number;
-    expect(validateSpark(b).ok).toBe(false);
+    expect(validateParticle(b).ok).toBe(false);
   });
 
   it("accepts an integer seed", () => {
-    expect(validateSpark(doc()).ok).toBe(true);
+    expect(validateParticle(doc()).ok).toBe(true);
   });
 
   it("rejects flipbook cols/rows above the bound", () => {
     const d = doc();
     d.layers[0]!.texture.frames = { cols: 100, rows: 1, fps: 12, mode: "loop" };
-    expect(validateSpark(d).ok).toBe(false);
+    expect(validateParticle(d).ok).toBe(false);
   });
 });

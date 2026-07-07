@@ -2,24 +2,24 @@ import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
-import { Effect, parseSpark, type SparkDoc } from "../../src/index.js";
+import { Effect, parseParticle, type ParticleDoc } from "../../src/index.js";
 import { stateHash, dtSequence } from "./_statehash.js";
 
 const fixtures = resolve(dirname(fileURLToPath(import.meta.url)), "../fixtures");
 const presetsDir = resolve(dirname(fileURLToPath(import.meta.url)), "../../../../presets");
-function loadFrom(base: string, name: string): SparkDoc {
-  const parsed = parseSpark(readFileSync(resolve(base, name), "utf8"));
+function loadFrom(base: string, name: string): ParticleDoc {
+  const parsed = parseParticle(readFileSync(resolve(base, name), "utf8"));
   if (!parsed.ok) throw new Error(`${name} failed to parse: ${JSON.stringify(parsed.errors)}`);
   return parsed.doc!;
 }
-const loadDoc = (name: string): SparkDoc => loadFrom(fixtures, name);
+const loadDoc = (name: string): ParticleDoc => loadFrom(fixtures, name);
 const presetNames = readdirSync(presetsDir)
-  .filter((f) => f.endsWith(".spark"))
+  .filter((f) => f.endsWith(".prt"))
   .sort();
 
 describe("determinism (Gate 1)", () => {
   it("two runs with the same doc/seed/dt-sequence are bit-identical over 600 steps", () => {
-    const doc = loadDoc("explosion.spark");
+    const doc = loadDoc("explosion.prt");
     const a = new Effect(doc, { seed: 1337 });
     const b = new Effect(doc, { seed: 1337 });
     const dts = dtSequence(99, 600);
@@ -41,7 +41,7 @@ describe("determinism (Gate 1)", () => {
   });
 
   it("a different seed produces different state", () => {
-    const doc = loadDoc("explosion.spark");
+    const doc = loadDoc("explosion.prt");
     const a = new Effect(doc, { seed: 1 });
     const b = new Effect(doc, { seed: 2 });
     const dts = dtSequence(99, 60);

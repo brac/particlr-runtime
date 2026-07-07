@@ -3,7 +3,7 @@
 // Runtime-scope cases (E1, E2, E5, E6, E7, E8, E9, E10) are recorded as todos
 // that WP-1.x / WP-3.x convert into executable assertions against the runtime.
 import { describe, it, expect } from "vitest";
-import { validateSpark, parseSpark } from "../../src/index.js";
+import { validateParticle, parseParticle } from "../../src/index.js";
 import { makeDoc, makeLayer } from "./_helpers.js";
 
 const curveSize = (keys: { t: number; v: number }[]) =>
@@ -22,31 +22,31 @@ describe("FORMAT_SPEC edge cases — locked outcomes", () => {
 
   // --- Validator-scope: asserted now ---
   it("E3: a one-key curve is valid (evaluates constant)", () => {
-    expect(validateSpark(curveSize([{ t: 0, v: 0.5 }])).ok).toBe(true);
+    expect(validateParticle(curveSize([{ t: 0, v: 0.5 }])).ok).toBe(true);
   });
 
   it("E4: a zero-key curve is rejected at import", () => {
-    const r = validateSpark(curveSize([]));
+    const r = validateParticle(curveSize([]));
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.errors.some((e) => e.code === "empty-curve")).toBe(true);
   });
 
   it("E11: a newer schemaVersion is refused (never best-effort parsed)", () => {
-    const r = parseSpark({ ...makeDoc(), schemaVersion: 7 });
+    const r = parseParticle({ ...makeDoc(), schemaVersion: 7 });
     expect(r.ok).toBe(false);
     expect(r.errors[0]?.code).toBe("newer-version");
   });
 
   it("E12: duplicate keys at the same t are allowed (last wins at eval)", () => {
-    expect(validateSpark(curveSize([{ t: 0.5, v: 1 }, { t: 0.5, v: 0 }])).ok).toBe(true);
+    expect(validateParticle(curveSize([{ t: 0.5, v: 1 }, { t: 0.5, v: 0 }])).ok).toBe(true);
   });
 
   it("E13: duration below 0.05 is invalid (floor)", () => {
-    expect(validateSpark(makeDoc({ duration: 0.049 })).ok).toBe(false);
-    expect(validateSpark(makeDoc({ duration: 0 })).ok).toBe(false);
+    expect(validateParticle(makeDoc({ duration: 0.049 })).ok).toBe(false);
+    expect(validateParticle(makeDoc({ duration: 0 })).ok).toBe(false);
   });
 
   it("E14: a zero-layer document is valid (renders nothing)", () => {
-    expect(validateSpark(makeDoc({ layers: [] })).ok).toBe(true);
+    expect(validateParticle(makeDoc({ layers: [] })).ok).toBe(true);
   });
 });

@@ -1,4 +1,4 @@
-import type { SparkDoc, Layer } from "../../src/index.js";
+import type { ParticleDoc, Layer } from "../../src/index.js";
 
 // A complete, valid single-layer document used as the base for validation
 // tests. Each test clones and mutates one field to isolate one rule.
@@ -48,7 +48,7 @@ export function makeLayer(overrides: Partial<Layer> = {}): Layer {
   };
 }
 
-export function makeDoc(overrides: Partial<SparkDoc> = {}): SparkDoc {
+export function makeDoc(overrides: Partial<ParticleDoc> = {}): ParticleDoc {
   return {
     schemaVersion: 2,
     meta: { name: "Test", createdWith: "particlr@0.x", notes: "" },

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { Effect, MAX_DT, type SparkDoc, type Layer } from "../../src/index.js";
+import { Effect, MAX_DT, type ParticleDoc, type Layer } from "../../src/index.js";
 import { makeDoc, makeLayer } from "../format/_helpers.js";
 
 // A layer with no continuous emission and no bursts, tuned per-test.
@@ -13,7 +13,7 @@ function layer(over: Partial<Layer> = {}): Layer {
     ...over,
   };
 }
-function doc(l: Layer, over: Partial<SparkDoc> = {}): SparkDoc {
+function doc(l: Layer, over: Partial<ParticleDoc> = {}): ParticleDoc {
   return makeDoc({ layers: [l], ...over });
 }
 

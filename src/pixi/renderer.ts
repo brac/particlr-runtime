@@ -13,7 +13,7 @@ import {
   Texture,
   type BLEND_MODES,
 } from "pixi.js";
-import type { BlendMode, BuiltinTextureId, Flipbook, SparkDoc } from "../format/types.js";
+import type { BlendMode, BuiltinTextureId, Flipbook, ParticleDoc } from "../format/types.js";
 import { BUILTIN_TEXTURE_IDS } from "../format/types.js";
 import { computeRenderState, makeRenderBuffers, type LayerRenderBuffers } from "../core/render.js";
 import type { Effect } from "../core/effect.js";
@@ -123,7 +123,7 @@ interface LayerView {
   renderHighWater: number;
 }
 
-export interface PixiSparkRendererOptions {
+export interface PixiParticleRendererOptions {
   /** Reserved for future use (e.g. building GPU RenderTextures). */
   renderer?: unknown;
   /**
@@ -134,7 +134,7 @@ export interface PixiSparkRendererOptions {
   loadTexture?: (dataUrl: string) => Promise<Texture>;
 }
 
-export class PixiSparkRenderer {
+export class PixiParticleRenderer {
   readonly container: Container;
   /** Non-fatal issues surfaced for the editor (e.g. E10 texture fallback). */
   readonly warnings: string[] = [];
@@ -150,7 +150,7 @@ export class PixiSparkRenderer {
   private readonly loadTexture: (dataUrl: string) => Promise<Texture>;
   private destroyed = false;
 
-  constructor(effect: Effect, opts?: PixiSparkRendererOptions) {
+  constructor(effect: Effect, opts?: PixiParticleRendererOptions) {
     this.effect = effect;
     this.container = new Container();
     this.loadTexture = opts?.loadTexture ?? decodeDataUrlTexture;
@@ -327,7 +327,7 @@ export class PixiSparkRenderer {
    * already-decoded user textures resolve synchronously; a not-yet-decoded user
    * texture returns a built-in placeholder plus the data URL to load.
    */
-  private resolveTexture(ref: string, doc: SparkDoc): { tex: Texture; pendingDataUrl?: string } {
+  private resolveTexture(ref: string, doc: ParticleDoc): { tex: Texture; pendingDataUrl?: string } {
     if ((BUILTIN_TEXTURE_IDS as readonly string[]).includes(ref)) {
       return { tex: builtinTexture(ref as BuiltinTextureId) };
     }

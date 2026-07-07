@@ -1,8 +1,8 @@
-// Effect: a running instance of a .spark document. Owns one LayerSim per layer,
+// Effect: a running instance of a .prt document. Owns one LayerSim per layer,
 // drives emission timing (§2.8), motion integration (via LayerSim.update), the
 // effect clock, prewarm (E5), dt clamping (E1/E2), and isDone (E6). This is the
 // same code path the editor preview and the shipped runtime both use (L4).
-import type { Layer, ScalarTrack, SparkDoc } from "../format/types.js";
+import type { Layer, ScalarTrack, ParticleDoc } from "../format/types.js";
 import { deriveLayerSeed } from "./prng.js";
 import { evalCurve } from "./tracks.js";
 import { LayerSim } from "./layerSim.js";
@@ -28,7 +28,7 @@ function evalRate(track: ScalarTrack, tNorm: number): number {
 const clamp01 = (x: number): number => (x < 0 ? 0 : x > 1 ? 1 : x);
 
 export class Effect {
-  readonly doc: SparkDoc;
+  readonly doc: ParticleDoc;
   private readonly sims: LayerSim[];
   private effectSeed: number;
   private t = 0; // effect clock; kept in [0,duration) when looping
@@ -50,12 +50,12 @@ export class Effect {
   private stepEndX = 0;
   private stepEndY = 0;
 
-  constructor(doc: SparkDoc, opts?: { seed?: number; x?: number; y?: number }) {
+  constructor(doc: ParticleDoc, opts?: { seed?: number; x?: number; y?: number }) {
     // A non-positive duration would make the looping emit loop never terminate
-    // (room stays 0). Fail loud rather than hang; validateSpark enforces the
+    // (room stays 0). Fail loud rather than hang; validateParticle enforces the
     // full 0.05 floor for authored documents. (P2.3)
     if (!(doc.duration > 0)) {
-      throw new Error("SparkDoc.duration must be > 0 (run validateSpark first — the floor is 0.05s)");
+      throw new Error("ParticleDoc.duration must be > 0 (run validateParticle first — the floor is 0.05s)");
     }
     this.doc = doc;
     this.effectSeed = (opts?.seed ?? doc.seed) >>> 0;

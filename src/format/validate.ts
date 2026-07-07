@@ -1,4 +1,4 @@
-// Structural + semantic validation of a raw parsed object against the .spark v1
+// Structural + semantic validation of a raw parsed object against the .prt v1
 // schema (plan §2.12/§2.13). Never throws on bad data — it collects every issue
 // with a JSON-path so the editor can surface them all at once. Unknown fields
 // are ignored here (preserved elsewhere, plan §2.10).
@@ -11,7 +11,7 @@ import {
   EMIT_FROM,
   FLIPBOOK_MODES,
   SIM_SPACES,
-  type SparkDoc,
+  type ParticleDoc,
 } from "./types.js";
 
 export interface ValidationIssue {
@@ -21,7 +21,7 @@ export interface ValidationIssue {
 }
 
 export type ValidationResult =
-  | { ok: true; doc: SparkDoc; warnings: ValidationIssue[] }
+  | { ok: true; doc: ParticleDoc; warnings: ValidationIssue[] }
   | { ok: false; errors: ValidationIssue[]; warnings: ValidationIssue[] };
 
 interface Ctx {
@@ -391,7 +391,7 @@ function checkLayer(ctx: Ctx, v: unknown, path: string): void {
     err(ctx, `${path}.trail`, "trail is reserved and must be null in v1", "reserved-field");
 }
 
-export function validateSpark(input: unknown): ValidationResult {
+export function validateParticle(input: unknown): ValidationResult {
   const ctx: Ctx = { errors: [], warnings: [], textureNames: new Set(), duration: 0, looping: false };
 
   if (!isObject(input)) {
@@ -454,5 +454,5 @@ export function validateSpark(input: unknown): ValidationResult {
   }
 
   if (ctx.errors.length > 0) return { ok: false, errors: ctx.errors, warnings: ctx.warnings };
-  return { ok: true, doc: input as unknown as SparkDoc, warnings: ctx.warnings };
+  return { ok: true, doc: input as unknown as ParticleDoc, warnings: ctx.warnings };
 }

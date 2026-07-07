@@ -1,5 +1,5 @@
-// Normative .spark schema v1 types (plan §2.13). These are the source of truth:
-// the JSON Schema (spark.schema.json) is generated from them, and no editor
+// Normative .prt schema v1 types (plan §2.13). These are the source of truth:
+// the JSON Schema (particle.schema.json) is generated from them, and no editor
 // control or runtime behavior may exist unless it is expressible here.
 
 export type BlendMode = "normal" | "add" | "multiply" | "screen";
@@ -120,15 +120,15 @@ export interface Layer {
   trail: null;
 }
 
-export interface SparkMeta {
+export interface ParticleMeta {
   name: string;
   createdWith: string;
   notes: string;
 }
 
-export interface SparkDoc {
+export interface ParticleDoc {
   schemaVersion: 2;
-  meta: SparkMeta;
+  meta: ParticleMeta;
   duration: number;
   looping: boolean;
   seed: number;

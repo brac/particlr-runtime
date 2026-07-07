@@ -1,31 +1,31 @@
 import { describe, it, expect } from "vitest";
-import { validateSpark } from "../../src/index.js";
+import { validateParticle } from "../../src/index.js";
 import { makeDoc, makeLayer, clone } from "./_helpers.js";
 
 function errPaths(input: unknown): string[] {
-  const r = validateSpark(input);
+  const r = validateParticle(input);
   return r.ok ? [] : r.errors.map((e) => e.path);
 }
 function firstCode(input: unknown): string | undefined {
-  const r = validateSpark(input);
+  const r = validateParticle(input);
   return r.ok ? undefined : r.errors[0]?.code;
 }
 
-describe("validateSpark — happy path", () => {
+describe("validateParticle — happy path", () => {
   it("accepts a complete valid document", () => {
-    const r = validateSpark(makeDoc());
+    const r = validateParticle(makeDoc());
     expect(r.ok).toBe(true);
   });
 
   it("accepts a zero-layer document (E14)", () => {
-    const r = validateSpark(makeDoc({ layers: [] }));
+    const r = validateParticle(makeDoc({ layers: [] }));
     expect(r.ok).toBe(true);
   });
 });
 
-describe("validateSpark — document rules", () => {
+describe("validateParticle — document rules", () => {
   it("rejects a non-object", () => {
-    expect(validateSpark(42 as unknown).ok).toBe(false);
+    expect(validateParticle(42 as unknown).ok).toBe(false);
   });
 
   it("rejects schemaVersion < 1 or non-integer", () => {
@@ -38,13 +38,13 @@ describe("validateSpark — document rules", () => {
   });
 
   it("rejects duration below the 0.05 floor (E13)", () => {
-    const r = validateSpark(makeDoc({ duration: 0.01 }));
+    const r = validateParticle(makeDoc({ duration: 0.01 }));
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.errors.some((e) => e.code === "duration-floor")).toBe(true);
   });
 
   it("accepts duration exactly at the floor", () => {
-    expect(validateSpark(makeDoc({ duration: 0.05 })).ok).toBe(true);
+    expect(validateParticle(makeDoc({ duration: 0.05 })).ok).toBe(true);
   });
 
   it("rejects non-boolean looping and non-number seed", () => {
@@ -64,11 +64,11 @@ describe("validateSpark — document rules", () => {
   });
 });
 
-describe("validateSpark — texture rules", () => {
+describe("validateParticle — texture rules", () => {
   it("accepts all built-in ids", () => {
     for (const ref of ["circle-soft", "circle-hard", "square", "spark", "smoke"]) {
       const d = makeDoc({ layers: [makeLayer({ texture: { ref, frames: null } })] });
-      expect(validateSpark(d).ok).toBe(true);
+      expect(validateParticle(d).ok).toBe(true);
     }
   });
 
@@ -79,7 +79,7 @@ describe("validateSpark — texture rules", () => {
 
   it("warns (not errors) on a user ref with no embedded entry (E10)", () => {
     const d = makeDoc({ layers: [makeLayer({ texture: { ref: "user:puff", frames: null } })] });
-    const r = validateSpark(d);
+    const r = validateParticle(d);
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.warnings.some((w) => w.code === "missing-texture")).toBe(true);
   });
@@ -89,7 +89,7 @@ describe("validateSpark — texture rules", () => {
       textures: { puff: "data:image/png;base64,AAAA" },
       layers: [makeLayer({ texture: { ref: "user:puff", frames: null } })],
     });
-    const r = validateSpark(d);
+    const r = validateParticle(d);
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.warnings.length).toBe(0);
   });
@@ -102,7 +102,7 @@ describe("validateSpark — texture rules", () => {
   });
 });
 
-describe("validateSpark — emission rules", () => {
+describe("validateParticle — emission rules", () => {
   it("rejects maxParticles out of range", () => {
     expect(errPaths(makeDoc({ layers: [makeLayer({ emission: { ...makeLayer().emission, maxParticles: 0 } })] }))).toContain(
       "layers[0].emission.maxParticles",
@@ -120,7 +120,7 @@ describe("validateSpark — emission rules", () => {
   });
 });
 
-describe("validateSpark — shape rules", () => {
+describe("validateParticle — shape rules", () => {
   it("accepts every shape kind with its fields", () => {
     const shapes = [
       { kind: "point", emitFrom: "volume" },
@@ -130,7 +130,7 @@ describe("validateSpark — shape rules", () => {
       { kind: "edge", length: 8, emitFrom: "surface" },
     ] as const;
     for (const shape of shapes) {
-      expect(validateSpark(makeDoc({ layers: [makeLayer({ shape })] })).ok).toBe(true);
+      expect(validateParticle(makeDoc({ layers: [makeLayer({ shape })] })).ok).toBe(true);
     }
   });
 
@@ -150,29 +150,29 @@ describe("validateSpark — shape rules", () => {
   });
 });
 
-describe("validateSpark — track & gradient rules", () => {
+describe("validateParticle — track & gradient rules", () => {
   it("rejects an empty curve (E4)", () => {
     const l = makeLayer({ overLifetime: { ...makeLayer().overLifetime, size: { mode: "curve", keys: [] } } });
-    const r = validateSpark(makeDoc({ layers: [l] }));
+    const r = validateParticle(makeDoc({ layers: [l] }));
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.errors.some((e) => e.code === "empty-curve")).toBe(true);
   });
 
   it("accepts a single-key curve (E3)", () => {
     const l = makeLayer({ overLifetime: { ...makeLayer().overLifetime, size: { mode: "curve", keys: [{ t: 0, v: 1 }] } } });
-    expect(validateSpark(makeDoc({ layers: [l] })).ok).toBe(true);
+    expect(validateParticle(makeDoc({ layers: [l] })).ok).toBe(true);
   });
 
   it("allows duplicate t in a curve (E12) but rejects descending t", () => {
     const dup = makeLayer({
       overLifetime: { ...makeLayer().overLifetime, size: { mode: "curve", keys: [{ t: 0.5, v: 1 }, { t: 0.5, v: 0 }] } },
     });
-    expect(validateSpark(makeDoc({ layers: [dup] })).ok).toBe(true);
+    expect(validateParticle(makeDoc({ layers: [dup] })).ok).toBe(true);
 
     const desc = makeLayer({
       overLifetime: { ...makeLayer().overLifetime, size: { mode: "curve", keys: [{ t: 1, v: 1 }, { t: 0, v: 0 }] } },
     });
-    expect(validateSpark(makeDoc({ layers: [desc] })).ok).toBe(false);
+    expect(validateParticle(makeDoc({ layers: [desc] })).ok).toBe(false);
   });
 
   it("rejects curve t outside [0,1]", () => {
@@ -187,29 +187,29 @@ describe("validateSpark — track & gradient rules", () => {
 
   it("requires a color gradient with >=1 key and channels in [0,1]", () => {
     const empty = makeLayer({ overLifetime: { ...makeLayer().overLifetime, color: { keys: [] } } });
-    expect(validateSpark(makeDoc({ layers: [empty] })).ok).toBe(false);
+    expect(validateParticle(makeDoc({ layers: [empty] })).ok).toBe(false);
 
     const bad = makeLayer({ overLifetime: { ...makeLayer().overLifetime, color: { keys: [{ t: 0, r: 2, g: 0, b: 0, a: 1 }] } } });
     expect(errPaths(makeDoc({ layers: [bad] }))).toContain("layers[0].overLifetime.color.keys[0].r");
   });
 });
 
-describe("validateSpark — reserved fields (L8)", () => {
+describe("validateParticle — reserved fields (L8)", () => {
   it("rejects non-null subEmitters and trail", () => {
     expect(errPaths(makeDoc({ layers: [makeLayer({ subEmitters: {} as null })] }))).toContain("layers[0].subEmitters");
     expect(errPaths(makeDoc({ layers: [makeLayer({ trail: {} as null })] }))).toContain("layers[0].trail");
   });
 });
 
-describe("validateSpark — emitter motion (schemaVersion 2)", () => {
+describe("validateParticle — emitter motion (schemaVersion 2)", () => {
   function warns(input: unknown) {
-    const r = validateSpark(input);
+    const r = validateParticle(input);
     return r.warnings.map((w) => w.path);
   }
 
   it("accepts a valid world-space layer with inherited velocity", () => {
     const l = makeLayer({ space: "world", inheritVelocity: 1 });
-    expect(validateSpark(makeDoc({ layers: [l] })).ok).toBe(true);
+    expect(validateParticle(makeDoc({ layers: [l] })).ok).toBe(true);
   });
 
   it("rejects an unknown simulation space", () => {
@@ -230,7 +230,7 @@ describe("validateSpark — emitter motion (schemaVersion 2)", () => {
       space: "world",
       emission: { ...makeLayer().emission, rateOverDistance: { mode: "constant", value: 2 } },
     });
-    expect(validateSpark(makeDoc({ layers: [ok] })).ok).toBe(true);
+    expect(validateParticle(makeDoc({ layers: [ok] })).ok).toBe(true);
 
     const tooBig = makeLayer({
       space: "world",

@@ -3,13 +3,13 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { BufferImageSource, ParticleContainer, Particle, Texture } from "pixi.js";
 import type { Flipbook } from "../../src/format/types.js";
-import { parseSpark } from "../../src/index.js";
+import { parseParticle } from "../../src/index.js";
 import { Effect } from "../../src/core/effect.js";
-import { PixiSparkRenderer } from "../../src/pixi/renderer.js";
+import { PixiParticleRenderer } from "../../src/pixi/renderer.js";
 
 function loadDoc(name: string) {
-  const raw = readFileSync(resolve(__dirname, `../../../../presets/${name}.spark`), "utf8");
-  const parsed = parseSpark(raw);
+  const raw = readFileSync(resolve(__dirname, `../../../../presets/${name}.prt`), "utf8");
+  const parsed = parseParticle(raw);
   if (!parsed.ok) throw new Error(`fixture ${name} invalid: ${JSON.stringify(parsed.errors)}`);
   return structuredClone(parsed.doc!);
 }
@@ -20,9 +20,9 @@ function fakeTexture(width: number): Texture {
   });
 }
 
-const pcOf = (r: PixiSparkRenderer, i = 0) => r.container.children[i] as ParticleContainer;
+const pcOf = (r: PixiParticleRenderer, i = 0) => r.container.children[i] as ParticleContainer;
 
-describe("PixiSparkRenderer — user textures (P0.1)", () => {
+describe("PixiParticleRenderer — user textures (P0.1)", () => {
   it("does not throw for a user: ref and renders a synchronous placeholder", async () => {
     const doc = loadDoc("rain");
     doc.layers[0]!.texture.ref = "user:test";
@@ -30,7 +30,7 @@ describe("PixiSparkRenderer — user textures (P0.1)", () => {
     const fx = new Effect(doc, { seed: doc.seed });
 
     // Constructing must not throw even though the data URL is never in Pixi's cache.
-    const r = new PixiSparkRenderer(fx, { loadTexture: async () => fakeTexture(128) });
+    const r = new PixiParticleRenderer(fx, { loadTexture: async () => fakeTexture(128) });
 
     // Synchronously, the layer uses the 64px circle-soft placeholder.
     expect(pcOf(r).texture.width).toBe(64);
@@ -43,7 +43,7 @@ describe("PixiSparkRenderer — user textures (P0.1)", () => {
     doc.layers[0]!.texture.ref = "user:test";
     doc.textures = { test: "data:image/png;base64,PLACEHOLDER-swap" };
     const fx = new Effect(doc, { seed: doc.seed });
-    const r = new PixiSparkRenderer(fx, { loadTexture: async () => fakeTexture(128) });
+    const r = new PixiParticleRenderer(fx, { loadTexture: async () => fakeTexture(128) });
 
     await r.ready;
 
@@ -64,7 +64,7 @@ describe("PixiSparkRenderer — user textures (P0.1)", () => {
     doc.layers[0]!.texture.ref = "user:broken";
     doc.textures = { broken: "data:image/png;base64,PLACEHOLDER-broken" };
     const fx = new Effect(doc, { seed: doc.seed });
-    const r = new PixiSparkRenderer(fx, {
+    const r = new PixiParticleRenderer(fx, {
       loadTexture: async () => {
         throw new Error("decode failed");
       },
@@ -77,13 +77,13 @@ describe("PixiSparkRenderer — user textures (P0.1)", () => {
   });
 });
 
-describe("PixiSparkRenderer — render list tracks live count, not capacity (P4.2)", () => {
+describe("PixiParticleRenderer — render list tracks live count, not capacity (P4.2)", () => {
   it("keeps particleChildren equal to the live count as it rises and falls", () => {
     // A short-burst, non-looping effect: particle count rises then falls to 0.
     const doc = loadDoc("sparks"); // single burst at t=0, no continuous rate
     doc.looping = false; // let the burst die out instead of re-firing each cycle
     const fx = new Effect(doc, { seed: doc.seed });
-    const r = new PixiSparkRenderer(fx);
+    const r = new PixiParticleRenderer(fx);
     const pc = pcOf(r);
     // Nothing simulated yet: the container holds no particles despite the pool
     // being preallocated to maxParticles.
@@ -117,7 +117,7 @@ describe("PixiSparkRenderer — render list tracks live count, not capacity (P4.
     layer.emission.rateOverTime = { mode: "constant", value: 30 };
     layer.initial.life = { mode: "constant", value: 1 }; // ~30 live steady state
     const fx = new Effect(doc, { seed: 1 });
-    const r = new PixiSparkRenderer(fx);
+    const r = new PixiParticleRenderer(fx);
     for (let i = 0; i < 60; i++) fx.step(1 / 60);
     r.sync();
     const live = fx.layers[0]!.count;
@@ -133,7 +133,7 @@ describe("PixiSparkRenderer — render list tracks live count, not capacity (P4.
     doc.looping = true;
     doc.duration = 0.5; // burst re-fires each short cycle
     const fx = new Effect(doc, { seed: doc.seed });
-    const r = new PixiSparkRenderer(fx);
+    const r = new PixiParticleRenderer(fx);
     const pc = pcOf(r);
 
     // First burst alive.
@@ -159,7 +159,7 @@ describe("PixiSparkRenderer — render list tracks live count, not capacity (P4.
   });
 });
 
-describe("PixiSparkRenderer — every per-frame attribute is GPU-dynamic", () => {
+describe("PixiParticleRenderer — every per-frame attribute is GPU-dynamic", () => {
   // Regression: the option key for the scale-carrying attribute is `vertex`,
   // not `scale`. Pixi accepts unknown keys silently (Record<string, boolean>),
   // leaving vertex static: it uploads once at first render, freezing every
@@ -170,7 +170,7 @@ describe("PixiSparkRenderer — every per-frame attribute is GPU-dynamic", () =>
   // first render), so guard the container config directly.
   it("marks vertex, position, rotation, and color dynamic on each ParticleContainer", () => {
     const doc = loadDoc("rain");
-    const r = new PixiSparkRenderer(new Effect(doc, { seed: doc.seed }));
+    const r = new PixiParticleRenderer(new Effect(doc, { seed: doc.seed }));
     for (const child of r.container.children) {
       const props = (child as ParticleContainer & { _properties: Record<string, { dynamic: boolean }> })._properties;
       for (const key of ["vertex", "position", "rotation", "color"]) {
@@ -190,7 +190,7 @@ interface ViewProbe {
   buffers: { size: Float32Array };
   particles: Particle[];
 }
-const viewOf = (r: PixiSparkRenderer, i = 0): ViewProbe =>
+const viewOf = (r: PixiParticleRenderer, i = 0): ViewProbe =>
   (r as unknown as { views: ViewProbe[] }).views[i]!;
 
 const uvsDynamic = (pc: ParticleContainer): boolean =>
@@ -207,9 +207,9 @@ function flipbookDoc(fb: Flipbook) {
   return doc;
 }
 
-describe("PixiSparkRenderer — flipbook rendering (P4.1)", () => {
+describe("PixiParticleRenderer — flipbook rendering (P4.1)", () => {
   it("slices a cols×rows sheet row-major with a top-left origin", () => {
-    const r = new PixiSparkRenderer(new Effect(flipbookDoc({ cols: 2, rows: 2, fps: 10, mode: "loop" }), { seed: 1 }));
+    const r = new PixiParticleRenderer(new Effect(flipbookDoc({ cols: 2, rows: 2, fps: 10, mode: "loop" }), { seed: 1 }));
     const v = viewOf(r);
     expect(v.frames).not.toBeNull();
     expect(v.frames!.length).toBe(4);
@@ -228,7 +228,7 @@ describe("PixiSparkRenderer — flipbook rendering (P4.1)", () => {
     const fps = 10;
     const cols = 2;
     const fx = new Effect(flipbookDoc({ cols, rows: 2, fps, mode: "loop" }), { seed: 1 });
-    const r = new PixiSparkRenderer(fx);
+    const r = new PixiParticleRenderer(fx);
     const v = viewOf(r);
     for (let i = 0; i < 30; i++) fx.step(1 / 60);
     r.sync();
@@ -248,7 +248,7 @@ describe("PixiSparkRenderer — flipbook rendering (P4.1)", () => {
   it("clamps to the last frame in once mode", () => {
     const fps = 60;
     const fx = new Effect(flipbookDoc({ cols: 2, rows: 2, fps, mode: "once" }), { seed: 1 });
-    const r = new PixiSparkRenderer(fx);
+    const r = new PixiParticleRenderer(fx);
     const v = viewOf(r);
     // Step long enough that particle 0's age·fps exceeds the 4-frame count.
     for (let i = 0; i < 40; i++) fx.step(1 / 60);
@@ -262,7 +262,7 @@ describe("PixiSparkRenderer — flipbook rendering (P4.1)", () => {
 
   it("picks a stable per-particle frame in random mode", () => {
     const fx = new Effect(flipbookDoc({ cols: 2, rows: 2, fps: 10, mode: "random" }), { seed: 1 });
-    const r = new PixiSparkRenderer(fx);
+    const r = new PixiParticleRenderer(fx);
     const v = viewOf(r);
     for (let i = 0; i < 20; i++) fx.step(1 / 60);
     r.sync();
@@ -275,7 +275,7 @@ describe("PixiSparkRenderer — flipbook rendering (P4.1)", () => {
 
   it("scales by frame width, not sheet width", () => {
     const fx = new Effect(flipbookDoc({ cols: 2, rows: 2, fps: 10, mode: "loop" }), { seed: 1 });
-    const r = new PixiSparkRenderer(fx);
+    const r = new PixiParticleRenderer(fx);
     const v = viewOf(r);
     for (let i = 0; i < 20; i++) fx.step(1 / 60);
     r.sync();
@@ -287,7 +287,7 @@ describe("PixiSparkRenderer — flipbook rendering (P4.1)", () => {
   });
 
   it("leaves non-flipbook layers single-frame with static uvs", () => {
-    const r = new PixiSparkRenderer(new Effect(loadDoc("rain"), { seed: 1 }));
+    const r = new PixiParticleRenderer(new Effect(loadDoc("rain"), { seed: 1 }));
     const v = viewOf(r);
     expect(v.frames).toBeNull();
     expect(uvsDynamic(pcOf(r))).toBe(false);
@@ -295,13 +295,13 @@ describe("PixiSparkRenderer — flipbook rendering (P4.1)", () => {
   });
 
   it("marks uvs dynamic only when a flipbook is present", () => {
-    const r = new PixiSparkRenderer(new Effect(flipbookDoc({ cols: 2, rows: 2, fps: 10, mode: "loop" }), { seed: 1 }));
+    const r = new PixiParticleRenderer(new Effect(flipbookDoc({ cols: 2, rows: 2, fps: 10, mode: "loop" }), { seed: 1 }));
     expect(uvsDynamic(pcOf(r))).toBe(true);
     r.destroy();
   });
 
   it("treats a single-cell flipbook as a no-op", () => {
-    const r = new PixiSparkRenderer(new Effect(flipbookDoc({ cols: 1, rows: 1, fps: 10, mode: "loop" }), { seed: 1 }));
+    const r = new PixiParticleRenderer(new Effect(flipbookDoc({ cols: 1, rows: 1, fps: 10, mode: "loop" }), { seed: 1 }));
     expect(viewOf(r).frames).toBeNull();
     // uvs is still marked dynamic (frames !== null in the doc) but harmless.
     r.destroy();
@@ -313,7 +313,7 @@ describe("PixiSparkRenderer — flipbook rendering (P4.1)", () => {
     doc.textures = { fb: "data:image/png;base64,PLACEHOLDER-fb" };
     doc.layers[0]!.texture.frames = { cols: 2, rows: 2, fps: 10, mode: "loop" };
     const fx = new Effect(doc, { seed: doc.seed });
-    const r = new PixiSparkRenderer(fx, { loadTexture: async () => fakeTexture(128) });
+    const r = new PixiParticleRenderer(fx, { loadTexture: async () => fakeTexture(128) });
 
     // While the placeholder shows, frames is null and sync must not throw.
     expect(viewOf(r).frames).toBeNull();
@@ -329,10 +329,10 @@ describe("PixiSparkRenderer — flipbook rendering (P4.1)", () => {
   });
 });
 
-describe("PixiSparkRenderer — built-in texture cache self-heal (P0.2)", () => {
+describe("PixiParticleRenderer — built-in texture cache self-heal (P0.2)", () => {
   it("regenerates a built-in texture destroyed by host teardown", () => {
     const doc = loadDoc("rain"); // uses the built-in "spark" texture
-    const a = new PixiSparkRenderer(new Effect(doc, { seed: doc.seed }));
+    const a = new PixiParticleRenderer(new Effect(doc, { seed: doc.seed }));
     const texA = pcOf(a).texture;
     expect(texA.width).toBeGreaterThan(0);
 
@@ -343,7 +343,7 @@ describe("PixiSparkRenderer — built-in texture cache self-heal (P0.2)", () => 
     a.destroy();
 
     // A fresh renderer must NOT get the poisoned texture.
-    const b = new PixiSparkRenderer(new Effect(doc, { seed: doc.seed }));
+    const b = new PixiParticleRenderer(new Effect(doc, { seed: doc.seed }));
     const texB = pcOf(b).texture;
     expect(texB.destroyed).toBe(false);
     expect(texB.width).toBeGreaterThan(0);
@@ -351,7 +351,7 @@ describe("PixiSparkRenderer — built-in texture cache self-heal (P0.2)", () => 
   });
 });
 
-describe("PixiSparkRenderer — emitter placement (schemaVersion 2)", () => {
+describe("PixiParticleRenderer — emitter placement (schemaVersion 2)", () => {
   it("places a local layer's container at the emitter; a world layer stays at origin", () => {
     // Two layers: layer 0 local, layer 1 world.
     const doc = loadDoc("rain");
@@ -363,7 +363,7 @@ describe("PixiSparkRenderer — emitter placement (schemaVersion 2)", () => {
     doc.layers = [l, world];
 
     const fx = new Effect(doc, { seed: doc.seed });
-    const r = new PixiSparkRenderer(fx);
+    const r = new PixiParticleRenderer(fx);
 
     fx.setEmitterPosition(120, 45);
     fx.step(1 / 60);
@@ -380,7 +380,7 @@ describe("PixiSparkRenderer — emitter placement (schemaVersion 2)", () => {
     const doc = loadDoc("rain");
     doc.layers[0]!.space = "local";
     const fx = new Effect(doc, { seed: doc.seed });
-    const r = new PixiSparkRenderer(fx);
+    const r = new PixiParticleRenderer(fx);
     for (let i = 0; i < 5; i++) fx.step(1 / 60);
     r.sync();
     const pc = pcOf(r, 0);
@@ -401,7 +401,7 @@ describe("PixiSparkRenderer — emitter placement (schemaVersion 2)", () => {
     doc.looping = false;
 
     const fx = new Effect(doc, { seed: doc.seed });
-    const r = new PixiSparkRenderer(fx);
+    const r = new PixiParticleRenderer(fx);
     fx.teleportEmitter(200, 0); // spawn point (no interpolation across the gap)
     fx.setEmitterPosition(260, 0); // travel 60px this step
     fx.step(1 / 60);

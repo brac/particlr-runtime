@@ -1,7 +1,7 @@
 {
   "name": "@particlr/runtime",
-  "version": "0.0.0",
-  "description": "Framework-agnostic particle simulation core + Pixi v8 adapter for the .spark format.",
+  "version": "0.2.0",
+  "description": "Framework-agnostic particle simulation core + Pixi v8 adapter for the .prt format.",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
@@ -16,11 +16,14 @@
       "types": "./dist/pixi/index.d.ts",
       "import": "./dist/pixi/index.js"
     },
-    "./spark.schema.json": "./dist/spark.schema.json"
+    "./particle.schema.json": "./dist/particle.schema.json"
   },
   "files": [
     "dist"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.pixi.json",
     "build": "tsc -p tsconfig.build.json && node scripts/copy-schema.mjs",

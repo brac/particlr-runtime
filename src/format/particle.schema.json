@@ -1,8 +1,8 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$ref": "#/definitions/SparkDoc",
+  "$ref": "#/definitions/ParticleDoc",
   "definitions": {
-    "SparkDoc": {
+    "ParticleDoc": {
       "type": "object",
       "properties": {
         "schemaVersion": {
@@ -10,7 +10,7 @@
           "const": 2
         },
         "meta": {
-          "$ref": "#/definitions/SparkMeta"
+          "$ref": "#/definitions/ParticleMeta"
         },
         "duration": {
           "type": "number"
@@ -44,7 +44,7 @@
         "layers"
       ]
     },
-    "SparkMeta": {
+    "ParticleMeta": {
       "type": "object",
       "properties": {
         "name": {

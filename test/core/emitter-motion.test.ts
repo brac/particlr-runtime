@@ -3,7 +3,7 @@
 // velocity, teleport (no interpolation), rate-over-distance, prewarm placement,
 // and that local layers are untouched by emitter motion. All Node, no browser.
 import { describe, it, expect } from "vitest";
-import { Effect, type SparkDoc, type Layer, type Emission } from "../../src/index.js";
+import { Effect, type ParticleDoc, type Layer, type Emission } from "../../src/index.js";
 import { makeDoc, makeLayer } from "../format/_helpers.js";
 
 // A still, immortal, point-emitting layer tuned per test. Gravity/drag zeroed so
@@ -36,7 +36,7 @@ function layer(over: Partial<Layer> = {}, em: Partial<Emission> = {}): Layer {
     ...over,
   };
 }
-function doc(l: Layer, over: Partial<SparkDoc> = {}): SparkDoc {
+function doc(l: Layer, over: Partial<ParticleDoc> = {}): ParticleDoc {
   return makeDoc({ layers: [l], looping: false, duration: 100, ...over });
 }
 // Live x positions of layer 0, sorted ascending.

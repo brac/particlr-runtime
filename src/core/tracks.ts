@@ -35,7 +35,7 @@ export function drawScalarInit(init: ScalarInit, rng: Rng): number {
  */
 export function evalCurve(keys: readonly CurveKey[], t: number): number {
   const n = keys.length;
-  // validateSpark guarantees >= 1 key; guard for hand-built inputs so the
+  // validateParticle guarantees >= 1 key; guard for hand-built inputs so the
   // failure is a clear message rather than an opaque undefined dereference.
   if (n === 0) throw new Error("evalCurve: curve must have at least one key");
   const first = keys[0]!;

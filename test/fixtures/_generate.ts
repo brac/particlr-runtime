@@ -1,17 +1,17 @@
-// Source of truth for the committed .spark fixtures. Run with:
+// Source of truth for the committed .prt fixtures. Run with:
 //   npx tsx test/fixtures/_generate.ts
-// It builds the documents as objects and writes them through serializeSpark so
+// It builds the documents as objects and writes them through serializeParticle so
 // the files are guaranteed canonical (plan §2.10) and byte-stable on round-trip.
 // The round-trip test (roundtrip.test.ts) then re-derives and diffs the bytes,
 // so any hand-edit that breaks canonical form is caught.
-import { serializeSpark, type SparkDoc } from "../../src/index.js";
+import { serializeParticle, type ParticleDoc } from "../../src/index.js";
 import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 
 const dir = dirname(fileURLToPath(import.meta.url));
 
-const explosion: SparkDoc = {
+const explosion: ParticleDoc = {
   schemaVersion: 2,
   meta: { name: "Explosion", createdWith: "particlr@0.x", notes: "Flash + fireball + smoke. Slice One reference effect." },
   duration: 1.2,
@@ -191,8 +191,8 @@ const unknowns = {
     },
   ],
   futureField: { z: 1, a: [1, 2], nested: { keep: "me" } },
-} as unknown as SparkDoc;
+} as unknown as ParticleDoc;
 
-writeFileSync(resolve(dir, "explosion.spark"), serializeSpark(explosion));
-writeFileSync(resolve(dir, "unknowns.spark"), serializeSpark(unknowns));
-console.log("wrote explosion.spark, unknowns.spark");
+writeFileSync(resolve(dir, "explosion.prt"), serializeParticle(explosion));
+writeFileSync(resolve(dir, "unknowns.prt"), serializeParticle(unknowns));
+console.log("wrote explosion.prt, unknowns.prt");

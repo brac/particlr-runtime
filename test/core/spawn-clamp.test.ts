@@ -1,12 +1,12 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { parseSpark, validateSpark } from "../../src/index.js";
+import { parseParticle, validateParticle } from "../../src/index.js";
 import { Effect } from "../../src/core/effect.js";
 
 function loadDoc(name: string) {
-  const raw = readFileSync(resolve(__dirname, `../../../../presets/${name}.spark`), "utf8");
-  const parsed = parseSpark(raw);
+  const raw = readFileSync(resolve(__dirname, `../../../../presets/${name}.prt`), "utf8");
+  const parsed = parseParticle(raw);
   if (!parsed.ok) throw new Error(`fixture ${name} invalid`);
   return structuredClone(parsed.doc!);
 }
@@ -47,7 +47,7 @@ describe("validation ceilings (P1.3)", () => {
   it("rejects a rate above the ceiling", () => {
     const doc = loadDoc("fire");
     doc.layers[0]!.emission.rateOverTime = { mode: "constant", value: 1e15 };
-    const res = validateSpark(doc);
+    const res = validateParticle(doc);
     expect(res.ok).toBe(false);
     expect(res.errors.some((e) => /rate must be <=/.test(e.message))).toBe(true);
   });
@@ -55,13 +55,13 @@ describe("validation ceilings (P1.3)", () => {
   it("rejects a burst count above the ceiling", () => {
     const doc = loadDoc("sparks");
     doc.layers[0]!.emission.bursts = [{ time: 0, count: 20000, spread: 0 }];
-    const res = validateSpark(doc);
+    const res = validateParticle(doc);
     expect(res.ok).toBe(false);
     expect(res.errors.some((e) => /count must be an integer/.test(e.message))).toBe(true);
   });
 
   it("still accepts a normal rate and burst count", () => {
     const doc = loadDoc("explosion");
-    expect(validateSpark(doc).ok).toBe(true);
+    expect(validateParticle(doc).ok).toBe(true);
   });
 });

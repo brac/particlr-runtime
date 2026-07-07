@@ -1,10 +1,10 @@
-// Canonical .spark serializer (plan §2.10). Emits JSON with:
+// Canonical .prt serializer (plan §2.10). Emits JSON with:
 //  - known keys in the order the TypeScript interfaces declare them,
 //  - unknown/preserved keys appended after the known ones, in original order,
 //  - 2-space indent, \n line endings, trailing newline.
-// serializeSpark(parseSpark(text)) === text byte-for-byte for canonical inputs.
+// serializeParticle(parseParticle(text)) === text byte-for-byte for canonical inputs.
 
-import type { SparkDoc } from "./types.js";
+import type { ParticleDoc } from "./types.js";
 
 type Obj = Record<string, unknown>;
 
@@ -117,7 +117,7 @@ function cLayer(v: unknown): unknown {
   });
 }
 
-function canonicalize(doc: SparkDoc): Obj {
+function canonicalize(doc: ParticleDoc): Obj {
   const d = orderKeys(doc as unknown as Obj, [
     "schemaVersion",
     "meta",
@@ -155,6 +155,6 @@ function emit(v: unknown, depth: number): string {
   return "null";
 }
 
-export function serializeSpark(doc: SparkDoc): string {
+export function serializeParticle(doc: ParticleDoc): string {
   return emit(canonicalize(doc), 0) + "\n";
 }
