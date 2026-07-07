@@ -20,11 +20,21 @@ exports[`preset snapshots (Gate 1) > fire.prt state @60 steps is stable 1`] = `"
 
 exports[`preset snapshots (Gate 1) > fireball.prt state @60 steps is stable 1`] = `"6ca8b28f"`;
 
+exports[`preset snapshots (Gate 1) > firefly-field.prt state @60 steps is stable 1`] = `"6dec7fd5"`;
+
+exports[`preset snapshots (Gate 1) > fog-bank.prt state @60 steps is stable 1`] = `"3f35e09d"`;
+
+exports[`preset snapshots (Gate 1) > geyser.prt state @60 steps is stable 1`] = `"a26008a1"`;
+
+exports[`preset snapshots (Gate 1) > goo-splatter.prt state @60 steps is stable 1`] = `"bc5d1cda"`;
+
 exports[`preset snapshots (Gate 1) > healing-aura.prt state @60 steps is stable 1`] = `"bdd155ac"`;
 
 exports[`preset snapshots (Gate 1) > hit-flash.prt state @60 steps is stable 1`] = `"69691905"`;
 
 exports[`preset snapshots (Gate 1) > laser-impact.prt state @60 steps is stable 1`] = `"d13fa33a"`;
+
+exports[`preset snapshots (Gate 1) > level-up-burst.prt state @60 steps is stable 1`] = `"38221e01"`;
 
 exports[`preset snapshots (Gate 1) > magic-burst.prt state @60 steps is stable 1`] = `"b47f6d50"`;
 
@@ -36,10 +46,24 @@ exports[`preset snapshots (Gate 1) > portal.prt state @60 steps is stable 1`] = 
 
 exports[`preset snapshots (Gate 1) > rain.prt state @60 steps is stable 1`] = `"b0db7f15"`;
 
+exports[`preset snapshots (Gate 1) > rocket-exhaust.prt state @60 steps is stable 1`] = `"86654cac"`;
+
+exports[`preset snapshots (Gate 1) > shell-casings.prt state @60 steps is stable 1`] = `"06a9089c"`;
+
+exports[`preset snapshots (Gate 1) > shield-shimmer.prt state @60 steps is stable 1`] = `"f14381d6"`;
+
 exports[`preset snapshots (Gate 1) > smoke.prt state @60 steps is stable 1`] = `"a5cbf794"`;
 
 exports[`preset snapshots (Gate 1) > snow.prt state @60 steps is stable 1`] = `"4d429703"`;
 
+exports[`preset snapshots (Gate 1) > soda-fizz.prt state @60 steps is stable 1`] = `"40c4d281"`;
+
 exports[`preset snapshots (Gate 1) > sparks.prt state @60 steps is stable 1`] = `"921625d1"`;
+
+exports[`preset snapshots (Gate 1) > starfield.prt state @60 steps is stable 1`] = `"663ca5ce"`;
+
+exports[`preset snapshots (Gate 1) > teleport-flash.prt state @60 steps is stable 1`] = `"bc5d1cda"`;
+
+exports[`preset snapshots (Gate 1) > torch-flame.prt state @60 steps is stable 1`] = `"e6a97b4e"`;
 
 exports[`preset snapshots (Gate 1) > waterfall-mist.prt state @60 steps is stable 1`] = `"5a7a27bd"`;
