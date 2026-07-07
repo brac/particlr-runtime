@@ -632,8 +632,9 @@ function checkLayer(ctx: Ctx, v: unknown, path: string): void {
     unimplemented("randomFlip");
   }
   if (v.render !== null && v.render !== undefined) {
+    // render behaves as of M1 — no "unimplemented" warning (the align:"velocity"
+    // rotation-override warning below still applies).
     checkRender(ctx, v.render, `${path}.render`);
-    unimplemented("render");
   }
   if (v.collision !== null && v.collision !== undefined) {
     checkCollision(ctx, v.collision, `${path}.collision`);

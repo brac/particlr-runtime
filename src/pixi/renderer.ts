@@ -257,23 +257,49 @@ export class PixiParticleRenderer {
         const b = view.buffers;
         const inv = view.invFrameWidth;
         const frames = view.frames;
-        for (let j = 0; j < count; j++) {
-          const part = view.particles[j]!;
-          part.x = p.x[j]!;
-          part.y = p.y[j]!;
-          part.rotation = p.rotation[j]! * DEG2RAD;
-          const s = b.size[j]! * inv;
-          part.scaleX = s;
-          part.scaleY = s;
-          const r = Math.max(0, Math.min(255, Math.round(b.r[j]! * 255)));
-          const g = Math.max(0, Math.min(255, Math.round(b.g[j]! * 255)));
-          const bl = Math.max(0, Math.min(255, Math.round(b.b[j]! * 255)));
-          part.tint = (r << 16) | (g << 8) | bl;
-          part.alpha = Math.max(0, Math.min(1, b.a[j]!));
-          // Flipbook: wear the current frame slice. Index is core-clamped to
-          // [0, cols*rows) (render.ts) and cols*rows ≤ 4096 < Uint16 max, so no
-          // bounds check is needed here. (P4.1)
-          if (frames) part.texture = frames[b.frame[j]!]!;
+        // Two loop bodies (TIER1_PLAN §0.5). The EXISTING body is kept verbatim
+        // when no render-buffer-consuming module is active, so every committed
+        // golden stays byte-identical. The extended body (velocity alignment +
+        // speed stretch now; random flip in M5) reads the stretch/velAngle
+        // buffers that computeRenderState only fills when render !== null.
+        if (ls.layer.render === null && ls.layer.randomFlip === null) {
+          for (let j = 0; j < count; j++) {
+            const part = view.particles[j]!;
+            part.x = p.x[j]!;
+            part.y = p.y[j]!;
+            part.rotation = p.rotation[j]! * DEG2RAD;
+            const s = b.size[j]! * inv;
+            part.scaleX = s;
+            part.scaleY = s;
+            const r = Math.max(0, Math.min(255, Math.round(b.r[j]! * 255)));
+            const g = Math.max(0, Math.min(255, Math.round(b.g[j]! * 255)));
+            const bl = Math.max(0, Math.min(255, Math.round(b.b[j]! * 255)));
+            part.tint = (r << 16) | (g << 8) | bl;
+            part.alpha = Math.max(0, Math.min(1, b.a[j]!));
+            // Flipbook: wear the current frame slice. Index is core-clamped to
+            // [0, cols*rows) (render.ts) and cols*rows ≤ 4096 < Uint16 max, so no
+            // bounds check is needed here. (P4.1)
+            if (frames) part.texture = frames[b.frame[j]!]!;
+          }
+        } else {
+          for (let j = 0; j < count; j++) {
+            const part = view.particles[j]!;
+            part.x = p.x[j]!;
+            part.y = p.y[j]!;
+            // Sprite rotation follows the render buffer (velocity angle for
+            // align:"velocity", else the particle's own rotation), in radians.
+            part.rotation = b.velAngle[j]! * DEG2RAD;
+            const s = b.size[j]! * inv;
+            // Stretch scales along the (rotated) x/motion axis only.
+            part.scaleX = s * b.stretch[j]!;
+            part.scaleY = s;
+            const r = Math.max(0, Math.min(255, Math.round(b.r[j]! * 255)));
+            const g = Math.max(0, Math.min(255, Math.round(b.g[j]! * 255)));
+            const bl = Math.max(0, Math.min(255, Math.round(b.b[j]! * 255)));
+            part.tint = (r << 16) | (g << 8) | bl;
+            part.alpha = Math.max(0, Math.min(1, b.a[j]!));
+            if (frames) part.texture = frames[b.frame[j]!]!;
+          }
         }
       }
       this.syncRenderList(view, count);

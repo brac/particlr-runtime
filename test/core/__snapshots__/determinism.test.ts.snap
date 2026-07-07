@@ -46,6 +46,8 @@ exports[`preset snapshots (Gate 1) > portal.prt state @60 steps is stable 1`] = 
 
 exports[`preset snapshots (Gate 1) > rain.prt state @60 steps is stable 1`] = `"b0db7f15"`;
 
+exports[`preset snapshots (Gate 1) > rain-streaks.prt state @60 steps is stable 1`] = `"787e90b7"`;
+
 exports[`preset snapshots (Gate 1) > rocket-exhaust.prt state @60 steps is stable 1`] = `"86654cac"`;
 
 exports[`preset snapshots (Gate 1) > shell-casings.prt state @60 steps is stable 1`] = `"06a9089c"`;

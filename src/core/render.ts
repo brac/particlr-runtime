@@ -5,6 +5,11 @@ import type { Flipbook } from "../format/types.js";
 import type { LayerSim } from "./layerSim.js";
 import { evalScalarTrack, evalGradient, type RGBA } from "./tracks.js";
 
+const RAD2DEG = 180 / Math.PI;
+/** Below this speed, velocity direction is undefined, so align:"velocity" keeps
+ * the particle's own rotation (FORMAT_SPEC "Rendering: velocity alignment"). */
+const MIN_ALIGN_SPEED = 1e-3;
+
 export interface LayerRenderBuffers {
   /** Render size in px (length >= pool.capacity). */
   size: Float32Array;
@@ -14,6 +19,15 @@ export interface LayerRenderBuffers {
   a: Float32Array;
   /** Flipbook frame index (length >= pool.capacity). */
   frame: Uint16Array;
+  /** Along-motion stretch factor (schemaVersion 3). Written only when the
+   * layer's `render` module is non-null; left untouched (default 1) otherwise. */
+  stretch: Float32Array;
+  /** Sprite rotation in DEGREES (schemaVersion 3). Written when the layer's
+   * `render` OR `randomFlip` module is non-null (both route the renderer
+   * through its extended loop body): for align:"velocity" it is
+   * atan2(velY, velX); otherwise the particle's own rotation. Left untouched
+   * when neither module is set (the renderer uses pool.rotation directly). */
+  velAngle: Float32Array;
 }
 
 export function makeRenderBuffers(capacity: number): LayerRenderBuffers {
@@ -24,6 +38,10 @@ export function makeRenderBuffers(capacity: number): LayerRenderBuffers {
     b: new Float32Array(capacity),
     a: new Float32Array(capacity),
     frame: new Uint16Array(capacity),
+    // Stretch defaults to 1 (identity) so an unwritten slot never squashes a
+    // sprite even if some future path reads it before render fills it.
+    stretch: new Float32Array(capacity).fill(1),
+    velAngle: new Float32Array(capacity),
   };
 }
 
@@ -43,6 +61,7 @@ export function computeRenderState(ls: LayerSim, buf: LayerRenderBuffers): void 
   const ol = ls.layer.overLifetime;
   const sizeTrack = ol.size;
   const frames = ls.layer.texture.frames;
+  const render = ls.layer.render;
   const rgba: RGBA = { r: 0, g: 0, b: 0, a: 0 };
 
   for (let i = 0; i < p.count; i++) {
@@ -60,5 +79,48 @@ export function computeRenderState(ls: LayerSim, buf: LayerRenderBuffers): void 
     buf.a[i] = rgba.a;
 
     buf.frame[i] = flipbookFrame(frames, age, p.frameRand[i]!);
+  }
+
+  // Velocity-aligned rendering + speed stretch (schemaVersion 3). Written in a
+  // separate pass, entered ONLY when a module that routes the Pixi adapter
+  // through its extended (buffer-consuming) loop body is non-null, so a plain
+  // layer's loop above stays instruction-identical to v2 (the stretch/velAngle
+  // buffers are never touched and the renderer reads pool.rotation directly).
+  // randomFlip selects the extended body too (the guard landed in M1 for M5),
+  // so a randomFlip-only layer must still see valid velAngle values — the
+  // fallback semantics below keep an inert randomFlip from changing output.
+  if (render !== null || ls.layer.randomFlip !== null) fillRenderModule(p, render, buf);
+}
+
+/** Speed = √(velX²+velY²) from STORED velocity → per-particle stretch + sprite
+ * angle. Zero PRNG draws, zero pool writes (FORMAT_SPEC: render is a zero-draw
+ * module). Invoked when `layer.render !== null` OR `layer.randomFlip !== null`
+ * (the modules whose presence routes the renderer through its extended loop
+ * body). With `render === null` (randomFlip-only), velAngle falls back to the
+ * particle's own rotation and stretch is NOT written: it keeps the 1 that
+ * makeRenderBuffers pre-filled — this function's render-non-null branch is the
+ * ONLY writer of `stretch`, so the pre-fill is never overwritten — making the
+ * extended renderer body reproduce the plain body's output exactly. */
+function fillRenderModule(
+  p: LayerSim["pool"],
+  render: LayerSim["layer"]["render"],
+  buf: LayerRenderBuffers,
+): void {
+  if (render === null) {
+    for (let i = 0; i < p.count; i++) buf.velAngle[i] = p.rotation[i]!;
+    return;
+  }
+  const { align, speedScale, minStretch, maxStretch } = render;
+  const alignVel = align === "velocity";
+  for (let i = 0; i < p.count; i++) {
+    const vx = p.velX[i]!;
+    const vy = p.velY[i]!;
+    const speed = Math.sqrt(vx * vx + vy * vy);
+    // clamp(1 + speedScale·speed, minStretch, maxStretch); validator guarantees
+    // minStretch <= maxStretch so the min/max order is well-defined.
+    buf.stretch[i] = Math.min(maxStretch, Math.max(minStretch, 1 + speedScale * speed));
+    // align:"velocity" faces motion (degrees); below MIN_ALIGN_SPEED, or when
+    // align is "none", fall back to the particle's own rotation.
+    buf.velAngle[i] = alignVel && speed >= MIN_ALIGN_SPEED ? Math.atan2(vy, vx) * RAD2DEG : p.rotation[i]!;
   }
 }
