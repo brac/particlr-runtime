@@ -7,7 +7,7 @@
       "properties": {
         "schemaVersion": {
           "type": "number",
-          "const": 2
+          "const": 3
         },
         "meta": {
           "$ref": "#/definitions/ParticleMeta"
@@ -101,11 +101,96 @@
         "overLifetime": {
           "$ref": "#/definitions/OverLifetime"
         },
+        "noise": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/NoiseConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Turbulence field (schemaVersion 3); null = off."
+        },
+        "bySpeed": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/BySpeedConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Speed-driven size/color/rotation remaps (schemaVersion 3); null = off."
+        },
+        "startColor": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/StartColor"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Per-particle spawn-color variety (schemaVersion 3); null = off."
+        },
+        "randomFlip": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/RandomFlip"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Per-particle random flip (schemaVersion 3); null = off."
+        },
+        "render": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/RenderConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Velocity-aligned / stretched rendering (schemaVersion 3); null = off."
+        },
+        "collision": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/CollisionConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Simple collision (schemaVersion 3); null = off."
+        },
         "subEmitters": {
-          "type": "null"
+          "anyOf": [
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/SubEmitterRef"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Sub-emitters (schemaVersion 3); null = none (was reserved in v1/v2)."
         },
         "trail": {
-          "type": "null"
+          "anyOf": [
+            {
+              "$ref": "#/definitions/TrailConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Per-particle trail (schemaVersion 3); null = off (was reserved in v1/v2)."
         }
       },
       "required": [
@@ -120,6 +205,12 @@
         "inheritVelocity",
         "initial",
         "overLifetime",
+        "noise",
+        "bySpeed",
+        "startColor",
+        "randomFlip",
+        "render",
+        "collision",
         "subEmitters",
         "trail"
       ]
@@ -323,12 +414,27 @@
         },
         "spread": {
           "type": "number"
+        },
+        "cycles": {
+          "type": "number",
+          "description": "schemaVersion 3. Number of times the burst repeats; 1 = single (v2)."
+        },
+        "interval": {
+          "type": "number",
+          "description": "schemaVersion 3. Seconds between cycles (only meaningful when cycles > 1)."
+        },
+        "probability": {
+          "type": "number",
+          "description": "schemaVersion 3. Per-cycle firing probability in [0,1]; 1 = always (v2)."
         }
       },
       "required": [
         "time",
         "count",
-        "spread"
+        "spread",
+        "cycles",
+        "interval",
+        "probability"
       ]
     },
     "Shape": {
@@ -359,6 +465,22 @@
             "radius": {
               "type": "number"
             },
+            "innerRadius": {
+              "type": "number",
+              "description": "schemaVersion 3. Inner hole radius for a donut; 0 = full disc (v2)."
+            },
+            "arc": {
+              "type": "number",
+              "description": "schemaVersion 3. Angular span in degrees from 0° (+x, clockwise); 360 = full (v2)."
+            },
+            "arcMode": {
+              "$ref": "#/definitions/ArcMode",
+              "description": "schemaVersion 3. How the emission angle sweeps the arc."
+            },
+            "arcSpeed": {
+              "type": "number",
+              "description": "schemaVersion 3. Sweeps per second for loop/pingPong modes."
+            },
             "emitFrom": {
               "$ref": "#/definitions/EmitFrom"
             }
@@ -366,6 +488,10 @@
           "required": [
             "kind",
             "radius",
+            "innerRadius",
+            "arc",
+            "arcMode",
+            "arcSpeed",
             "emitFrom"
           ]
         },
@@ -385,6 +511,14 @@
             "radius": {
               "type": "number"
             },
+            "arcMode": {
+              "$ref": "#/definitions/ArcMode",
+              "description": "schemaVersion 3. How the emission angle sweeps the spread."
+            },
+            "arcSpeed": {
+              "type": "number",
+              "description": "schemaVersion 3. Sweeps per second for loop/pingPong modes."
+            },
             "emitFrom": {
               "$ref": "#/definitions/EmitFrom"
             }
@@ -394,6 +528,8 @@
             "direction",
             "spread",
             "radius",
+            "arcMode",
+            "arcSpeed",
             "emitFrom"
           ]
         },
@@ -449,6 +585,16 @@
         "volume",
         "surface"
       ]
+    },
+    "ArcMode": {
+      "type": "string",
+      "enum": [
+        "random",
+        "loop",
+        "pingPong",
+        "burstSpread"
+      ],
+      "description": "How the emission angle sweeps across a circle arc / cone spread (schemaVersion 3). `random` = the v2 behavior (uniform within the span). The others make emission march deterministically around the arc."
     },
     "SimSpace": {
       "type": "string",
@@ -628,12 +774,57 @@
               "type": "null"
             }
           ]
+        },
+        "x": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ScalarTrack"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Velocity over lifetime (schemaVersion 3), all additive px/s at ageNorm (added into the position update, not accumulated into stored velX/velY). `x`/`y` are directional; `orbital` is deg/s clockwise about the layer origin; `radial` is px/s outward. Null = the field contributes nothing."
+        },
+        "y": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ScalarTrack"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "orbital": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ScalarTrack"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "radial": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ScalarTrack"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
         "gravity",
         "drag",
-        "speedMultiplier"
+        "speedMultiplier",
+        "x",
+        "y",
+        "orbital",
+        "radial"
       ]
     },
     "Vec2": {
@@ -650,6 +841,336 @@
         "x",
         "y"
       ]
+    },
+    "NoiseConfig": {
+      "type": "object",
+      "properties": {
+        "strength": {
+          "$ref": "#/definitions/ScalarTrack"
+        },
+        "frequency": {
+          "type": "number"
+        },
+        "scrollSpeed": {
+          "type": "number"
+        },
+        "octaves": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "strength",
+        "frequency",
+        "scrollSpeed",
+        "octaves"
+      ],
+      "description": "Turbulence / curl-noise field applied as a bounded position perturbation (schemaVersion 3). `strength` is px/s over the particle's life; `frequency` scales the spatial lattice; `scrollSpeed` scrolls the field over time; `octaves` (1..3) stacks detail."
+    },
+    "BySpeedConfig": {
+      "type": "object",
+      "properties": {
+        "range": {
+          "type": "object",
+          "properties": {
+            "min": {
+              "type": "number"
+            },
+            "max": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "min",
+            "max"
+          ]
+        },
+        "size": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ScalarTrack"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "color": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/GradientTrack"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "rotation": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ScalarTrack"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "range",
+        "size",
+        "color",
+        "rotation"
+      ],
+      "description": "Remap size/color/rotation by a particle's instantaneous speed (schemaVersion 3). Speed is normalized across [range.min, range.max]; each non-null channel is then applied at that t. Curve/constant tracks only — no per-particle range mode (no reserved PRNG draw)."
+    },
+    "StartColor": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "mode": {
+              "type": "string",
+              "const": "gradients"
+            },
+            "a": {
+              "$ref": "#/definitions/GradientTrack"
+            },
+            "b": {
+              "$ref": "#/definitions/GradientTrack"
+            }
+          },
+          "required": [
+            "mode",
+            "a",
+            "b"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "mode": {
+              "type": "string",
+              "const": "palette"
+            },
+            "colors": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/RGBAColor"
+              }
+            }
+          },
+          "required": [
+            "mode",
+            "colors"
+          ]
+        }
+      ],
+      "description": "Per-particle spawn-color variety (schemaVersion 3), applied as a constant tint multiplier over the over-lifetime gradient (L7 amendment). `gradients`: lerp between two gradients by a per-particle uniform. `palette`: pick one of 1..16 fixed colors per particle."
+    },
+    "RGBAColor": {
+      "type": "object",
+      "properties": {
+        "r": {
+          "type": "number"
+        },
+        "g": {
+          "type": "number"
+        },
+        "b": {
+          "type": "number"
+        },
+        "a": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "r",
+        "g",
+        "b",
+        "a"
+      ],
+      "description": "RGBA color, each channel in [0,1] (schemaVersion 3)."
+    },
+    "RandomFlip": {
+      "type": "object",
+      "properties": {
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "y"
+      ],
+      "description": "Per-particle random mirroring (schemaVersion 3). `x`/`y` are the probabilities in [0,1] of flipping that axis (negative sprite scale)."
+    },
+    "RenderConfig": {
+      "type": "object",
+      "properties": {
+        "align": {
+          "type": "string",
+          "enum": [
+            "none",
+            "velocity"
+          ]
+        },
+        "speedScale": {
+          "type": "number"
+        },
+        "minStretch": {
+          "type": "number"
+        },
+        "maxStretch": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "align",
+        "speedScale",
+        "minStretch",
+        "maxStretch"
+      ],
+      "description": "Velocity-aligned rendering + speed stretch (schemaVersion 3). `align: \"velocity\"` rotates the sprite to face its motion; `speedScale` grows the along-motion stretch with speed, clamped to [minStretch, maxStretch]."
+    },
+    "CollisionConfig": {
+      "type": "object",
+      "properties": {
+        "shape": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "const": "floor"
+                },
+                "y": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "kind",
+                "y"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "const": "rect"
+                },
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                },
+                "width": {
+                  "type": "number"
+                },
+                "height": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "kind",
+                "x",
+                "y",
+                "width",
+                "height"
+              ]
+            }
+          ]
+        },
+        "bounce": {
+          "type": "number"
+        },
+        "dampen": {
+          "type": "number"
+        },
+        "lifetimeLoss": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "shape",
+        "bounce",
+        "dampen",
+        "lifetimeLoss"
+      ],
+      "description": "Simple collision plane(s) in the layer's sim frame (schemaVersion 3). `floor`: a horizontal line at `y`. `rect`: keep particles inside the box. `bounce`/`dampen`/`lifetimeLoss` are all in [0,1]."
+    },
+    "SubEmitterRef": {
+      "type": "object",
+      "properties": {
+        "trigger": {
+          "$ref": "#/definitions/SubTrigger"
+        },
+        "layerId": {
+          "type": "string"
+        },
+        "count": {
+          "type": "number"
+        },
+        "probability": {
+          "type": "number"
+        },
+        "inheritVelocity": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "trigger",
+        "layerId",
+        "count",
+        "probability",
+        "inheritVelocity"
+      ],
+      "description": "How a layer's particles spawn children on another layer (schemaVersion 3). `layerId` names a sibling layer (depth 1: that layer must have `subEmitters: null`). `count` children per event, gated by `probability`."
+    },
+    "SubTrigger": {
+      "type": "string",
+      "enum": [
+        "birth",
+        "death",
+        "collision"
+      ],
+      "description": "The event that fires a sub-emitter (schemaVersion 3)."
+    },
+    "TrailConfig": {
+      "type": "object",
+      "properties": {
+        "maxPoints": {
+          "type": "number"
+        },
+        "minVertexDistance": {
+          "type": "number"
+        },
+        "width": {
+          "$ref": "#/definitions/ScalarTrack"
+        },
+        "color": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/GradientTrack"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "maxPoints",
+        "minVertexDistance",
+        "width",
+        "color"
+      ],
+      "description": "Per-particle ribbon trail (schemaVersion 3). Polyline of the last `maxPoints` positions; `width` over trail t (0 = head); `color` over trail length (null = the particle's current color)."
     }
   }
 }

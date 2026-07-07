@@ -138,6 +138,25 @@ Each `LayerSim` exposes read-only per-particle typed arrays (`x`, `y`, `velX`,
 into your own buffers if you're writing a custom renderer — keeping all renderers
 identical to the preview.
 
+#### Schema v3 (Tier-1 feature surface)
+
+schemaVersion 3 adds per-layer feature modules, each `null` = off: `noise`
+(curl turbulence), `bySpeed` (speed-driven size/color/rotation remaps),
+`startColor` (per-particle spawn tint — two-gradient lerp or a ≤16-color
+palette), `randomFlip`, `render` (velocity alignment + speed stretch),
+`collision` (floor/rect planes), `subEmitters` (depth-1 refs to sibling
+layers), and `trail` (per-particle ribbons). `overLifetime.velocity` gains
+additive `x`/`y`/`orbital`/`radial` tracks; circles gain `innerRadius`/`arc`/
+`arcMode`/`arcSpeed` (donut + arc sweeps; cones get the arc modes too); bursts
+gain `cycles`/`interval`/`probability`. The layer cap is 8 (was 4). Exported
+types: `NoiseConfig`, `BySpeedConfig`, `StartColor`, `RandomFlip`,
+`RenderConfig`, `CollisionConfig`, `SubEmitterRef`, `TrailConfig`, `ArcMode`,
+`SubTrigger`, `RGBAColor`. v1/v2 documents migrate forward losslessly and
+behave bit-identically. Feature behaviors land milestone-by-milestone
+(TIER1_PLAN); a document using a not-yet-implemented module validates with an
+`"unimplemented"` warning and the field stays inert. Full semantics:
+`docs/FORMAT_SPEC.md`.
+
 ### Behavioral guarantees (edge cases)
 
 | # | Case | Behavior |

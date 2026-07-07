@@ -29,7 +29,68 @@ export const MIGRATIONS: Record<number, (doc: any) => any> = {
         }))
       : doc.layers,
   }),
+
+  // v2 -> v3: Tier-1 feature surface (TIER1_PLAN §0.1). Inject inert defaults so
+  // a migrated v2 document produces a byte-identical PRNG stream, pool state, and
+  // golden frames as the v2 runtime (the "bit-identity invariant"): every module
+  // defaults to null (zero conditional PRNG draws, no allocated pool buffers), and
+  // the arc/donut/burst-cycle fields default to their v2-equivalent values (full
+  // circle, single burst, random arc). Spread the originals AFTER each default
+  // block so a present value is never clobbered and unknown fields survive.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  2: (doc: any) => ({
+    ...doc,
+    schemaVersion: 3,
+    layers: Array.isArray(doc.layers) ? doc.layers.map(migrateLayer2to3) : doc.layers,
+  }),
 };
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function migrateLayer2to3(l: any): any {
+  if (l === null || typeof l !== "object") return l;
+  return {
+    // Modules off by default; `subEmitters`/`trail` were already null in v2.
+    noise: null,
+    bySpeed: null,
+    startColor: null,
+    randomFlip: null,
+    render: null,
+    collision: null,
+    ...l,
+    shape: migrateShape2to3(l.shape),
+    emission: migrateEmission2to3(l.emission),
+    overLifetime: migrateOverLifetime2to3(l.overLifetime),
+  };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function migrateShape2to3(s: any): any {
+  if (s === null || typeof s !== "object") return s;
+  if (s.kind === "circle") return { innerRadius: 0, arc: 360, arcMode: "random", arcSpeed: 1, ...s };
+  if (s.kind === "cone") return { arcMode: "random", arcSpeed: 1, ...s };
+  return s;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function migrateEmission2to3(e: any): any {
+  if (e === null || typeof e !== "object") return e;
+  return {
+    ...e,
+    bursts: Array.isArray(e.bursts)
+      ? e.bursts.map((b: any) =>
+          b && typeof b === "object" ? { cycles: 1, interval: 0, probability: 1, ...b } : b,
+        )
+      : e.bursts,
+  };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function migrateOverLifetime2to3(ol: any): any {
+  if (ol === null || typeof ol !== "object") return ol;
+  const vel = ol.velocity;
+  if (vel === null || typeof vel !== "object") return ol;
+  return { ...ol, velocity: { x: null, y: null, orbital: null, radial: null, ...vel } };
+}
 
 export type MigrateResult =
   | { ok: true; doc: unknown }

@@ -29,12 +29,12 @@ describe("validateParticle — document rules", () => {
   });
 
   it("rejects schemaVersion < 1 or non-integer", () => {
-    expect(firstCode(makeDoc({ schemaVersion: 0 as 2 }))).toBe("invalid-version");
-    expect(firstCode(makeDoc({ schemaVersion: 1.5 as 2 }))).toBe("invalid-version");
+    expect(firstCode(makeDoc({ schemaVersion: 0 as 3 }))).toBe("invalid-version");
+    expect(firstCode(makeDoc({ schemaVersion: 1.5 as 3 }))).toBe("invalid-version");
   });
 
   it("refuses a newer schemaVersion (E11)", () => {
-    expect(firstCode(makeDoc({ schemaVersion: 3 as 2 }))).toBe("newer-version");
+    expect(firstCode(makeDoc({ schemaVersion: 4 as 3 }))).toBe("newer-version");
   });
 
   it("rejects duration below the 0.05 floor (E13)", () => {
@@ -52,9 +52,16 @@ describe("validateParticle — document rules", () => {
     expect(errPaths(makeDoc({ seed: "x" as unknown as number }))).toContain("seed");
   });
 
-  it("rejects more than 4 layers", () => {
-    const many = [makeLayer(), makeLayer(), makeLayer(), makeLayer(), makeLayer()];
-    expect(errPaths(makeDoc({ layers: many }))).toContain("layers");
+  it("accepts up to 8 layers and rejects more (schemaVersion 3 cap)", () => {
+    const eight = Array.from({ length: 8 }, (_, i) => makeLayer({ id: `l${i}` }));
+    expect(validateParticle(makeDoc({ layers: eight })).ok).toBe(true);
+    const nine = Array.from({ length: 9 }, (_, i) => makeLayer({ id: `l${i}` }));
+    expect(errPaths(makeDoc({ layers: nine }))).toContain("layers");
+  });
+
+  it("rejects duplicate layer ids (sub-emitter refs resolve by id)", () => {
+    const dup = [makeLayer({ id: "same" }), makeLayer({ id: "same" })];
+    expect(errPaths(makeDoc({ layers: dup }))).toContain("layers[1].id");
   });
 
   it("requires string meta fields", () => {
@@ -194,10 +201,150 @@ describe("validateParticle — track & gradient rules", () => {
   });
 });
 
-describe("validateParticle — reserved fields (L8)", () => {
-  it("rejects non-null subEmitters and trail", () => {
-    expect(errPaths(makeDoc({ layers: [makeLayer({ subEmitters: {} as null })] }))).toContain("layers[0].subEmitters");
-    expect(errPaths(makeDoc({ layers: [makeLayer({ trail: {} as null })] }))).toContain("layers[0].trail");
+describe("validateParticle — schemaVersion 3 feature modules", () => {
+  const withLayer = (over: Record<string, unknown>) =>
+    makeDoc({ layers: [makeLayer(over as never)] });
+  const warns = (input: unknown) => {
+    const r = validateParticle(input);
+    return r.warnings;
+  };
+
+  it("accepts null for every module (the migration default)", () => {
+    expect(validateParticle(makeDoc()).ok).toBe(true);
+  });
+
+  it("warns 'unimplemented' for any non-null module (M0 ships surface, not behavior)", () => {
+    const l = makeLayer({ noise: { strength: { mode: "constant", value: 40 }, frequency: 0.01, scrollSpeed: 0.2, octaves: 2 } });
+    const r = validateParticle(makeDoc({ layers: [l] }));
+    expect(r.ok).toBe(true);
+    expect(r.warnings.some((w) => w.code === "unimplemented" && w.path === "layers[0].noise")).toBe(true);
+  });
+
+  // noise
+  it("validates noise ranges (frequency > 0, octaves 1..3, no range strength)", () => {
+    const noise = (o: Record<string, unknown>) => withLayer({ noise: { strength: { mode: "constant", value: 1 }, frequency: 0.01, scrollSpeed: 0, octaves: 1, ...o } });
+    expect(errPaths(noise({ frequency: 0 }))).toContain("layers[0].noise.frequency");
+    expect(errPaths(noise({ octaves: 4 }))).toContain("layers[0].noise.octaves");
+    expect(errPaths(noise({ strength: { mode: "range", min: 1, max: 2 } }))).toContain("layers[0].noise.strength.mode");
+  });
+
+  // render
+  it("validates render (align enum, minStretch <= maxStretch)", () => {
+    const render = (o: Record<string, unknown>) => withLayer({ render: { align: "velocity", speedScale: 0.01, minStretch: 1, maxStretch: 3, ...o } });
+    expect(validateParticle(render({})).ok).toBe(true);
+    expect(errPaths(render({ align: "sideways" }))).toContain("layers[0].render.align");
+    expect(errPaths(render({ minStretch: 5, maxStretch: 2 }))).toContain("layers[0].render");
+  });
+
+  it("warns when align:velocity is combined with a rotation module", () => {
+    const l = makeLayer({
+      render: { align: "velocity", speedScale: 0.01, minStretch: 1, maxStretch: 2 },
+      overLifetime: { ...makeLayer().overLifetime, rotation: { mode: "constant", value: 90 } },
+    });
+    expect(warns(makeDoc({ layers: [l] })).some((w) => w.path === "layers[0].render.align")).toBe(true);
+  });
+
+  // bySpeed
+  it("validates bySpeed (range min<=max, no range-mode tracks)", () => {
+    const bs = (o: Record<string, unknown>) => withLayer({ bySpeed: { range: { min: 0, max: 100 }, size: null, color: null, rotation: null, ...o } });
+    expect(validateParticle(bs({})).ok).toBe(true);
+    expect(errPaths(bs({ range: { min: 100, max: 0 } }))).toContain("layers[0].bySpeed.range");
+    expect(errPaths(bs({ size: { mode: "range", min: 1, max: 2 } }))).toContain("layers[0].bySpeed.size.mode");
+  });
+
+  // startColor
+  it("validates startColor palette (1..16 colors) and gradients mode", () => {
+    const grad = { keys: [{ t: 0, r: 1, g: 1, b: 1, a: 1 }] };
+    expect(validateParticle(withLayer({ startColor: { mode: "gradients", a: grad, b: grad } })).ok).toBe(true);
+    expect(validateParticle(withLayer({ startColor: { mode: "palette", colors: [{ r: 1, g: 0, b: 0, a: 1 }] } })).ok).toBe(true);
+    expect(errPaths(withLayer({ startColor: { mode: "palette", colors: [] } }))).toContain("layers[0].startColor.colors");
+    const many = Array.from({ length: 17 }, () => ({ r: 0, g: 0, b: 0, a: 1 }));
+    expect(errPaths(withLayer({ startColor: { mode: "palette", colors: many } }))).toContain("layers[0].startColor.colors");
+  });
+
+  // randomFlip
+  it("validates randomFlip probabilities in [0,1]", () => {
+    expect(validateParticle(withLayer({ randomFlip: { x: 0.5, y: 0 } })).ok).toBe(true);
+    expect(errPaths(withLayer({ randomFlip: { x: 1.5, y: 0 } }))).toContain("layers[0].randomFlip.x");
+  });
+
+  // collision
+  it("validates collision shapes and unit params, hints on local space", () => {
+    const floor = { shape: { kind: "floor", y: 100 }, bounce: 0.5, dampen: 0.1, lifetimeLoss: 0 };
+    expect(validateParticle(withLayer({ collision: floor })).ok).toBe(true);
+    expect(errPaths(withLayer({ collision: { ...floor, bounce: 2 } }))).toContain("layers[0].collision.bounce");
+    expect(warns(withLayer({ collision: floor })).some((w) => w.path === "layers[0].collision")).toBe(true); // E20 local hint
+  });
+
+  // trail
+  it("validates trail (maxPoints 2..32, minVertexDistance > 0, no range width)", () => {
+    const trail = (o: Record<string, unknown>) => withLayer({ trail: { maxPoints: 16, minVertexDistance: 4, width: { mode: "constant", value: 3 }, color: null, ...o } });
+    expect(validateParticle(trail({})).ok).toBe(true);
+    expect(errPaths(trail({ maxPoints: 64 }))).toContain("layers[0].trail.maxPoints");
+    expect(errPaths(trail({ minVertexDistance: 0 }))).toContain("layers[0].trail.minVertexDistance");
+    expect(errPaths(trail({ width: { mode: "range", min: 1, max: 2 } }))).toContain("layers[0].trail.width.mode");
+  });
+
+  // shape arc / donut
+  it("validates circle donut + arc (0<=innerRadius<=radius, arc in (0,360])", () => {
+    const circle = (o: Record<string, unknown>) => withLayer({ shape: { kind: "circle", radius: 20, innerRadius: 0, arc: 360, arcMode: "random", arcSpeed: 1, emitFrom: "volume", ...o } });
+    expect(validateParticle(circle({})).ok).toBe(true);
+    expect(errPaths(circle({ innerRadius: 30 }))).toContain("layers[0].shape.innerRadius");
+    expect(errPaths(circle({ arc: 0 }))).toContain("layers[0].shape.arc");
+    expect(errPaths(circle({ arc: 400 }))).toContain("layers[0].shape.arc");
+    expect(errPaths(circle({ arcMode: "spin" }))).toContain("layers[0].shape.arcMode");
+  });
+
+  // burst cycles
+  it("validates burst cycles/interval/probability", () => {
+    const burst = (o: Record<string, unknown>) => {
+      const l = makeLayer();
+      l.emission.bursts = [{ time: 0, count: 5, spread: 0, cycles: 1, interval: 0, probability: 1, ...o } as never];
+      return makeDoc({ layers: [l] });
+    };
+    expect(validateParticle(burst({})).ok).toBe(true);
+    expect(errPaths(burst({ cycles: 0 }))).toContain("layers[0].emission.bursts[0].cycles");
+    expect(errPaths(burst({ cycles: 3, interval: 0 }))).toContain("layers[0].emission.bursts[0].interval");
+    expect(errPaths(burst({ probability: 2 }))).toContain("layers[0].emission.bursts[0].probability");
+  });
+});
+
+describe("validateParticle — sub-emitter references (schemaVersion 3)", () => {
+  const parent = (refOver: Record<string, unknown> = {}) =>
+    makeLayer({
+      id: "parent",
+      subEmitters: [{ trigger: "death", layerId: "child", count: 5, probability: 1, inheritVelocity: 0, ...refOver }] as never,
+    });
+  const child = (over: Record<string, unknown> = {}) => {
+    const l = makeLayer({ id: "child", ...over });
+    l.emission.rateOverTime = { mode: "constant", value: 0 }; // children emit only on trigger
+    return l;
+  };
+
+  it("accepts a valid depth-1 reference to a sibling layer", () => {
+    const r = validateParticle(makeDoc({ layers: [parent(), child()] }));
+    expect(r.ok).toBe(true);
+  });
+
+  it("rejects a self reference, a missing target, and a depth-2 chain", () => {
+    expect(errPaths(makeDoc({ layers: [parent({ layerId: "parent" }), child()] }))).toContain("layers[0].subEmitters[0].layerId");
+    expect(errPaths(makeDoc({ layers: [parent({ layerId: "ghost" }), child()] }))).toContain("layers[0].subEmitters[0].layerId");
+    // child itself has sub-emitters -> depth 2, illegal
+    const deepChild = makeLayer({ id: "child", subEmitters: [{ trigger: "birth", layerId: "parent", count: 1, probability: 1, inheritVelocity: 0 }] as never });
+    expect(errPaths(makeDoc({ layers: [parent(), deepChild] }))).toContain("layers[0].subEmitters[0].layerId");
+  });
+
+  it("rejects count out of [1,100] and probability out of [0,1]", () => {
+    expect(errPaths(makeDoc({ layers: [parent({ count: 0 }), child()] }))).toContain("layers[0].subEmitters[0].count");
+    expect(errPaths(makeDoc({ layers: [parent({ count: 101 }), child()] }))).toContain("layers[0].subEmitters[0].count");
+    expect(errPaths(makeDoc({ layers: [parent({ probability: 1.5 }), child()] }))).toContain("layers[0].subEmitters[0].probability");
+  });
+
+  it("warns when a sub-emitter target still emits continuously", () => {
+    const busyChild = makeLayer({ id: "child" }); // makeLayer default rate is constant 20
+    const r = validateParticle(makeDoc({ layers: [parent(), busyChild] }));
+    expect(r.ok).toBe(true);
+    expect(r.warnings.some((w) => w.path === "layers[0].subEmitters[0].layerId")).toBe(true);
   });
 });
 

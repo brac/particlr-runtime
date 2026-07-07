@@ -56,11 +56,81 @@ function cGradient(v: unknown): unknown {
 
 const SHAPE_ORDER: Record<string, readonly string[]> = {
   point: ["kind", "emitFrom"],
-  circle: ["kind", "radius", "emitFrom"],
-  cone: ["kind", "direction", "spread", "radius", "emitFrom"],
+  circle: ["kind", "radius", "innerRadius", "arc", "arcMode", "arcSpeed", "emitFrom"],
+  cone: ["kind", "direction", "spread", "radius", "arcMode", "arcSpeed", "emitFrom"],
   rect: ["kind", "width", "height", "emitFrom"],
   edge: ["kind", "length", "emitFrom"],
 };
+
+// --- schemaVersion 3 feature-module canonicalizers -------------------------
+const cNoise = (v: unknown): unknown =>
+  v === null
+    ? null
+    : map(v, (o) => {
+        const n = orderKeys(o, ["strength", "frequency", "scrollSpeed", "octaves"]);
+        n.strength = cTrack(n.strength);
+        return n;
+      });
+
+const cRender = (v: unknown): unknown =>
+  v === null ? null : map(v, (o) => orderKeys(o, ["align", "speedScale", "minStretch", "maxStretch"]));
+
+const cBySpeed = (v: unknown): unknown =>
+  v === null
+    ? null
+    : map(v, (o) => {
+        const b = orderKeys(o, ["range", "size", "color", "rotation"]);
+        b.range = map(b.range, (rg) => orderKeys(rg, ["min", "max"]));
+        b.size = cTrackOrNull(b.size);
+        b.color = b.color === null ? null : cGradient(b.color);
+        b.rotation = cTrackOrNull(b.rotation);
+        return b;
+      });
+
+const cStartColor = (v: unknown): unknown =>
+  v === null
+    ? null
+    : map(v, (o) => {
+        if (o.mode === "palette") {
+          const s = orderKeys(o, ["mode", "colors"]);
+          if (Array.isArray(s.colors)) s.colors = s.colors.map((c) => map(c, (cc) => orderKeys(cc, ["r", "g", "b", "a"])));
+          return s;
+        }
+        const s = orderKeys(o, ["mode", "a", "b"]);
+        s.a = cGradient(s.a);
+        s.b = cGradient(s.b);
+        return s;
+      });
+
+const cRandomFlip = (v: unknown): unknown => (v === null ? null : map(v, (o) => orderKeys(o, ["x", "y"])));
+
+const COLLISION_SHAPE_ORDER: Record<string, readonly string[]> = {
+  floor: ["kind", "y"],
+  rect: ["kind", "x", "y", "width", "height"],
+};
+const cCollision = (v: unknown): unknown =>
+  v === null
+    ? null
+    : map(v, (o) => {
+        const c = orderKeys(o, ["shape", "bounce", "dampen", "lifetimeLoss"]);
+        c.shape = map(c.shape, (s) => orderKeys(s, COLLISION_SHAPE_ORDER[String(s.kind)] ?? ["kind"]));
+        return c;
+      });
+
+const cSubEmitters = (v: unknown): unknown =>
+  v === null || !Array.isArray(v)
+    ? v
+    : v.map((s) => map(s, (o) => orderKeys(o, ["trigger", "layerId", "count", "probability", "inheritVelocity"])));
+
+const cTrail = (v: unknown): unknown =>
+  v === null
+    ? null
+    : map(v, (o) => {
+        const t = orderKeys(o, ["maxPoints", "minVertexDistance", "width", "color"]);
+        t.width = cTrack(t.width);
+        t.color = t.color === null ? null : cGradient(t.color);
+        return t;
+      });
 
 function cLayer(v: unknown): unknown {
   return map(v, (o) => {
@@ -76,6 +146,12 @@ function cLayer(v: unknown): unknown {
       "inheritVelocity",
       "initial",
       "overLifetime",
+      "noise",
+      "bySpeed",
+      "startColor",
+      "randomFlip",
+      "render",
+      "collision",
       "subEmitters",
       "trail",
     ]);
@@ -88,7 +164,8 @@ function cLayer(v: unknown): unknown {
       const em = orderKeys(e, ["rateOverTime", "rateOverDistance", "bursts", "delay", "prewarm", "maxParticles"]);
       em.rateOverTime = cTrack(em.rateOverTime);
       em.rateOverDistance = cTrackOrNull(em.rateOverDistance);
-      if (Array.isArray(em.bursts)) em.bursts = em.bursts.map((b) => map(b, (bb) => orderKeys(bb, ["time", "count", "spread"])));
+      if (Array.isArray(em.bursts))
+        em.bursts = em.bursts.map((b) => map(b, (bb) => orderKeys(bb, ["time", "count", "spread", "cycles", "interval", "probability"])));
       return em;
     });
     l.shape = map(l.shape, (s) => orderKeys(s, SHAPE_ORDER[String(s.kind)] ?? ["kind", "emitFrom"]));
@@ -105,14 +182,26 @@ function cLayer(v: unknown): unknown {
       olo.color = cGradient(olo.color);
       olo.rotation = cTrackOrNull(olo.rotation);
       olo.velocity = map(olo.velocity, (vel) => {
-        const vo = orderKeys(vel, ["gravity", "drag", "speedMultiplier"]);
+        const vo = orderKeys(vel, ["gravity", "drag", "speedMultiplier", "x", "y", "orbital", "radial"]);
         vo.gravity = map(vo.gravity, (g) => orderKeys(g, ["x", "y"]));
         vo.drag = cTrackOrNull(vo.drag);
         vo.speedMultiplier = cTrackOrNull(vo.speedMultiplier);
+        for (const key of ["x", "y", "orbital", "radial"]) {
+          if (key in vo) vo[key] = cTrackOrNull(vo[key]);
+        }
         return vo;
       });
       return olo;
     });
+    // schemaVersion 3 feature modules (each null = off).
+    l.noise = cNoise(l.noise);
+    l.bySpeed = cBySpeed(l.bySpeed);
+    l.startColor = cStartColor(l.startColor);
+    l.randomFlip = cRandomFlip(l.randomFlip);
+    l.render = cRender(l.render);
+    l.collision = cCollision(l.collision);
+    l.subEmitters = cSubEmitters(l.subEmitters);
+    l.trail = cTrail(l.trail);
     return l;
   });
 }

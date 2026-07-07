@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "meta": {
     "name": "Explosion",
     "createdWith": "particlr@0.x",
@@ -28,7 +28,10 @@
           {
             "time": 0,
             "count": 1,
-            "spread": 0
+            "spread": 0,
+            "cycles": 1,
+            "interval": 0,
+            "probability": 1
           }
         ],
         "delay": 0,
@@ -103,9 +106,19 @@
             "y": 0
           },
           "drag": null,
-          "speedMultiplier": null
+          "speedMultiplier": null,
+          "x": null,
+          "y": null,
+          "orbital": null,
+          "radial": null
         }
       },
+      "noise": null,
+      "bySpeed": null,
+      "startColor": null,
+      "randomFlip": null,
+      "render": null,
+      "collision": null,
       "subEmitters": null,
       "trail": null
     },
@@ -128,7 +141,10 @@
           {
             "time": 0,
             "count": 24,
-            "spread": 0
+            "spread": 0,
+            "cycles": 1,
+            "interval": 0,
+            "probability": 1
           }
         ],
         "delay": 0,
@@ -138,6 +154,10 @@
       "shape": {
         "kind": "circle",
         "radius": 8,
+        "innerRadius": 0,
+        "arc": 360,
+        "arcMode": "random",
+        "arcSpeed": 1,
         "emitFrom": "volume"
       },
       "space": "local",
@@ -218,9 +238,19 @@
             "mode": "constant",
             "value": 2.5
           },
-          "speedMultiplier": null
+          "speedMultiplier": null,
+          "x": null,
+          "y": null,
+          "orbital": null,
+          "radial": null
         }
       },
+      "noise": null,
+      "bySpeed": null,
+      "startColor": null,
+      "randomFlip": null,
+      "render": null,
+      "collision": null,
       "subEmitters": null,
       "trail": null
     },
@@ -247,6 +277,10 @@
       "shape": {
         "kind": "circle",
         "radius": 12,
+        "innerRadius": 0,
+        "arc": 360,
+        "arcMode": "random",
+        "arcSpeed": 1,
         "emitFrom": "volume"
       },
       "space": "local",
@@ -328,9 +362,19 @@
             "mode": "constant",
             "value": 1.5
           },
-          "speedMultiplier": null
+          "speedMultiplier": null,
+          "x": null,
+          "y": null,
+          "orbital": null,
+          "radial": null
         }
       },
+      "noise": null,
+      "bySpeed": null,
+      "startColor": null,
+      "randomFlip": null,
+      "render": null,
+      "collision": null,
       "subEmitters": null,
       "trail": null
     }

@@ -28,6 +28,31 @@ describe("parseParticle", () => {
     expect(r.errors[0]?.code).toBe("newer-version");
   });
 
+  it("migrates a v2 document forward and validates it (autosave-restore path)", () => {
+    // A v2 layer/emission missing every schemaVersion-3 field (the shape a
+    // localStorage autosave written by a prior build would have).
+    const v2 = {
+      ...makeDoc(),
+      schemaVersion: 2,
+      layers: [
+        (() => {
+          const l = JSON.parse(JSON.stringify(makeDoc().layers[0])) as Record<string, unknown>;
+          for (const k of ["noise", "bySpeed", "startColor", "randomFlip", "render", "collision"]) delete l[k];
+          const ol = l.overLifetime as { velocity: Record<string, unknown> };
+          for (const k of ["x", "y", "orbital", "radial"]) delete ol.velocity[k];
+          const shape = l.shape as Record<string, unknown>;
+          for (const k of ["arcMode", "arcSpeed"]) delete shape[k]; // cone
+          return l;
+        })(),
+      ],
+    };
+    const r = parseParticle(v2);
+    expect(r.ok).toBe(true);
+    expect(r.doc?.schemaVersion).toBe(3);
+    expect(r.doc?.layers[0]?.noise).toBe(null);
+    expect(r.doc?.layers[0]?.overLifetime.velocity.orbital).toBe(null);
+  });
+
   it("surfaces warnings on success (E10 missing texture)", () => {
     const doc = makeDoc();
     doc.layers[0]!.texture.ref = "user:ghost";
@@ -45,8 +70,8 @@ describe("migrateToCurrent", () => {
     if (r.ok) expect(r.doc).toBe(doc);
   });
 
-  it("migrates a v1 document to v2 by injecting inert emitter-motion defaults", () => {
-    // A v1 layer/emission with none of the schemaVersion-2 fields.
+  it("chains a v1 document all the way to v3, injecting both migrations' defaults", () => {
+    // A v1 layer/emission with none of the schemaVersion-2 or -3 fields.
     const v1 = {
       ...makeDoc(),
       schemaVersion: 1,
@@ -55,7 +80,12 @@ describe("migrateToCurrent", () => {
           const l = JSON.parse(JSON.stringify(makeDoc().layers[0])) as Record<string, unknown>;
           delete l.space;
           delete l.inheritVelocity;
+          for (const k of ["noise", "bySpeed", "startColor", "randomFlip", "render", "collision"]) delete l[k];
           delete (l.emission as Record<string, unknown>).rateOverDistance;
+          const ol = l.overLifetime as { velocity: Record<string, unknown> };
+          for (const k of ["x", "y", "orbital", "radial"]) delete ol.velocity[k];
+          const shape = l.shape as Record<string, unknown>;
+          for (const k of ["arcMode", "arcSpeed"]) delete shape[k];
           return l;
         })(),
       ],
@@ -64,16 +94,28 @@ describe("migrateToCurrent", () => {
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     const doc = r.doc as { schemaVersion: number; layers: Array<Record<string, unknown>> };
-    expect(doc.schemaVersion).toBe(2);
+    expect(doc.schemaVersion).toBe(3);
+    // v1->v2 defaults
     expect(doc.layers[0]!.space).toBe("local");
     expect(doc.layers[0]!.inheritVelocity).toBe(0);
     expect((doc.layers[0]!.emission as Record<string, unknown>).rateOverDistance).toBe(null);
+    // v2->v3 defaults
+    expect(doc.layers[0]!.noise).toBe(null);
+    expect(doc.layers[0]!.render).toBe(null);
+    expect((doc.layers[0]!.shape as Record<string, unknown>).arcMode).toBe("random");
     // The migrated document validates cleanly (defaults are spec-valid).
     expect(parseParticle(doc).ok).toBe(true);
   });
 
+  it("is idempotent on an already-current v3 document", () => {
+    const doc = makeDoc();
+    const once = migrateToCurrent(doc);
+    expect(once.ok).toBe(true);
+    if (once.ok) expect(once.doc).toBe(doc); // current version passes through by reference
+  });
+
   it("refuses newer and rejects invalid versions", () => {
-    expect(migrateToCurrent({ schemaVersion: 3 }).ok).toBe(false);
+    expect(migrateToCurrent({ schemaVersion: 4 }).ok).toBe(false);
     expect(migrateToCurrent({ schemaVersion: 0 }).ok).toBe(false);
     expect(migrateToCurrent(null).ok).toBe(false);
   });

@@ -12,12 +12,12 @@ export function makeLayer(overrides: Partial<Layer> = {}): Layer {
     emission: {
       rateOverTime: { mode: "constant", value: 20 },
       rateOverDistance: null,
-      bursts: [{ time: 0, count: 12, spread: 0 }],
+      bursts: [{ time: 0, count: 12, spread: 0, cycles: 1, interval: 0, probability: 1 }],
       delay: 0,
       prewarm: false,
       maxParticles: 256,
     },
-    shape: { kind: "cone", direction: -90, spread: 30, radius: 10, emitFrom: "volume" },
+    shape: { kind: "cone", direction: -90, spread: 30, radius: 10, arcMode: "random", arcSpeed: 1, emitFrom: "volume" },
     space: "local",
     inheritVelocity: 0,
     initial: {
@@ -40,8 +40,18 @@ export function makeLayer(overrides: Partial<Layer> = {}): Layer {
         gravity: { x: 0, y: 30 },
         drag: null,
         speedMultiplier: null,
+        x: null,
+        y: null,
+        orbital: null,
+        radial: null,
       },
     },
+    noise: null,
+    bySpeed: null,
+    startColor: null,
+    randomFlip: null,
+    render: null,
+    collision: null,
     subEmitters: null,
     trail: null,
     ...overrides,
@@ -50,7 +60,7 @@ export function makeLayer(overrides: Partial<Layer> = {}): Layer {
 
 export function makeDoc(overrides: Partial<ParticleDoc> = {}): ParticleDoc {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     meta: { name: "Test", createdWith: "particlr@0.x", notes: "" },
     duration: 1.2,
     looping: true,

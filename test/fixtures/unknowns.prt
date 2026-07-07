@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "meta": {
     "name": "Unknowns",
     "createdWith": "particlr@0.x",
@@ -86,9 +86,19 @@
             "y": 0
           },
           "drag": null,
-          "speedMultiplier": null
+          "speedMultiplier": null,
+          "x": null,
+          "y": null,
+          "orbital": null,
+          "radial": null
         }
       },
+      "noise": null,
+      "bySpeed": null,
+      "startColor": null,
+      "randomFlip": null,
+      "render": null,
+      "collision": null,
       "subEmitters": null,
       "trail": null,
       "layerExtra": {

@@ -4,6 +4,7 @@
 // are ignored here (preserved elsewhere, plan §2.10).
 
 import {
+  ARC_MODES,
   BLEND_MODES,
   BUILTIN_TEXTURE_IDS,
   CURRENT_SCHEMA_VERSION,
@@ -11,6 +12,7 @@ import {
   EMIT_FROM,
   FLIPBOOK_MODES,
   SIM_SPACES,
+  SUB_TRIGGERS,
   type ParticleDoc,
 } from "./types.js";
 
@@ -30,6 +32,11 @@ interface Ctx {
   textureNames: Set<string>;
   duration: number; // for burst-timing warnings; 0 if the field is invalid
   looping: boolean;
+  // Cross-layer state for sub-emitter reference checks (schemaVersion 3),
+  // built in a first pass before any layer is validated.
+  layerIds: Set<string>;
+  layerSubEmittersNull: Map<string, boolean>; // id -> subEmitters === null
+  layerContinuous: Map<string, boolean>; // id -> emits continuously (rate not constant-0)
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
@@ -137,6 +144,23 @@ function checkScalarTrackOrNull(ctx: Ctx, v: unknown, path: string): void {
   checkScalarTrack(ctx, v, path);
 }
 
+// A ScalarTrack that forbids per-particle "range" mode: some schemaVersion-3
+// modules (noise.strength, bySpeed.*, trail.width) reserve no per-particle PRNG
+// draw, so only constant/curve are expressible (TIER1_PLAN §0.4).
+function checkScalarTrackNoRange(ctx: Ctx, v: unknown, path: string): void {
+  if (isObject(v) && v.mode === "range") {
+    err(ctx, `${path}.mode`, "range mode is not supported here; use constant or curve");
+    return;
+  }
+  checkScalarTrack(ctx, v, path);
+}
+
+// A number in [0,1] (bounce, dampen, lifetimeLoss, probability, flip chance).
+function checkUnit(ctx: Ctx, v: unknown, path: string): void {
+  if (checkNumber(ctx, v, path) && ((v as number) < 0 || (v as number) > 1))
+    err(ctx, path, "must be in [0, 1]");
+}
+
 // Emission rate is the one track that must be bounded above: an astronomical
 // rate (e.g. 1e15) otherwise asks the sim to spawn trillions of particles in a
 // single step. The pool caps actual spawns, but the ceiling keeps a document
@@ -191,6 +215,28 @@ function checkGradient(ctx: Ctx, v: unknown, path: string): void {
   });
 }
 
+// Arc mode + speed (schemaVersion 3), shared by circle and cone. Validated when
+// present (migration injects them; a bare v2-style shape simply has no arc sweep).
+function checkArcModeSpeed(ctx: Ctx, v: Record<string, unknown>, path: string): void {
+  if (v.arcMode !== undefined) checkEnum(ctx, v.arcMode, ARC_MODES, `${path}.arcMode`);
+  if (v.arcSpeed !== undefined && checkNumber(ctx, v.arcSpeed, `${path}.arcSpeed`) && (v.arcSpeed as number) < 0)
+    err(ctx, `${path}.arcSpeed`, "arcSpeed must be >= 0");
+}
+
+// Circle donut + arc span (schemaVersion 3), plus the shared arc mode/speed.
+function checkArc(ctx: Ctx, v: Record<string, unknown>, path: string, radius: number): void {
+  if (v.innerRadius !== undefined && checkNumber(ctx, v.innerRadius, `${path}.innerRadius`)) {
+    const inner = v.innerRadius as number;
+    if (inner < 0) err(ctx, `${path}.innerRadius`, "innerRadius must be >= 0");
+    else if (inner > radius) err(ctx, `${path}.innerRadius`, "innerRadius must be <= radius");
+  }
+  if (v.arc !== undefined && checkNumber(ctx, v.arc, `${path}.arc`)) {
+    const arc = v.arc as number;
+    if (arc <= 0 || arc > 360) err(ctx, `${path}.arc`, "arc must be in (0, 360]");
+  }
+  checkArcModeSpeed(ctx, v, path);
+}
+
 function checkShape(ctx: Ctx, v: unknown, path: string): void {
   if (!isObject(v)) {
     err(ctx, path, "must be a Shape object");
@@ -202,11 +248,13 @@ function checkShape(ctx: Ctx, v: unknown, path: string): void {
       break;
     case "circle":
       checkNumber(ctx, v.radius, `${path}.radius`);
+      checkArc(ctx, v, path, isNum(v.radius) ? (v.radius as number) : Infinity);
       break;
     case "cone":
       checkNumber(ctx, v.direction, `${path}.direction`);
       checkNumber(ctx, v.spread, `${path}.spread`);
       checkNumber(ctx, v.radius, `${path}.radius`);
+      checkArcModeSpeed(ctx, v, path);
       break;
     case "rect":
       checkNumber(ctx, v.width, `${path}.width`);
@@ -288,6 +336,22 @@ function checkEmission(ctx: Ctx, v: unknown, path: string): void {
         err(ctx, `${bp}.count`, "count must be an integer in [0,10000]");
       if (checkNumber(ctx, b.spread, `${bp}.spread`) && (b.spread as number) < 0)
         err(ctx, `${bp}.spread`, "spread must be >= 0");
+      // Burst cycles / interval / probability (schemaVersion 3), validated when
+      // present (migration injects cycles:1, interval:0, probability:1).
+      let cycles = 1;
+      if (b.cycles !== undefined) {
+        if (!isInt(b.cycles) || (b.cycles as number) < 1)
+          err(ctx, `${bp}.cycles`, "cycles must be an integer >= 1");
+        else cycles = b.cycles as number;
+      }
+      if (b.interval !== undefined) {
+        if (!isNum(b.interval) || (b.interval as number) < 0)
+          err(ctx, `${bp}.interval`, "interval must be a number >= 0");
+        else if (cycles > 1 && (b.interval as number) <= 0)
+          err(ctx, `${bp}.interval`, "interval must be > 0 when cycles > 1");
+      }
+      if (b.probability !== undefined)
+        checkUnit(ctx, b.probability, `${bp}.probability`);
       // Authoring-trap warnings: a burst whose (spread) window exceeds the
       // per-cycle emission window silently loses sub-events. (P2.2 / P2.3)
       if (ctx.duration > 0 && isNum(b.time) && isNum(b.spread)) {
@@ -341,7 +405,168 @@ function checkOverLifetime(ctx: Ctx, v: unknown, path: string): void {
     checkVec2(ctx, v.velocity.gravity, `${path}.velocity.gravity`);
     checkScalarTrackOrNull(ctx, v.velocity.drag, `${path}.velocity.drag`);
     checkScalarTrackOrNull(ctx, v.velocity.speedMultiplier, `${path}.velocity.speedMultiplier`);
+    // Velocity over lifetime (schemaVersion 3): four optional additive tracks.
+    for (const key of ["x", "y", "orbital", "radial"] as const) {
+      if (v.velocity[key] !== undefined)
+        checkScalarTrackOrNull(ctx, v.velocity[key], `${path}.velocity.${key}`);
+    }
   }
+}
+
+// --- schemaVersion 3 feature modules ---------------------------------------
+// Each is off when null; validated structurally when present. Until the owning
+// milestone lands, a present module also draws a temporary "unimplemented"
+// warning (removed in that milestone) — the field is accepted but inert.
+
+function checkNoise(ctx: Ctx, v: unknown, path: string): void {
+  if (!isObject(v)) {
+    err(ctx, path, "must be a NoiseConfig object or null");
+    return;
+  }
+  checkScalarTrackNoRange(ctx, v.strength, `${path}.strength`);
+  if (checkNumber(ctx, v.frequency, `${path}.frequency`) && (v.frequency as number) <= 0)
+    err(ctx, `${path}.frequency`, "frequency must be > 0");
+  checkNumber(ctx, v.scrollSpeed, `${path}.scrollSpeed`);
+  if (!isInt(v.octaves) || (v.octaves as number) < 1 || (v.octaves as number) > 3)
+    err(ctx, `${path}.octaves`, "octaves must be an integer in [1, 3]");
+}
+
+function checkRender(ctx: Ctx, v: unknown, path: string): void {
+  if (!isObject(v)) {
+    err(ctx, path, "must be a RenderConfig object or null");
+    return;
+  }
+  checkEnum(ctx, v.align, ["none", "velocity"] as const, `${path}.align`);
+  checkNumber(ctx, v.speedScale, `${path}.speedScale`);
+  const okMin = checkNumber(ctx, v.minStretch, `${path}.minStretch`);
+  const okMax = checkNumber(ctx, v.maxStretch, `${path}.maxStretch`);
+  if (okMin && okMax && (v.minStretch as number) > (v.maxStretch as number))
+    err(ctx, path, "minStretch must be <= maxStretch");
+}
+
+function checkBySpeed(ctx: Ctx, v: unknown, path: string): void {
+  if (!isObject(v)) {
+    err(ctx, path, "must be a BySpeedConfig object or null");
+    return;
+  }
+  if (!isObject(v.range)) {
+    err(ctx, `${path}.range`, "must be a {min,max} object");
+  } else {
+    const okMin = checkNumber(ctx, v.range.min, `${path}.range.min`);
+    const okMax = checkNumber(ctx, v.range.max, `${path}.range.max`);
+    if (okMin && okMax && (v.range.min as number) > (v.range.max as number))
+      err(ctx, `${path}.range`, "range min must be <= max");
+  }
+  if (v.size !== null) checkScalarTrackNoRange(ctx, v.size, `${path}.size`);
+  if (v.color !== null) checkGradient(ctx, v.color, `${path}.color`);
+  if (v.rotation !== null) checkScalarTrackNoRange(ctx, v.rotation, `${path}.rotation`);
+}
+
+function checkStartColor(ctx: Ctx, v: unknown, path: string): void {
+  if (!isObject(v)) {
+    err(ctx, path, "must be a StartColor object or null");
+    return;
+  }
+  if (v.mode === "gradients") {
+    checkGradient(ctx, v.a, `${path}.a`);
+    checkGradient(ctx, v.b, `${path}.b`);
+  } else if (v.mode === "palette") {
+    if (!Array.isArray(v.colors) || v.colors.length < 1 || v.colors.length > 16) {
+      err(ctx, `${path}.colors`, "colors must be an array of 1..16 RGBA colors");
+    } else {
+      v.colors.forEach((c, i) => {
+        const cp = `${path}.colors[${i}]`;
+        if (!isObject(c)) {
+          err(ctx, cp, "color must be an {r,g,b,a} object");
+          return;
+        }
+        for (const ch of ["r", "g", "b", "a"] as const) {
+          if (checkNumber(ctx, c[ch], `${cp}.${ch}`) && ((c[ch] as number) < 0 || (c[ch] as number) > 1))
+            err(ctx, `${cp}.${ch}`, `${ch} must be in [0,1]`);
+        }
+      });
+    }
+  } else {
+    err(ctx, `${path}.mode`, 'must be "gradients" or "palette"');
+  }
+}
+
+function checkRandomFlip(ctx: Ctx, v: unknown, path: string): void {
+  if (!isObject(v)) {
+    err(ctx, path, "must be a RandomFlip object or null");
+    return;
+  }
+  checkUnit(ctx, v.x, `${path}.x`);
+  checkUnit(ctx, v.y, `${path}.y`);
+}
+
+function checkCollision(ctx: Ctx, v: unknown, path: string): void {
+  if (!isObject(v)) {
+    err(ctx, path, "must be a CollisionConfig object or null");
+    return;
+  }
+  if (!isObject(v.shape)) {
+    err(ctx, `${path}.shape`, "must be a collision shape object");
+  } else if (v.shape.kind === "floor") {
+    checkNumber(ctx, v.shape.y, `${path}.shape.y`);
+  } else if (v.shape.kind === "rect") {
+    checkNumber(ctx, v.shape.x, `${path}.shape.x`);
+    checkNumber(ctx, v.shape.y, `${path}.shape.y`);
+    checkNumber(ctx, v.shape.width, `${path}.shape.width`);
+    checkNumber(ctx, v.shape.height, `${path}.shape.height`);
+  } else {
+    err(ctx, `${path}.shape.kind`, 'must be "floor" or "rect"');
+  }
+  checkUnit(ctx, v.bounce, `${path}.bounce`);
+  checkUnit(ctx, v.dampen, `${path}.dampen`);
+  checkUnit(ctx, v.lifetimeLoss, `${path}.lifetimeLoss`);
+}
+
+function checkTrail(ctx: Ctx, v: unknown, path: string): void {
+  if (!isObject(v)) {
+    err(ctx, path, "must be a TrailConfig object or null");
+    return;
+  }
+  if (!isInt(v.maxPoints) || (v.maxPoints as number) < 2 || (v.maxPoints as number) > 32)
+    err(ctx, `${path}.maxPoints`, "maxPoints must be an integer in [2, 32]");
+  if (!isNum(v.minVertexDistance) || (v.minVertexDistance as number) <= 0)
+    err(ctx, `${path}.minVertexDistance`, "minVertexDistance must be > 0");
+  checkScalarTrackNoRange(ctx, v.width, `${path}.width`);
+  if (v.color !== null) checkGradient(ctx, v.color, `${path}.color`);
+}
+
+// Sub-emitter refs need cross-layer state, so this runs against the ctx registry
+// built in validateParticle. `selfId` is the owning layer's id (self-ref is
+// illegal; a referenced layer must itself have subEmitters === null — depth 1).
+function checkSubEmitters(ctx: Ctx, v: unknown, path: string, selfId: string): void {
+  if (!Array.isArray(v)) {
+    err(ctx, path, "subEmitters must be an array or null");
+    return;
+  }
+  v.forEach((s, i) => {
+    const sp = `${path}[${i}]`;
+    if (!isObject(s)) {
+      err(ctx, sp, "sub-emitter ref must be an object");
+      return;
+    }
+    checkEnum(ctx, s.trigger, SUB_TRIGGERS, `${sp}.trigger`);
+    if (!isStr(s.layerId) || s.layerId.length === 0) {
+      err(ctx, `${sp}.layerId`, "layerId must be a non-empty string");
+    } else if (s.layerId === selfId) {
+      err(ctx, `${sp}.layerId`, "a layer cannot sub-emit into itself");
+    } else if (!ctx.layerIds.has(s.layerId)) {
+      err(ctx, `${sp}.layerId`, `layerId "${s.layerId}" does not match any layer`);
+    } else if (ctx.layerSubEmittersNull.get(s.layerId) === false) {
+      err(ctx, `${sp}.layerId`, `sub-emitter target "${s.layerId}" itself has sub-emitters (depth 1 only)`);
+    } else if (ctx.layerContinuous.get(s.layerId) === true) {
+      warn(ctx, `${sp}.layerId`, `sub-emitter target "${s.layerId}" has a continuous emission rate; children usually emit only on the trigger`);
+    }
+    if (!isInt(s.count) || (s.count as number) < 1 || (s.count as number) > 100)
+      err(ctx, `${sp}.count`, "count must be an integer in [1, 100]");
+    checkUnit(ctx, s.probability, `${sp}.probability`);
+    if (checkNumber(ctx, s.inheritVelocity, `${sp}.inheritVelocity`) && ((s.inheritVelocity as number) < -2 || (s.inheritVelocity as number) > 2))
+      err(ctx, `${sp}.inheritVelocity`, "inheritVelocity must be in [-2, 2]");
+  });
 }
 
 function checkLayer(ctx: Ctx, v: unknown, path: string): void {
@@ -384,15 +609,86 @@ function checkLayer(ctx: Ctx, v: unknown, path: string): void {
       warn(ctx, `${path}.emission.prewarm`, "prewarmed particles spawn at the initial emitter position in world space");
   }
 
-  // Reserved fields (locked decision L8) must be null in v1.
-  if (v.subEmitters !== null && v.subEmitters !== undefined)
-    err(ctx, `${path}.subEmitters`, "subEmitters is reserved and must be null in v1", "reserved-field");
-  if (v.trail !== null && v.trail !== undefined)
-    err(ctx, `${path}.trail`, "trail is reserved and must be null in v1", "reserved-field");
+  // schemaVersion 3 feature modules (each null = off). Validated when present;
+  // a present module also draws a temporary "unimplemented" warning until its
+  // milestone lands (M0 ships the surface, not the behavior).
+  const selfId = isStr(v.id) ? v.id : "";
+  const unimplemented = (field: string): void =>
+    warn(ctx, `${path}.${field}`, `${field} is not yet implemented by this build`, "unimplemented");
+  if (v.noise !== null && v.noise !== undefined) {
+    checkNoise(ctx, v.noise, `${path}.noise`);
+    unimplemented("noise");
+  }
+  if (v.bySpeed !== null && v.bySpeed !== undefined) {
+    checkBySpeed(ctx, v.bySpeed, `${path}.bySpeed`);
+    unimplemented("bySpeed");
+  }
+  if (v.startColor !== null && v.startColor !== undefined) {
+    checkStartColor(ctx, v.startColor, `${path}.startColor`);
+    unimplemented("startColor");
+  }
+  if (v.randomFlip !== null && v.randomFlip !== undefined) {
+    checkRandomFlip(ctx, v.randomFlip, `${path}.randomFlip`);
+    unimplemented("randomFlip");
+  }
+  if (v.render !== null && v.render !== undefined) {
+    checkRender(ctx, v.render, `${path}.render`);
+    unimplemented("render");
+  }
+  if (v.collision !== null && v.collision !== undefined) {
+    checkCollision(ctx, v.collision, `${path}.collision`);
+    unimplemented("collision");
+    // E20 hint: in local space, collision planes ride the emitter (they live in
+    // the layer's local sim frame, not world coordinates).
+    if (spaceOk && v.space === "local")
+      warn(ctx, `${path}.collision`, "collision planes are in the layer's local frame and ride the emitter (E20)");
+  }
+  if (v.subEmitters !== null && v.subEmitters !== undefined) {
+    checkSubEmitters(ctx, v.subEmitters, `${path}.subEmitters`, selfId);
+    unimplemented("subEmitters");
+  }
+  if (v.trail !== null && v.trail !== undefined) {
+    checkTrail(ctx, v.trail, `${path}.trail`);
+    unimplemented("trail");
+    // E18: a trail samples the texture as a ribbon; flipbook frames are ignored.
+    if (isObject(v.texture) && v.texture.frames !== null && v.texture.frames !== undefined)
+      warn(ctx, `${path}.trail`, "flipbook frames are ignored for trail ribbon sampling (E18)");
+  }
+
+  // Rendering-conflict warnings (schemaVersion 3).
+  if (isObject(v.render) && v.render.align === "velocity") {
+    const hasRot =
+      (isObject(v.overLifetime) && v.overLifetime.rotation !== null && v.overLifetime.rotation !== undefined) ||
+      (isObject(v.bySpeed) && v.bySpeed.rotation !== null && v.bySpeed.rotation !== undefined);
+    if (hasRot)
+      warn(ctx, `${path}.render.align`, "align:\"velocity\" overrides rotation from other modules");
+  }
+  // E21: burstSpread arc mode needs discrete bursts; with continuous emission it
+  // falls back to random.
+  if (isObject(v.shape) && v.shape.arcMode === "burstSpread" && ctx.layerContinuous.get(selfId) === true)
+    warn(ctx, `${path}.shape.arcMode`, "burstSpread arc mode falls back to random for continuous emission (E21)");
+}
+
+// A layer emits continuously unless its rateOverTime is a constant 0.
+function emitsContinuously(emission: unknown): boolean {
+  if (!isObject(emission)) return false;
+  const rot = emission.rateOverTime;
+  if (!isObject(rot)) return false;
+  if (rot.mode === "constant") return isNum(rot.value) && (rot.value as number) > 0;
+  return true; // range/curve — treat as potentially emitting
 }
 
 export function validateParticle(input: unknown): ValidationResult {
-  const ctx: Ctx = { errors: [], warnings: [], textureNames: new Set(), duration: 0, looping: false };
+  const ctx: Ctx = {
+    errors: [],
+    warnings: [],
+    textureNames: new Set(),
+    duration: 0,
+    looping: false,
+    layerIds: new Set(),
+    layerSubEmittersNull: new Map(),
+    layerContinuous: new Map(),
+  };
 
   if (!isObject(input)) {
     err(ctx, "", "document must be an object");
@@ -445,11 +741,24 @@ export function validateParticle(input: unknown): ValidationResult {
     }
   }
 
-  // layers (E14: 0 is valid; max 4)
+  // layers (E14: 0 is valid; max 8 — schemaVersion 3 raised the cap from 4 to
+  // fit sub-emitter children). A first pass registers ids + sub-emitter/emission
+  // status so cross-layer reference checks (checkSubEmitters) can resolve.
   if (!Array.isArray(input.layers)) {
     err(ctx, "layers", "layers must be an array");
   } else {
-    if (input.layers.length > 4) err(ctx, "layers", "a document may have at most 4 layers");
+    if (input.layers.length > 8) err(ctx, "layers", "a document may have at most 8 layers");
+    input.layers.forEach((l, i) => {
+      if (isObject(l) && isStr(l.id)) {
+        // Duplicate ids are rejected: sub-emitter references resolve by id, so a
+        // collision would make the depth-1 check (and the runtime lookup) pick an
+        // arbitrary layer.
+        if (ctx.layerIds.has(l.id)) err(ctx, `layers[${i}].id`, `duplicate layer id "${l.id}"`);
+        ctx.layerIds.add(l.id);
+        ctx.layerSubEmittersNull.set(l.id, l.subEmitters === null || l.subEmitters === undefined);
+        ctx.layerContinuous.set(l.id, emitsContinuously(l.emission));
+      }
+    });
     input.layers.forEach((l, i) => checkLayer(ctx, l, `layers[${i}]`));
   }
 

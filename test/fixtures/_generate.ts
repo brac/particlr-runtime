@@ -1,17 +1,23 @@
 // Source of truth for the committed .prt fixtures. Run with:
 //   npx tsx test/fixtures/_generate.ts
-// It builds the documents as objects and writes them through serializeParticle so
-// the files are guaranteed canonical (plan §2.10) and byte-stable on round-trip.
-// The round-trip test (roundtrip.test.ts) then re-derives and diffs the bytes,
-// so any hand-edit that breaks canonical form is caught.
-import { serializeParticle, type ParticleDoc } from "../../src/index.js";
+// The documents are authored as schemaVersion-2 objects and written through
+// migrateToCurrent -> serializeParticle, so the committed files are canonical v3
+// (plan §2.10) AND byte-identical to what the v2->v3 migration produces. The
+// round-trip test then re-derives and diffs the bytes, catching any drift.
+import { migrateToCurrent, serializeParticle, type ParticleDoc } from "../../src/index.js";
 import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 
 const dir = dirname(fileURLToPath(import.meta.url));
 
-const explosion: ParticleDoc = {
+const toV3 = (v2: unknown): ParticleDoc => {
+  const m = migrateToCurrent(v2);
+  if (!m.ok) throw new Error(`migration failed: ${m.issue.message}`);
+  return m.doc as ParticleDoc;
+};
+
+const explosion = {
   schemaVersion: 2,
   meta: { name: "Explosion", createdWith: "particlr@0.x", notes: "Flash + fireball + smoke. Slice One reference effect." },
   duration: 1.2,
@@ -193,6 +199,6 @@ const unknowns = {
   futureField: { z: 1, a: [1, 2], nested: { keep: "me" } },
 } as unknown as ParticleDoc;
 
-writeFileSync(resolve(dir, "explosion.prt"), serializeParticle(explosion));
-writeFileSync(resolve(dir, "unknowns.prt"), serializeParticle(unknowns));
+writeFileSync(resolve(dir, "explosion.prt"), serializeParticle(toV3(explosion)));
+writeFileSync(resolve(dir, "unknowns.prt"), serializeParticle(toV3(unknowns)));
 console.log("wrote explosion.prt, unknowns.prt");
