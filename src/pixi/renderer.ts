@@ -260,8 +260,8 @@ export class PixiParticleRenderer {
         // Two loop bodies (TIER1_PLAN §0.5). The EXISTING body is kept verbatim
         // when no render-buffer-consuming module is active, so every committed
         // golden stays byte-identical. The extended body (velocity alignment +
-        // speed stretch now; random flip in M5) reads the stretch/velAngle
-        // buffers that computeRenderState only fills when render !== null.
+        // speed stretch + random flip) reads the stretch/velAngle/flip buffers
+        // that computeRenderState fills when render OR randomFlip is non-null.
         if (ls.layer.render === null && ls.layer.randomFlip === null) {
           for (let j = 0; j < count; j++) {
             const part = view.particles[j]!;
@@ -291,8 +291,15 @@ export class PixiParticleRenderer {
             part.rotation = b.velAngle[j]! * DEG2RAD;
             const s = b.size[j]! * inv;
             // Stretch scales along the (rotated) x/motion axis only.
-            part.scaleX = s * b.stretch[j]!;
-            part.scaleY = s;
+            let scaleX = s * b.stretch[j]!;
+            let scaleY = s;
+            // Random flip (schemaVersion 3, §M5): negative scale per axis, applied
+            // AFTER the stretch multiply — a genuine mirror, not a UV flip.
+            const flip = b.flip[j]!;
+            if (flip & 1) scaleX = -scaleX;
+            if (flip & 2) scaleY = -scaleY;
+            part.scaleX = scaleX;
+            part.scaleY = scaleY;
             const r = Math.max(0, Math.min(255, Math.round(b.r[j]! * 255)));
             const g = Math.max(0, Math.min(255, Math.round(b.g[j]! * 255)));
             const bl = Math.max(0, Math.min(255, Math.round(b.b[j]! * 255)));

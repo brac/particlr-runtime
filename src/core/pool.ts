@@ -21,6 +21,10 @@ export interface PoolFlags {
   velOrbital?: boolean;
   /** Per-particle range-mode uniform for velocity.radial over lifetime (draw 18). Set iff velocity.radial !== null. */
   velRadial?: boolean;
+  /** Per-particle start-color tint RGBA columns (draw 19). Set iff layer.startColor !== null. */
+  tint?: boolean;
+  /** Per-particle random-flip bitmask column (draws 20–21). Set iff layer.randomFlip !== null. */
+  flip?: boolean;
 }
 
 export class ParticlePool {
@@ -52,8 +56,22 @@ export class ParticlePool {
   readonly velRandY: Float32Array | null;
   readonly velRandOrbital: Float32Array | null;
   readonly velRandRadial: Float32Array | null;
+  /** Per-particle start-color tint (schemaVersion 3, draw 19); each null unless
+   * the layer has a startColor module. A constant multiplier over the
+   * over-lifetime gradient (L7 amendment). Survive swap-remove like every column. */
+  readonly tintR: Float32Array | null;
+  readonly tintG: Float32Array | null;
+  readonly tintB: Float32Array | null;
+  readonly tintA: Float32Array | null;
+  /** Per-particle random-flip bitmask (schemaVersion 3, draws 20–21); null unless
+   * the layer has a randomFlip module. Bit 1 = flip X, bit 2 = flip Y. A
+   * Uint8Array (values 0..3) — the swap-remove `all` list carries it alongside
+   * the Float32 columns. */
+  readonly flipBits: Uint8Array | null;
 
-  private readonly all: Float32Array[];
+  // Float32 columns plus the single Uint8 flipBits column are swap-removed
+  // together; both typed arrays support numeric index read/write identically.
+  private readonly all: (Float32Array | Uint8Array)[];
 
   constructor(capacity: number, flags: PoolFlags = {}) {
     this.capacity = capacity;
@@ -88,6 +106,15 @@ export class ParticlePool {
     if (this.velRandOrbital) this.all.push(this.velRandOrbital);
     this.velRandRadial = flags.velRadial ? mk() : null;
     if (this.velRandRadial) this.all.push(this.velRandRadial);
+    // Start-color tint (draw 19): four Float32 columns, allocated together.
+    this.tintR = flags.tint ? mk() : null;
+    this.tintG = flags.tint ? mk() : null;
+    this.tintB = flags.tint ? mk() : null;
+    this.tintA = flags.tint ? mk() : null;
+    if (this.tintR) this.all.push(this.tintR, this.tintG!, this.tintB!, this.tintA!);
+    // Random-flip bitmask (draws 20–21): one Uint8 column carried by swap-remove.
+    this.flipBits = flags.flip ? new Uint8Array(capacity) : null;
+    if (this.flipBits) this.all.push(this.flipBits);
   }
 
   /** Allocate a slot for a new particle; returns its index, or -1 if full (E7). */

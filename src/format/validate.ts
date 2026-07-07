@@ -629,12 +629,12 @@ function checkLayer(ctx: Ctx, v: unknown, path: string): void {
     unimplemented("bySpeed");
   }
   if (v.startColor !== null && v.startColor !== undefined) {
+    // startColor behaves as of M5 — no "unimplemented" warning.
     checkStartColor(ctx, v.startColor, `${path}.startColor`);
-    unimplemented("startColor");
   }
   if (v.randomFlip !== null && v.randomFlip !== undefined) {
+    // randomFlip behaves as of M5 — no "unimplemented" warning.
     checkRandomFlip(ctx, v.randomFlip, `${path}.randomFlip`);
-    unimplemented("randomFlip");
   }
   if (v.render !== null && v.render !== undefined) {
     // render behaves as of M1 — no "unimplemented" warning (the align:"velocity"

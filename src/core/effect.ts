@@ -231,6 +231,11 @@ export class Effect {
     for (const ls of this.sims) {
       const layer = ls.layer;
       if (!layer.enabled) continue;
+      // Push the interval-start normalized time (schemaVersion 3, §M5): a
+      // gradients-mode startColor draw samples both gradients at this t, so
+      // every burst and continuous spawn in this interval shares it (same
+      // precedent as evalRate's normalized time). Inert for null-startColor layers.
+      ls.setSpawnTNorm(tNorm);
       const em = layer.emission;
       const delay = em.delay;
       const localStart = t0 - delay;
@@ -369,6 +374,10 @@ export class Effect {
     for (const ls of this.sims) {
       const layer = ls.layer;
       if (!layer.enabled || layer.space !== "world") continue;
+      // Distance-emitted spawns share the interval-start normalized time too
+      // (schemaVersion 3, §M5), so a gradients-mode startColor draw is well
+      // defined on this path. Inert for null-startColor layers.
+      ls.setSpawnTNorm(tNorm);
       const rod = layer.emission.rateOverDistance;
       if (!rod) continue;
       // Gate on the emission delay like continuous emission: nothing until the

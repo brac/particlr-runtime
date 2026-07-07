@@ -364,14 +364,13 @@ describe("PixiParticleRenderer — velocity alignment + speed stretch (M1)", () 
     r.destroy();
   });
 
-  it("randomFlip non-null + render null is inert: rotation === pool.rotation, scaleX === scaleY", () => {
-    // randomFlip is unimplemented until M5, but its presence already routes
-    // sync() through the extended loop body (the guard landed in M1). An inert
-    // field must not change output: the extended body must reproduce the plain
-    // body exactly — velAngle falls back to pool.rotation and stretch stays 1.
+  it("randomFlip X (prob 1) mirrors scaleX only: scaleX = −scaleY, rotation === pool.rotation (M5)", () => {
+    // randomFlip's presence routes sync() through the extended body. With M5 the
+    // flip is REAL: x=1 flips every particle's X (negative scaleX, magnitude
+    // preserved) while rotation still comes from pool.rotation (render is null).
     const doc = loadDoc("rain");
     const l = doc.layers[0]!;
-    l.randomFlip = { x: 0.5, y: 0.5 };
+    l.randomFlip = { x: 1, y: 0 };
     l.render = null;
     const fx = new Effect(doc, { seed: doc.seed });
     const r = new PixiParticleRenderer(fx);
@@ -384,9 +383,59 @@ describe("PixiParticleRenderer — velocity alignment + speed stretch (M1)", () 
     const DEG2RAD = Math.PI / 180;
     for (let j = 0; j < count; j++) {
       const part = pc.particleChildren[j]!;
-      expect(part.rotation).toBeCloseTo(p.rotation[j]! * DEG2RAD, 6);
-      expect(part.scaleX).toBe(part.scaleY);
+      expect(part.rotation).toBeCloseTo(p.rotation[j]! * DEG2RAD, 6); // rotation still pool.rotation
+      expect(part.scaleX).toBeLessThan(0); // X mirrored
+      expect(part.scaleY).toBeGreaterThan(0); // Y untouched
+      expect(part.scaleX).toBeCloseTo(-part.scaleY, 6); // magnitude preserved
     }
+    r.destroy();
+  });
+
+  it("randomFlip Y (prob 1) mirrors scaleY only (negative scale, not UV flip) (M5)", () => {
+    const doc = loadDoc("rain");
+    const l = doc.layers[0]!;
+    l.randomFlip = { x: 0, y: 1 };
+    l.render = null;
+    const fx = new Effect(doc, { seed: doc.seed });
+    const r = new PixiParticleRenderer(fx);
+    for (let i = 0; i < 20; i++) fx.step(1 / 60);
+    r.sync();
+    const count = fx.layers[0]!.count;
+    expect(count).toBeGreaterThan(0);
+    const pc = pcOf(r);
+    for (let j = 0; j < count; j++) {
+      const part = pc.particleChildren[j]!;
+      expect(part.scaleY).toBeLessThan(0); // Y mirrored
+      expect(part.scaleX).toBeGreaterThan(0); // X untouched
+      expect(part.scaleX).toBeCloseTo(-part.scaleY, 6);
+    }
+    r.destroy();
+  });
+
+  it("randomFlip X+Y with render stretch: flip applied AFTER stretch (|scaleX| keeps the stretch)", () => {
+    const doc = loadDoc("rain");
+    const l = doc.layers[0]!;
+    l.randomFlip = { x: 1, y: 1 };
+    l.render = { align: "none", speedScale: 0.02, minStretch: 1, maxStretch: 6 };
+    const fx = new Effect(doc, { seed: doc.seed });
+    const r = new PixiParticleRenderer(fx);
+    for (let i = 0; i < 20; i++) fx.step(1 / 60);
+    r.sync();
+    const p = fx.layers[0]!.pool;
+    const count = fx.layers[0]!.count;
+    const pc = pcOf(r);
+    let sawStretch = false;
+    for (let j = 0; j < count; j++) {
+      const part = pc.particleChildren[j]!;
+      expect(part.scaleX).toBeLessThan(0);
+      expect(part.scaleY).toBeLessThan(0);
+      const speed = Math.hypot(p.velX[j]!, p.velY[j]!);
+      const stretch = Math.min(6, Math.max(1, 1 + 0.02 * speed));
+      // |scaleX| = |scaleY|·stretch — the flip negates but does not erase the stretch.
+      expect(Math.abs(part.scaleX)).toBeCloseTo(Math.abs(part.scaleY) * stretch, 5);
+      if (stretch > 1.0001) sawStretch = true;
+    }
+    expect(sawStretch).toBe(true);
     r.destroy();
   });
 

@@ -28,6 +28,11 @@ export interface LayerRenderBuffers {
    * atan2(velY, velX); otherwise the particle's own rotation. Left untouched
    * when neither module is set (the renderer uses pool.rotation directly). */
   velAngle: Float32Array;
+  /** Per-particle random-flip bitmask (schemaVersion 3, §M5): bit 1 = flip X,
+   * bit 2 = flip Y (negative sprite scale). Filled from pool.flipBits when the
+   * layer's `randomFlip` module is non-null; left at 0 otherwise. Valid whenever
+   * the renderer's extended loop body runs (render OR randomFlip non-null). */
+  flip: Uint8Array;
 }
 
 export function makeRenderBuffers(capacity: number): LayerRenderBuffers {
@@ -42,6 +47,10 @@ export function makeRenderBuffers(capacity: number): LayerRenderBuffers {
     // sprite even if some future path reads it before render fills it.
     stretch: new Float32Array(capacity).fill(1),
     velAngle: new Float32Array(capacity),
+    // Flip defaults to 0 (no mirroring); only a non-null randomFlip module ever
+    // writes it, so a randomFlip-null layer that still runs the extended body
+    // (render non-null) reads a valid all-zeros flip.
+    flip: new Uint8Array(capacity),
   };
 }
 
@@ -63,6 +72,15 @@ export function computeRenderState(ls: LayerSim, buf: LayerRenderBuffers): void 
   const frames = ls.layer.texture.frames;
   const render = ls.layer.render;
   const rgba: RGBA = { r: 0, g: 0, b: 0, a: 0 };
+  // Start-color tint (schemaVersion 3, §M5): a per-particle constant multiplier
+  // over the over-lifetime gradient RGBA (L7 amendment — overLifetime.color stays
+  // THE gradient). The multiply lives inside a `startColor !== null` branch, so a
+  // null-startColor layer's per-particle writes stay instruction-identical to v2.
+  const startColor = ls.layer.startColor;
+  const tintR = p.tintR;
+  const tintG = p.tintG;
+  const tintB = p.tintB;
+  const tintA = p.tintA;
 
   for (let i = 0; i < p.count; i++) {
     const lifetime = p.lifetime[i]!;
@@ -73,10 +91,17 @@ export function computeRenderState(ls: LayerSim, buf: LayerRenderBuffers): void 
     buf.size[i] = p.sizeInit[i]! * sizeMul;
 
     evalGradient(ol.color, t, rgba);
-    buf.r[i] = rgba.r;
-    buf.g[i] = rgba.g;
-    buf.b[i] = rgba.b;
-    buf.a[i] = rgba.a;
+    if (startColor !== null) {
+      buf.r[i] = rgba.r * tintR![i]!;
+      buf.g[i] = rgba.g * tintG![i]!;
+      buf.b[i] = rgba.b * tintB![i]!;
+      buf.a[i] = rgba.a * tintA![i]!;
+    } else {
+      buf.r[i] = rgba.r;
+      buf.g[i] = rgba.g;
+      buf.b[i] = rgba.b;
+      buf.a[i] = rgba.a;
+    }
 
     buf.frame[i] = flipbookFrame(frames, age, p.frameRand[i]!);
   }
@@ -86,10 +111,17 @@ export function computeRenderState(ls: LayerSim, buf: LayerRenderBuffers): void 
   // through its extended (buffer-consuming) loop body is non-null, so a plain
   // layer's loop above stays instruction-identical to v2 (the stretch/velAngle
   // buffers are never touched and the renderer reads pool.rotation directly).
-  // randomFlip selects the extended body too (the guard landed in M1 for M5),
-  // so a randomFlip-only layer must still see valid velAngle values — the
-  // fallback semantics below keep an inert randomFlip from changing output.
-  if (render !== null || ls.layer.randomFlip !== null) fillRenderModule(p, render, buf);
+  // randomFlip selects the extended body too, so a randomFlip-only layer must
+  // still see valid velAngle values (fillRenderModule's render-null fallback).
+  const randomFlip = ls.layer.randomFlip;
+  if (render !== null || randomFlip !== null) fillRenderModule(p, render, buf);
+  // Copy the per-particle flip bitmask into the render buffer when the module is
+  // active (§M5). When randomFlip is null the buffer keeps its all-zeros default,
+  // which the extended body (entered for a render-only layer) reads as "no flip".
+  if (randomFlip !== null) {
+    const fb = p.flipBits!;
+    for (let i = 0; i < p.count; i++) buf.flip[i] = fb[i]!;
+  }
 }
 
 /** Speed = √(velX²+velY²) from STORED velocity → per-particle stretch + sprite

@@ -4,7 +4,7 @@
 // how to make one particle and how to advance the ones it has.
 import type { Layer } from "../format/types.js";
 import { mulberry32, type Rng } from "./prng.js";
-import { drawScalarInit, evalScalarTrack } from "./tracks.js";
+import { drawScalarInit, evalScalarTrack, evalGradient, type RGBA } from "./tracks.js";
 import { ParticlePool } from "./pool.js";
 import { sampleShape } from "./shapes.js";
 import { curl2 } from "./noise.js";
@@ -18,6 +18,12 @@ const PHASE_OFF = 37.0;
 // is decorrelated from the spawn PRNG stream.
 const NOISE_SEED_OFFSET = 0x9e3779b9;
 
+// Reusable scratch for the two gradient evaluations of a gradients-mode
+// startColor draw (§M5). Spawn is synchronous and non-reentrant, so a pair of
+// module-level temporaries avoids a per-spawn allocation.
+const SC_A: RGBA = { r: 0, g: 0, b: 0, a: 0 };
+const SC_B: RGBA = { r: 0, g: 0, b: 0, a: 0 };
+
 export class LayerSim {
   readonly layer: Layer;
   readonly pool: ParticlePool;
@@ -28,6 +34,12 @@ export class LayerSim {
   /** Effect clock at the start of the current step, pushed by Effect.advance
    * (schemaVersion 3). Scrolls the noise field over effect time (§0.3). */
   private clock = 0;
+  /** Normalized effect time at the current emission interval's start, pushed by
+   * Effect.emitInterval / emitDistance (schemaVersion 3, §M5), same precedent as
+   * evalRate's normalized time. A gradients-mode startColor draw samples both
+   * gradients at this t, so bursts and continuous spawns in one interval share it.
+   * Zero-cost for layers without a startColor module. */
+  private spawnTNorm = 0;
   /** True if a spawn was dropped since the flag was last reset (E7). */
   capped = false;
   /** Continuous-emission fractional accumulator (§2.8), owned by Effect. */
@@ -69,6 +81,10 @@ export class LayerSim {
       velY: vel.y !== null,
       velOrbital: vel.orbital !== null,
       velRadial: vel.radial !== null,
+      // Draw 19 (tint columns) and draws 20–21 (flip bitmask) allocate their
+      // pool columns only when the owning module is set (§0.2, §M5).
+      tint: layer.startColor !== null,
+      flip: layer.randomFlip !== null,
     });
     this.rng = mulberry32(layerSeed);
     this.layerSeed = layerSeed;
@@ -94,6 +110,14 @@ export class LayerSim {
    * noise field scrolls with it. Zero-cost for layers without noise. */
   setClock(t: number): void {
     this.clock = t;
+  }
+
+  /** Push the normalized effect time at the current emission interval's start
+   * (schemaVersion 3, §M5). Effect calls this before the interval's spawns; a
+   * gradients-mode startColor draw samples its two gradients at this t. Zero-cost
+   * for layers without a startColor module. */
+  setSpawnTNorm(t: number): void {
+    this.spawnTNorm = t;
   }
 
   /** Record the emitter's motion over the current step (schemaVersion 2). */
@@ -197,6 +221,44 @@ export class LayerSim {
     const velRandY = vel.y !== null ? rng() : 0;
     const velRandOrbital = vel.orbital !== null ? rng() : 0;
     const velRandRadial = vel.radial !== null ? rng() : 0;
+    // Draw 19 (§0.2): one uniform for the per-particle start-color tint, ONLY when
+    // the layer has a startColor module. In gradients mode it lerps the two
+    // gradients (each sampled at spawnTNorm) by the uniform; in palette mode it
+    // indexes the colors, clamping the u→1 edge to the last entry (never n). The
+    // result is a constant tint multiplier over the over-lifetime gradient (L7).
+    const startColor = this.layer.startColor;
+    let tintR = 1;
+    let tintG = 1;
+    let tintB = 1;
+    let tintA = 1;
+    if (startColor !== null) {
+      const u = rng();
+      if (startColor.mode === "palette") {
+        const cols = startColor.colors;
+        const col = cols[Math.min(cols.length - 1, Math.floor(u * cols.length))]!;
+        tintR = col.r;
+        tintG = col.g;
+        tintB = col.b;
+        tintA = col.a;
+      } else {
+        const a = evalGradient(startColor.a, this.spawnTNorm, SC_A);
+        const b = evalGradient(startColor.b, this.spawnTNorm, SC_B);
+        tintR = a.r + (b.r - a.r) * u;
+        tintG = a.g + (b.g - a.g) * u;
+        tintB = a.b + (b.b - a.b) * u;
+        tintA = a.a + (b.a - a.a) * u;
+      }
+    }
+    // Draws 20–21 (§0.2): two uniforms for the random-flip bitmask, ONLY when the
+    // layer has a randomFlip module. bit 1 iff ux < flip.x, bit 2 iff uy < flip.y.
+    const randomFlip = this.layer.randomFlip;
+    let flipBits = 0;
+    if (randomFlip !== null) {
+      const ux = rng();
+      const uy = rng();
+      if (ux < randomFlip.x) flipBits |= 1;
+      if (uy < randomFlip.y) flipBits |= 2;
+    }
 
     const i = p.spawn();
     const s = sampleShape(this.layer.shape, uPos1, uPos2, uDir, arcT);
@@ -234,6 +296,13 @@ export class LayerSim {
     if (p.velRandY !== null) p.velRandY[i] = velRandY;
     if (p.velRandOrbital !== null) p.velRandOrbital[i] = velRandOrbital;
     if (p.velRandRadial !== null) p.velRandRadial[i] = velRandRadial;
+    if (p.tintR !== null) {
+      p.tintR[i] = tintR;
+      p.tintG![i] = tintG;
+      p.tintB![i] = tintB;
+      p.tintA![i] = tintA;
+    }
+    if (p.flipBits !== null) p.flipBits[i] = flipBits;
     return true;
   }
 

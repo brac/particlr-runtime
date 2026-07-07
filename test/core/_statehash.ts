@@ -30,21 +30,31 @@ export function stateHash(fx: Effect): string {
     }
     // Optional schemaVersion-3 columns are folded in ONLY when present, so a
     // preset with all modules null keeps its exact v2 digest (§0.2).
-    // Fixed documented order: noisePhase (draw 14), then the four velocity-over-
-    // lifetime range uniforms velRandX/Y/Orbital/Radial (draws 15–18). Each is
-    // folded only when its column exists, so a preset with all these modules null
-    // keeps its exact v2 digest (§0.2).
+    // Fixed documented order: noisePhase (draw 14), the four velocity-over-
+    // lifetime range uniforms velRandX/Y/Orbital/Radial (draws 15–18), then the
+    // start-color tint columns tintR/G/B/A (draw 19), then the flip bitmask
+    // (draws 20–21). Each is folded only when its column exists, so a preset with
+    // all these modules null keeps its exact v2 digest (§0.2).
     for (const col of [
       ls.pool.noisePhase,
       ls.pool.velRandX,
       ls.pool.velRandY,
       ls.pool.velRandOrbital,
       ls.pool.velRandRadial,
+      ls.pool.tintR,
+      ls.pool.tintG,
+      ls.pool.tintB,
+      ls.pool.tintA,
     ]) {
       if (col !== null) {
         const bytes = new Uint8Array(col.buffer, col.byteOffset, count * 4);
         h = fnv1a(bytes, h);
       }
+    }
+    // flipBits is a Uint8Array (one byte per particle), folded last.
+    if (ls.pool.flipBits !== null) {
+      const fb = ls.pool.flipBits;
+      h = fnv1a(new Uint8Array(fb.buffer, fb.byteOffset, count), h);
     }
   }
   return (h >>> 0).toString(16).padStart(8, "0");
