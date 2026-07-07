@@ -30,10 +30,21 @@ export function stateHash(fx: Effect): string {
     }
     // Optional schemaVersion-3 columns are folded in ONLY when present, so a
     // preset with all modules null keeps its exact v2 digest (§0.2).
-    const np = ls.pool.noisePhase;
-    if (np !== null) {
-      const bytes = new Uint8Array(np.buffer, np.byteOffset, count * 4);
-      h = fnv1a(bytes, h);
+    // Fixed documented order: noisePhase (draw 14), then the four velocity-over-
+    // lifetime range uniforms velRandX/Y/Orbital/Radial (draws 15–18). Each is
+    // folded only when its column exists, so a preset with all these modules null
+    // keeps its exact v2 digest (§0.2).
+    for (const col of [
+      ls.pool.noisePhase,
+      ls.pool.velRandX,
+      ls.pool.velRandY,
+      ls.pool.velRandOrbital,
+      ls.pool.velRandRadial,
+    ]) {
+      if (col !== null) {
+        const bytes = new Uint8Array(col.buffer, col.byteOffset, count * 4);
+        h = fnv1a(bytes, h);
+      }
     }
   }
   return (h >>> 0).toString(16).padStart(8, "0");

@@ -13,6 +13,14 @@
 export interface PoolFlags {
   /** Per-particle noise phase, one draw at spawn (draw 14). Set iff layer.noise !== null. */
   noise?: boolean;
+  /** Per-particle range-mode uniform for velocity.x over lifetime (draw 15). Set iff velocity.x !== null. */
+  velX?: boolean;
+  /** Per-particle range-mode uniform for velocity.y over lifetime (draw 16). Set iff velocity.y !== null. */
+  velY?: boolean;
+  /** Per-particle range-mode uniform for velocity.orbital over lifetime (draw 17). Set iff velocity.orbital !== null. */
+  velOrbital?: boolean;
+  /** Per-particle range-mode uniform for velocity.radial over lifetime (draw 18). Set iff velocity.radial !== null. */
+  velRadial?: boolean;
 }
 
 export class ParticlePool {
@@ -36,6 +44,14 @@ export class ParticlePool {
   /** Per-particle noise sampling phase (schemaVersion 3, draw 14); null unless
    * the layer has a noise module. Survives swap-remove like every column. */
   readonly noisePhase: Float32Array | null;
+  /** Per-particle range-mode uniforms for the four velocity-over-lifetime tracks
+   * (schemaVersion 3, draws 15–18); each null unless its track is non-null. They
+   * feed range-mode tracks the same way rand0..3 feed the other over-lifetime
+   * tracks. Survive swap-remove like every column. */
+  readonly velRandX: Float32Array | null;
+  readonly velRandY: Float32Array | null;
+  readonly velRandOrbital: Float32Array | null;
+  readonly velRandRadial: Float32Array | null;
 
   private readonly all: Float32Array[];
 
@@ -64,6 +80,14 @@ export class ParticlePool {
     // pushed onto `all` so swap-remove moves them with the base columns.
     this.noisePhase = flags.noise ? mk() : null;
     if (this.noisePhase) this.all.push(this.noisePhase);
+    this.velRandX = flags.velX ? mk() : null;
+    if (this.velRandX) this.all.push(this.velRandX);
+    this.velRandY = flags.velY ? mk() : null;
+    if (this.velRandY) this.all.push(this.velRandY);
+    this.velRandOrbital = flags.velOrbital ? mk() : null;
+    if (this.velRandOrbital) this.all.push(this.velRandOrbital);
+    this.velRandRadial = flags.velRadial ? mk() : null;
+    if (this.velRandRadial) this.all.push(this.velRandRadial);
   }
 
   /** Allocate a slot for a new particle; returns its index, or -1 if full (E7). */

@@ -31,7 +31,7 @@ function layer(over: Partial<Layer> = {}, em: Partial<Emission> = {}): Layer {
     },
     overLifetime: {
       ...base.overLifetime,
-      velocity: { gravity: { x: 0, y: 0 }, drag: null, speedMultiplier: null },
+      velocity: { gravity: { x: 0, y: 0 }, drag: null, speedMultiplier: null, x: null, y: null, orbital: null, radial: null },
     },
     ...over,
   };

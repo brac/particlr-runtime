@@ -50,8 +50,17 @@ export class LayerSim {
   constructor(layer: Layer, layerSeed: number) {
     this.layer = layer;
     // Optional pool columns are allocated only for the modules this layer uses
-    // (§0.2): a layer with noise null keeps the exact v2 pool footprint.
-    this.pool = new ParticlePool(layer.emission.maxParticles, { noise: layer.noise !== null });
+    // (§0.2): a layer with every schemaVersion-3 module null keeps the exact v2
+    // pool footprint. The four velocity-over-lifetime range uniforms (draws
+    // 15–18) are each allocated iff their track is non-null.
+    const vel = layer.overLifetime.velocity;
+    this.pool = new ParticlePool(layer.emission.maxParticles, {
+      noise: layer.noise !== null,
+      velX: vel.x !== null,
+      velY: vel.y !== null,
+      velOrbital: vel.orbital !== null,
+      velRadial: vel.radial !== null,
+    });
     this.rng = mulberry32(layerSeed);
     this.layerSeed = layerSeed;
   }
@@ -124,6 +133,16 @@ export class LayerSim {
     // when the layer has a noise module. A null-noise layer draws nothing here,
     // keeping its spawn stream byte-identical to v2.
     const noisePhase = this.layer.noise !== null ? rng() : 0;
+    // Draws 15–18 (§0.2): one range-mode uniform per non-null velocity-over-
+    // lifetime track, in the fixed order x, y, orbital, radial, appended AFTER
+    // the noise phase. Each draw happens iff its track is non-null, regardless of
+    // the track's mode (constant/curve draw and discard — drawScalarInit rule).
+    // A layer with all four tracks null draws nothing here.
+    const vel = this.layer.overLifetime.velocity;
+    const velRandX = vel.x !== null ? rng() : 0;
+    const velRandY = vel.y !== null ? rng() : 0;
+    const velRandOrbital = vel.orbital !== null ? rng() : 0;
+    const velRandRadial = vel.radial !== null ? rng() : 0;
 
     const i = p.spawn();
     const s = sampleShape(this.layer.shape, uPos1, uPos2, uDir);
@@ -157,6 +176,10 @@ export class LayerSim {
     p.rand3[i] = r3;
     p.frameRand[i] = frameRand;
     if (p.noisePhase !== null) p.noisePhase[i] = noisePhase;
+    if (p.velRandX !== null) p.velRandX[i] = velRandX;
+    if (p.velRandY !== null) p.velRandY[i] = velRandY;
+    if (p.velRandOrbital !== null) p.velRandOrbital[i] = velRandOrbital;
+    if (p.velRandRadial !== null) p.velRandRadial[i] = velRandRadial;
     return true;
   }
 
@@ -182,6 +205,26 @@ export class LayerSim {
     const nPhase = p.noisePhase;
     const t = this.clock;
 
+    // Velocity over lifetime (schemaVersion 3, M3). Additive px/s (x/y), deg/s
+    // clockwise orbital, and px/s outward radial, all evaluated at ageNorm and
+    // applied into the position update only — NOT accumulated into velX/velY
+    // (mirroring the noise rule). Config hoisted; the whole per-particle block is
+    // gated behind `anyVelTrack` so a layer with all four tracks null keeps the
+    // update loop instruction-identical to before this milestone.
+    const velX = ol.velocity.x;
+    const velY = ol.velocity.y;
+    const velOrb = ol.velocity.orbital;
+    const velRad = ol.velocity.radial;
+    const anyVelTrack = velX !== null || velY !== null || velOrb !== null || velRad !== null;
+    // Orbital/radial origin: (0,0) in local space, the step-end emitter position
+    // for world-space layers (so the swirl center rides the emitter, §M3).
+    const originX = this.layer.space === "world" ? this.emEX : 0;
+    const originY = this.layer.space === "world" ? this.emEY : 0;
+    const vRandX = p.velRandX;
+    const vRandY = p.velRandY;
+    const vRandOrb = p.velRandOrbital;
+    const vRandRad = p.velRandRadial;
+
     let i = 0;
     while (i < p.count) {
       const lifetime = p.lifetime[i]!;
@@ -202,6 +245,40 @@ export class LayerSim {
       p.y[i] = p.y[i]! + vy * sm * dt;
       p.velX[i] = vx;
       p.velY[i] = vy;
+
+      // Velocity over lifetime AFTER the base position update, BEFORE noise (§M3).
+      // Rotate the offset (p − origin) clockwise by orbital(ageNorm)·dt, push
+      // radial(ageNorm)·dt along the normalized offset, then add the x/y track
+      // velocities ×dt. Like noise, none of this feeds back into velX/velY.
+      if (anyVelTrack) {
+        let ox = p.x[i]! - originX;
+        let oy = p.y[i]! - originY;
+        if (velOrb !== null) {
+          // Clockwise on the y-down screen = the standard positive rotation
+          // matrix. Magnitude is preserved, so the orbit radius is invariant.
+          const a = evalScalarTrack(velOrb, ageNorm, vRandOrb![i]!) * dt * RAD;
+          const cos = Math.cos(a);
+          const sin = Math.sin(a);
+          const rx = ox * cos - oy * sin;
+          const ry = ox * sin + oy * cos;
+          ox = rx;
+          oy = ry;
+        }
+        if (velRad !== null) {
+          const r = Math.sqrt(ox * ox + oy * oy);
+          if (r >= 1e-6) {
+            const push = (evalScalarTrack(velRad, ageNorm, vRandRad![i]!) * dt) / r;
+            ox += ox * push;
+            oy += oy * push;
+          }
+        }
+        let nx = originX + ox;
+        let ny = originY + oy;
+        if (velX !== null) nx += evalScalarTrack(velX, ageNorm, vRandX![i]!) * dt;
+        if (velY !== null) ny += evalScalarTrack(velY, ageNorm, vRandY![i]!) * dt;
+        p.x[i] = nx;
+        p.y[i] = ny;
+      }
 
       // Noise perturbation AFTER the position update (§0.3): a bounded,
       // velocity-style position nudge — NOT accumulated into velX/velY, so there

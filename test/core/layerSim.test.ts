@@ -66,6 +66,10 @@ describe("LayerSim.update — integration math (§2.4, §2.5)", () => {
           gravity: { x: 0, y: 10 },
           drag: { mode: "constant", value: 0.5 },
           speedMultiplier: { mode: "constant", value: 2 },
+          x: null,
+          y: null,
+          orbital: null,
+          radial: null,
         },
       },
     };
