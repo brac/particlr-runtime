@@ -354,12 +354,17 @@ function checkEmission(ctx: Ctx, v: unknown, path: string): void {
         checkUnit(ctx, b.probability, `${bp}.probability`);
       // Authoring-trap warnings: a burst whose (spread) window exceeds the
       // per-cycle emission window silently loses sub-events. (P2.2 / P2.3)
+      // Extended to the LAST cycle (schemaVersion 3, M4): a cycle whose window
+      // opens past the emission window never fires (same wrap semantics as a
+      // single burst past the window).
       if (ctx.duration > 0 && isNum(b.time) && isNum(b.spread)) {
         const delay = isNum(v.delay) ? v.delay : 0;
         const windowEnd = ctx.duration - delay;
-        if (b.time > windowEnd) {
+        const interval = isNum(b.interval) ? b.interval : 0;
+        const lastCycleTime = b.time + (cycles - 1) * interval;
+        if (lastCycleTime > windowEnd) {
           warn(ctx, `${bp}.time`, "burst time is past the emission window (duration − delay); this burst will not fire");
-        } else if (b.time + b.spread > windowEnd) {
+        } else if (lastCycleTime + b.spread > windowEnd) {
           warn(ctx, `${bp}`, "burst spread extends past the emission window; trailing sub-events will not fire");
         }
       }

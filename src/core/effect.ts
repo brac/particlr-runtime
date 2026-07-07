@@ -2,7 +2,7 @@
 // drives emission timing (§2.8), motion integration (via LayerSim.update), the
 // effect clock, prewarm (E5), dt clamping (E1/E2), and isDone (E6). This is the
 // same code path the editor preview and the shipped runtime both use (L4).
-import type { Layer, ScalarTrack, ParticleDoc } from "../format/types.js";
+import type { Layer, ScalarTrack, ParticleDoc, Shape } from "../format/types.js";
 import { deriveLayerSeed } from "./prng.js";
 import { evalCurve } from "./tracks.js";
 import { LayerSim } from "./layerSim.js";
@@ -206,6 +206,10 @@ export class Effect {
           remaining -= room;
           t = 0;
           this.cycleStart = true;
+          // A new loop pass re-rolls every probability-gated burst cycle
+          // (§0.2, M4): forget the previous pass's gate outcomes. No-op (null
+          // state) for probability-1 documents and during prewarm.
+          for (const ls of this.sims) ls.clearBurstGates();
         }
       }
       this.t = t;
@@ -231,13 +235,19 @@ export class Effect {
       const delay = em.delay;
       const localStart = t0 - delay;
       const localEnd = t1 - delay;
+      // Arc sweep (schemaVersion 3, M4). Only circle/cone carry an arcMode; a
+      // "random" mode (every v2/migrated shape) leaves arcActive false, so the
+      // spawn path is byte-identical to v2 — arcT stays -1 and is inert.
+      const shape = layer.shape;
+      const arcActive = (shape.kind === "circle" || shape.kind === "cone") && shape.arcMode !== "random";
 
       // Bursts fire BEFORE continuous emission when both land in the same step:
       // burst particles take their PRNG draws first and win contested pool slots
       // near the cap (normative order — IMPLEMENTATION_PLAN §emission). (P2.1)
       // Suppressed during prewarm (continuous only, E5).
       if (!this.prewarming) {
-        for (const burst of em.bursts) {
+        for (let bi = 0; bi < em.bursts.length; bi++) {
+          const burst = em.bursts[bi]!;
           const count = burst.count;
           if (count <= 0) continue;
           // At most `capacity` particles can ever exist, so iterating past it
@@ -247,14 +257,56 @@ export class Effect {
           // and every validated doc) is unaffected. (P1.3)
           const iterations = Math.min(count, ls.pool.capacity);
           if (count > iterations) ls.capped = true;
-          for (let k = 0; k < iterations; k++) {
-            // Sub-events spread evenly across [time, time + spread] *inclusive*:
-            // with count >= 2 the last lands exactly at time + spread. (P2.2)
-            const sk = count === 1 ? burst.time : burst.time + (burst.spread * k) / (count - 1);
-            const lowerOk = inclusiveLower ? localStart <= sk : localStart < sk;
-            // World-space spawn fraction: the sub-event's offset within the step
-            // (schemaVersion 2). Ignored by local layers.
-            if (lowerOk && sk <= localEnd) ls.spawn(clamp01((elapsed + (sk - localStart)) * invDt));
+          // Default to the v2-equivalent single always-firing burst when a field
+          // is absent (hand-built layers in tests; migrated docs always carry
+          // cycles 1 / interval 0 / probability 1, so this is byte-identical).
+          const cycles = burst.cycles ?? 1;
+          const interval = burst.interval ?? 0;
+          const prob = burst.probability ?? 1;
+          // A burst repeats `cycles` times (schemaVersion 3, M4), cycle c's window
+          // opening at `time + c·interval`; crossing detection is per (burst,
+          // cycle). Cycles ascending, bursts in array order — the fixed order the
+          // probability gate draw interleaves against (§0.2).
+          for (let c = 0; c < cycles; c++) {
+            const cycleTime = burst.time + c * interval;
+            // Pre-spawn probability draw (§0.2, normative): iff probability !== 1,
+            // ONE draw from the layer stream per due burst cycle, taken immediately
+            // before that cycle's spawns (bursts in array order, cycles ascending).
+            // "Due" means ≥ 1 sub-event crosses this interval; the roll happens on
+            // the FIRST such interval and the outcome is remembered by LayerSim for
+            // the cycle's remaining sub-events (a spread window spanning several
+            // steps is all-or-nothing — no re-roll, no extra draws). Gate fires iff
+            // the draw is < probability. probability === 1 (the migration default)
+            // ⇒ zero draws and zero state, so a migrated doc's stream is
+            // byte-identical to v2.
+            if (prob !== 1) {
+              let due = false;
+              for (let k = 0; k < iterations; k++) {
+                const sk = count === 1 ? cycleTime : cycleTime + (burst.spread * k) / (count - 1);
+                const lowerOk = inclusiveLower ? localStart <= sk : localStart < sk;
+                if (lowerOk && sk <= localEnd) {
+                  due = true;
+                  break;
+                }
+              }
+              if (!due) continue;
+              if (!ls.burstGateFired(bi, c, prob)) continue; // suppressed for the WHOLE cycle
+            }
+            for (let k = 0; k < iterations; k++) {
+              // Sub-events spread evenly across [cycleTime, cycleTime + spread]
+              // *inclusive*: with count >= 2 the last lands exactly at the end. (P2.2)
+              const sk = count === 1 ? cycleTime : cycleTime + (burst.spread * k) / (count - 1);
+              const lowerOk = inclusiveLower ? localStart <= sk : localStart < sk;
+              // World-space spawn fraction: the sub-event's offset within the step
+              // (schemaVersion 2). Ignored by local layers.
+              if (lowerOk && sk <= localEnd) {
+                // burstSpread fans this burst's `count` sub-events evenly across
+                // the arc (k/(count−1)); loop/pingPong sweep by the sub-event's
+                // effect time (sk + delay). (M4)
+                const arcT = arcActive ? this.arcTFor(shape, sk + delay, k, count) : -1;
+                ls.spawn(clamp01((elapsed + (sk - localStart)) * invDt), arcT);
+              }
+            }
           }
         }
       }
@@ -284,7 +336,15 @@ export class Effect {
           // clump; local layers ignore the fraction. (schemaVersion 2)
           const baseOffset = elapsed + (activeStart - localStart);
           for (let s = 0; s < n; s++) {
-            ls.spawn(clamp01((baseOffset + (activeDt * (s + 0.5)) / n) * invDt));
+            // Continuous emission has no discrete burst to fan across, so
+            // burstSpread falls back to random (E21); loop/pingPong sweep by the
+            // spawn's effect time (local time + delay). (M4)
+            let arcT = -1;
+            if (arcActive) {
+              const spawnLocal = activeStart + (activeDt * (s + 0.5)) / n;
+              arcT = this.arcTFor(shape, spawnLocal + delay, -1, 0);
+            }
+            ls.spawn(clamp01((baseOffset + (activeDt * (s + 0.5)) / n) * invDt), arcT);
           }
         }
       }
@@ -323,7 +383,50 @@ export class Effect {
         ls.capped = true;
         m = room;
       }
-      for (let k = 0; k < m; k++) ls.spawn((k + 0.5) / m);
+      // Distance emission is continuous, so burstSpread falls back to random
+      // (E21); loop/pingPong sweep by each spawn's midpoint time within the step
+      // (mirroring continuous emission's per-spawn granularity, M4) — a fast
+      // emitter must not stamp a whole step's spawns at one arc angle.
+      const shape = layer.shape;
+      const arcActive = (shape.kind === "circle" || shape.kind === "cone") && shape.arcMode !== "random";
+      for (let k = 0; k < m; k++) {
+        const f = (k + 0.5) / m;
+        const arcT = arcActive ? this.arcTFor(shape, tStart + f * dt, -1, 0) : -1;
+        ls.spawn(f, arcT);
+      }
+    }
+  }
+
+  /**
+   * Driven arc-angle fraction for a spawn (schemaVersion 3, M4), in [0,1], or
+   * `-1` meaning "no override — use the drawn angle uniform" (random mode, and
+   * burstSpread for continuous emission, E21). `spawnTime` is the spawn's effect
+   * time; `burstK`/`burstCount` describe a burst sub-event (`burstK < 0` for
+   * continuous emission).
+   */
+  private arcTFor(shape: Shape, spawnTime: number, burstK: number, burstCount: number): number {
+    if (shape.kind !== "circle" && shape.kind !== "cone") return -1;
+    switch (shape.arcMode) {
+      case "loop": {
+        // One full sweep (0→1) per 1/arcSpeed seconds; wrap with frac.
+        const p = spawnTime * shape.arcSpeed;
+        return p - Math.floor(p);
+      }
+      case "pingPong": {
+        // Triangle wave over the same period, sweeping 0→1→0 (no seam jump).
+        const p = spawnTime * shape.arcSpeed;
+        const phase = p - Math.floor(p);
+        return phase < 0.5 ? phase * 2 : 2 - phase * 2;
+      }
+      case "burstSpread": {
+        if (burstK < 0) return -1; // continuous emission has no burst to fan (E21)
+        // Single-particle burst: emit at the arc start (arcT = 0) — documented
+        // guard for the k/(count−1) division when count === 1.
+        if (burstCount <= 1) return 0;
+        return burstK / (burstCount - 1);
+      }
+      default:
+        return -1; // "random": use the drawn angle uniform
     }
   }
 }

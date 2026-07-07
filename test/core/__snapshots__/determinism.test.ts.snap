@@ -54,6 +54,8 @@ exports[`preset snapshots (Gate 1) > shell-casings.prt state @60 steps is stable
 
 exports[`preset snapshots (Gate 1) > shield-shimmer.prt state @60 steps is stable 1`] = `"f14381d6"`;
 
+exports[`preset snapshots (Gate 1) > shockwave-ring.prt state @60 steps is stable 1`] = `"576cd805"`;
+
 exports[`preset snapshots (Gate 1) > smoke.prt state @60 steps is stable 1`] = `"a5cbf794"`;
 
 exports[`preset snapshots (Gate 1) > snow.prt state @60 steps is stable 1`] = `"4d429703"`;

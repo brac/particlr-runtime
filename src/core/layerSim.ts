@@ -34,6 +34,15 @@ export class LayerSim {
   acc = 0;
   /** Rate-over-distance fractional accumulator (schemaVersion 2), owned by Effect. */
   accDist = 0;
+  /** Burst-cycle probability-gate outcomes for the CURRENT loop pass
+   * (schemaVersion 3, §0.2): `burstGates[burstIndex][cycle]` ∈ {0 = not yet
+   * rolled, 1 = fired, 2 = suppressed}. A gated cycle rolls ONCE (one draw) when
+   * it first becomes due and the outcome is recalled for its remaining
+   * sub-events — a spread window spanning several steps is all-or-nothing.
+   * Lazily allocated on the first gated roll, so a probability-1 document
+   * carries zero state. Cleared on reset() and by Effect at every looping wrap
+   * (each pass re-rolls every cycle). */
+  private burstGates: Uint8Array[] | null = null;
 
   // Emitter motion segment for the current step (schemaVersion 2). Effect pushes
   // these before emission; a world-space spawn interpolates its position along
@@ -76,6 +85,9 @@ export class LayerSim {
     this.capped = false;
     this.acc = 0;
     this.accDist = 0;
+    // Forget every burst-gate outcome: a reset/seek re-simulates from t=0 with a
+    // fresh stream, so identical draws rebuild identical gate state (§0.2).
+    this.burstGates = null;
   }
 
   /** Push the effect clock (step start) into this sim (schemaVersion 3); the
@@ -95,6 +107,43 @@ export class LayerSim {
   }
 
   /**
+   * Roll — or recall — the probability gate for one burst cycle (§0.2). The
+   * FIRST call for a (burst, cycle) in a loop pass takes exactly ONE draw from
+   * this layer's spawn PRNG stream, immediately before that cycle's spawn draws
+   * (which is why the rng stays private to LayerSim and Effect goes through this
+   * narrow hook); the cycle fires iff `draw < probability`. Subsequent calls —
+   * a spread window spanning several steps makes the same cycle "due" in several
+   * emit intervals — recall the remembered outcome with ZERO draws, so a gated
+   * cycle is all-or-nothing across steps. Effect never calls this when
+   * `probability === 1` (zero draws, zero state — the migration default), and
+   * never during prewarm (bursts are suppressed there, E5), so prewarm cannot
+   * consume gate state.
+   */
+  burstGateFired(burstIndex: number, cycle: number, probability: number): boolean {
+    const gates = (this.burstGates ??= []);
+    let row = gates[burstIndex];
+    if (row === undefined || row.length <= cycle) {
+      const grown = new Uint8Array(cycle + 1);
+      if (row !== undefined) grown.set(row);
+      gates[burstIndex] = row = grown;
+    }
+    const s = row[cycle]!;
+    if (s !== 0) return s === 1;
+    const fired = this.rng() < probability;
+    row[cycle] = fired ? 1 : 2;
+    return fired;
+  }
+
+  /** Forget all burst-gate outcomes. Effect calls this at every looping wrap so
+   * each loop pass re-rolls every probability-gated cycle (§0.2, M4). */
+  clearBurstGates(): void {
+    const gates = this.burstGates;
+    if (gates !== null) {
+      for (const row of gates) row?.fill(0);
+    }
+  }
+
+  /**
    * Spawn one particle. Performs exactly the fixed 13 draws in the normative
    * order regardless of shape/mode/space (§2.7). If the pool is full the spawn is
    * dropped with no draws (deterministic) and `capped` is set; returns false.
@@ -103,8 +152,13 @@ export class LayerSim {
    * (schemaVersion 2). It is used ONLY by world-space layers, to interpolate the
    * spawn position along the emitter's motion segment; local-space layers ignore
    * it, so their spawn path is byte-identical to v1.
+   *
+   * `arcT` (schemaVersion 3) is a driven arc-angle fraction for circle/cone shapes
+   * with a non-random `arcMode`; `-1` (the default) leaves the drawn angle uniform
+   * in charge. It never changes the draw count — the angle uniform is always drawn
+   * and, when `arcT` overrides it, simply discarded (§0.2, M4).
    */
-  spawn(f = 1): boolean {
+  spawn(f = 1, arcT = -1): boolean {
     const p = this.pool;
     if (p.count >= p.capacity) {
       this.capped = true;
@@ -145,7 +199,7 @@ export class LayerSim {
     const velRandRadial = vel.radial !== null ? rng() : 0;
 
     const i = p.spawn();
-    const s = sampleShape(this.layer.shape, uPos1, uPos2, uDir);
+    const s = sampleShape(this.layer.shape, uPos1, uPos2, uDir, arcT);
     const dirRad = s.dirDeg * RAD;
     let px = s.px;
     let py = s.py;
