@@ -350,3 +350,68 @@ describe("PixiSparkRenderer — built-in texture cache self-heal (P0.2)", () => 
     b.destroy();
   });
 });
+
+describe("PixiSparkRenderer — emitter placement (schemaVersion 2)", () => {
+  it("places a local layer's container at the emitter; a world layer stays at origin", () => {
+    // Two layers: layer 0 local, layer 1 world.
+    const doc = loadDoc("rain");
+    const l = doc.layers[0]!;
+    const world = structuredClone(l);
+    world.id = "w";
+    world.space = "world";
+    l.space = "local";
+    doc.layers = [l, world];
+
+    const fx = new Effect(doc, { seed: doc.seed });
+    const r = new PixiSparkRenderer(fx);
+
+    fx.setEmitterPosition(120, 45);
+    fx.step(1 / 60);
+    r.sync();
+
+    const localPc = pcOf(r, 0);
+    const worldPc = pcOf(r, 1);
+    expect([localPc.position.x, localPc.position.y]).toEqual([120, 45]);
+    expect([worldPc.position.x, worldPc.position.y]).toEqual([0, 0]);
+    r.destroy();
+  });
+
+  it("keeps both containers at the origin when the emitter never moves (v1 parity)", () => {
+    const doc = loadDoc("rain");
+    doc.layers[0]!.space = "local";
+    const fx = new Effect(doc, { seed: doc.seed });
+    const r = new PixiSparkRenderer(fx);
+    for (let i = 0; i < 5; i++) fx.step(1 / 60);
+    r.sync();
+    const pc = pcOf(r, 0);
+    expect([pc.position.x, pc.position.y]).toEqual([0, 0]);
+    r.destroy();
+  });
+
+  it("a world layer's particles advance in world coords while its container stays put", () => {
+    const doc = loadDoc("rain");
+    const l = doc.layers[0]!;
+    l.space = "world";
+    // Point shape + a single burst at f=0 so the spawn lands exactly at the
+    // segment start (the teleported point), isolating the world offset.
+    l.shape = { kind: "point", emitFrom: "volume" };
+    l.emission.bursts = [{ time: 0, count: 1, spread: 0 }];
+    l.emission.rateOverTime = { mode: "constant", value: 0 };
+    doc.layers = [l];
+    doc.looping = false;
+
+    const fx = new Effect(doc, { seed: doc.seed });
+    const r = new PixiSparkRenderer(fx);
+    fx.teleportEmitter(200, 0); // spawn point (no interpolation across the gap)
+    fx.setEmitterPosition(260, 0); // travel 60px this step
+    fx.step(1 / 60);
+    r.sync();
+
+    const pc = pcOf(r, 0);
+    expect([pc.position.x, pc.position.y]).toEqual([0, 0]); // container fixed
+    // Particle x carries the world coordinate (segment start = 200), not local 0.
+    const part = pc.particleChildren[0]!;
+    expect(part.x).toBeCloseTo(200, 3);
+    r.destroy();
+  });
+});

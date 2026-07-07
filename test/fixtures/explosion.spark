@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "meta": {
     "name": "Explosion",
     "createdWith": "sparkr@0.x",
@@ -23,6 +23,7 @@
           "mode": "constant",
           "value": 0
         },
+        "rateOverDistance": null,
         "bursts": [
           {
             "time": 0,
@@ -38,6 +39,8 @@
         "kind": "point",
         "emitFrom": "volume"
       },
+      "space": "local",
+      "inheritVelocity": 0,
       "initial": {
         "life": {
           "mode": "constant",
@@ -120,6 +123,7 @@
           "mode": "constant",
           "value": 0
         },
+        "rateOverDistance": null,
         "bursts": [
           {
             "time": 0,
@@ -136,6 +140,8 @@
         "radius": 8,
         "emitFrom": "volume"
       },
+      "space": "local",
+      "inheritVelocity": 0,
       "initial": {
         "life": {
           "mode": "range",
@@ -232,6 +238,7 @@
           "mode": "constant",
           "value": 20
         },
+        "rateOverDistance": null,
         "bursts": [],
         "delay": 0.05,
         "prewarm": false,
@@ -242,6 +249,8 @@
         "radius": 12,
         "emitFrom": "volume"
       },
+      "space": "local",
+      "inheritVelocity": 0,
       "initial": {
         "life": {
           "mode": "range",

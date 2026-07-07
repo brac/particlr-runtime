@@ -72,6 +72,8 @@ function cLayer(v: unknown): unknown {
       "texture",
       "emission",
       "shape",
+      "space",
+      "inheritVelocity",
       "initial",
       "overLifetime",
       "subEmitters",
@@ -83,8 +85,9 @@ function cLayer(v: unknown): unknown {
       return tx;
     });
     l.emission = map(l.emission, (e) => {
-      const em = orderKeys(e, ["rateOverTime", "bursts", "delay", "prewarm", "maxParticles"]);
+      const em = orderKeys(e, ["rateOverTime", "rateOverDistance", "bursts", "delay", "prewarm", "maxParticles"]);
       em.rateOverTime = cTrack(em.rateOverTime);
+      em.rateOverDistance = cTrackOrNull(em.rateOverDistance);
       if (Array.isArray(em.bursts)) em.bursts = em.bursts.map((b) => map(b, (bb) => orderKeys(bb, ["time", "count", "spread"])));
       return em;
     });

@@ -235,11 +235,21 @@ export class PixiSparkRenderer {
   /** Copy the current simulation frame onto the Pixi particles. Call after step(). */
   sync(): void {
     const layers = this.effect.layers;
+    const ex = this.effect.emitterX;
+    const ey = this.effect.emitterY;
     for (let i = 0; i < this.views.length; i++) {
       const ls = layers[i]!;
       const view = this.views[i]!;
       const enabled = ls.layer.enabled;
       const count = enabled ? ls.count : 0;
+
+      // Per-layer container placement (schemaVersion 2). A local layer rides the
+      // emitter (its particles carry effect-local coords); a world layer stays at
+      // the container origin because its particles already carry parent-frame
+      // coords, so a moving emitter leaves them behind — the trail. With a
+      // never-moved emitter both resolve to (0,0), keeping v1 output identical.
+      if (ls.layer.space === "world") view.pc.position.set(0, 0);
+      else view.pc.position.set(ex, ey);
 
       if (enabled && count > 0) {
         computeRenderState(ls, view.buffers);

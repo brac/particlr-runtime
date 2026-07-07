@@ -7,7 +7,7 @@ describe("serializeSpark — canonical form", () => {
     const out = serializeSpark(makeDoc());
     expect(out.endsWith("\n")).toBe(true);
     expect(out.includes("\r")).toBe(false);
-    expect(out.split("\n")[1]).toBe('  "schemaVersion": 1,');
+    expect(out.split("\n")[1]).toBe('  "schemaVersion": 2,');
   });
 
   it("orders known keys by their declared order regardless of input order", () => {

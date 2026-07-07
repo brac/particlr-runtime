@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "meta": {
     "name": "Unknowns",
     "createdWith": "sparkr@0.x",
@@ -26,6 +26,7 @@
           "value": 5,
           "trackExtra": true
         },
+        "rateOverDistance": null,
         "bursts": [],
         "delay": 0,
         "prewarm": false,
@@ -40,6 +41,8 @@
         "kind": "point",
         "emitFrom": "volume"
       },
+      "space": "local",
+      "inheritVelocity": 0,
       "initial": {
         "life": {
           "mode": "constant",

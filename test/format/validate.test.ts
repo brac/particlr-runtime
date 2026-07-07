@@ -29,12 +29,12 @@ describe("validateSpark — document rules", () => {
   });
 
   it("rejects schemaVersion < 1 or non-integer", () => {
-    expect(firstCode(makeDoc({ schemaVersion: 0 as 1 }))).toBe("invalid-version");
-    expect(firstCode(makeDoc({ schemaVersion: 1.5 as 1 }))).toBe("invalid-version");
+    expect(firstCode(makeDoc({ schemaVersion: 0 as 2 }))).toBe("invalid-version");
+    expect(firstCode(makeDoc({ schemaVersion: 1.5 as 2 }))).toBe("invalid-version");
   });
 
   it("refuses a newer schemaVersion (E11)", () => {
-    expect(firstCode(makeDoc({ schemaVersion: 2 as 1 }))).toBe("newer-version");
+    expect(firstCode(makeDoc({ schemaVersion: 3 as 2 }))).toBe("newer-version");
   });
 
   it("rejects duration below the 0.05 floor (E13)", () => {
@@ -198,5 +198,60 @@ describe("validateSpark — reserved fields (L8)", () => {
   it("rejects non-null subEmitters and trail", () => {
     expect(errPaths(makeDoc({ layers: [makeLayer({ subEmitters: {} as null })] }))).toContain("layers[0].subEmitters");
     expect(errPaths(makeDoc({ layers: [makeLayer({ trail: {} as null })] }))).toContain("layers[0].trail");
+  });
+});
+
+describe("validateSpark — emitter motion (schemaVersion 2)", () => {
+  function warns(input: unknown) {
+    const r = validateSpark(input);
+    return r.warnings.map((w) => w.path);
+  }
+
+  it("accepts a valid world-space layer with inherited velocity", () => {
+    const l = makeLayer({ space: "world", inheritVelocity: 1 });
+    expect(validateSpark(makeDoc({ layers: [l] })).ok).toBe(true);
+  });
+
+  it("rejects an unknown simulation space", () => {
+    const l = makeLayer({ space: "screen" as unknown as "local" });
+    expect(errPaths(makeDoc({ layers: [l] }))).toContain("layers[0].space");
+  });
+
+  it("rejects inheritVelocity out of [-2, 2] or non-numeric", () => {
+    expect(errPaths(makeDoc({ layers: [makeLayer({ inheritVelocity: 3 })] }))).toContain("layers[0].inheritVelocity");
+    expect(errPaths(makeDoc({ layers: [makeLayer({ inheritVelocity: -2.5 })] }))).toContain("layers[0].inheritVelocity");
+    expect(errPaths(makeDoc({ layers: [makeLayer({ inheritVelocity: "x" as unknown as number })] }))).toContain(
+      "layers[0].inheritVelocity",
+    );
+  });
+
+  it("accepts rateOverDistance as a track or null; enforces the rate ceiling", () => {
+    const ok = makeLayer({
+      space: "world",
+      emission: { ...makeLayer().emission, rateOverDistance: { mode: "constant", value: 2 } },
+    });
+    expect(validateSpark(makeDoc({ layers: [ok] })).ok).toBe(true);
+
+    const tooBig = makeLayer({
+      space: "world",
+      emission: { ...makeLayer().emission, rateOverDistance: { mode: "constant", value: 1e9 } },
+    });
+    expect(errPaths(makeDoc({ layers: [tooBig] }))).toContain("layers[0].emission.rateOverDistance.value");
+  });
+
+  it("warns when motion features are set on a local-space layer", () => {
+    const l = makeLayer({
+      space: "local",
+      inheritVelocity: 1,
+      emission: { ...makeLayer().emission, rateOverDistance: { mode: "constant", value: 2 } },
+    });
+    const w = warns(makeDoc({ layers: [l] }));
+    expect(w).toContain("layers[0].inheritVelocity");
+    expect(w).toContain("layers[0].emission.rateOverDistance");
+  });
+
+  it("warns when a world-space layer prewarms", () => {
+    const l = makeLayer({ space: "world", emission: { ...makeLayer().emission, prewarm: true } });
+    expect(warns(makeDoc({ layers: [l] }))).toContain("layers[0].emission.prewarm");
   });
 });

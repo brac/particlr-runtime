@@ -18,6 +18,8 @@ exports[`preset snapshots (Gate 1) > falling-leaves.spark state @60 steps is sta
 
 exports[`preset snapshots (Gate 1) > fire.spark state @60 steps is stable 1`] = `"169cb25a"`;
 
+exports[`preset snapshots (Gate 1) > fireball.spark state @60 steps is stable 1`] = `"6ca8b28f"`;
+
 exports[`preset snapshots (Gate 1) > healing-aura.spark state @60 steps is stable 1`] = `"bdd155ac"`;
 
 exports[`preset snapshots (Gate 1) > hit-flash.spark state @60 steps is stable 1`] = `"69691905"`;

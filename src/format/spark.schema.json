@@ -7,7 +7,7 @@
       "properties": {
         "schemaVersion": {
           "type": "number",
-          "const": 1
+          "const": 2
         },
         "meta": {
           "$ref": "#/definitions/SparkMeta"
@@ -87,6 +87,14 @@
         "shape": {
           "$ref": "#/definitions/Shape"
         },
+        "space": {
+          "$ref": "#/definitions/SimSpace",
+          "description": "Simulation space (schemaVersion 2). Default \"local\" = v1 behavior."
+        },
+        "inheritVelocity": {
+          "type": "number",
+          "description": "Fraction of the emitter's velocity added to each particle's spawn velocity (schemaVersion 2). Range [-2, 2]. Applied in world space only; ignored (but preserved) for local layers. Plain constant, not a ScalarInit, so it costs zero PRNG draws and preserves the normative 13-draw spawn order (§2.7)."
+        },
         "initial": {
           "$ref": "#/definitions/InitialProps"
         },
@@ -108,6 +116,8 @@
         "texture",
         "emission",
         "shape",
+        "space",
+        "inheritVelocity",
         "initial",
         "overLifetime",
         "subEmitters",
@@ -179,6 +189,17 @@
         "rateOverTime": {
           "$ref": "#/definitions/ScalarTrack"
         },
+        "rateOverDistance": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ScalarTrack"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Particles per pixel the emitter travels (schemaVersion 2). World-space only — keeps trail density uniform regardless of emitter speed. Null = disabled (v1 behavior). Same rate ceiling as rateOverTime."
+        },
         "bursts": {
           "type": "array",
           "items": {
@@ -197,6 +218,7 @@
       },
       "required": [
         "rateOverTime",
+        "rateOverDistance",
         "bursts",
         "delay",
         "prewarm",
@@ -427,6 +449,14 @@
         "volume",
         "surface"
       ]
+    },
+    "SimSpace": {
+      "type": "string",
+      "enum": [
+        "local",
+        "world"
+      ],
+      "description": "The frame a layer's particles simulate in (schemaVersion 2). `local`: positions are relative to the effect origin and the renderer places the whole layer at the emitter (v1 behavior). `world`: particles spawn at the emitter's current position and thereafter simulate independently in the parent frame, so a moving emitter leaves them behind — the trail. (EMITTER_MOTION_PLAN)"
     },
     "InitialProps": {
       "type": "object",

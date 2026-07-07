@@ -84,9 +84,13 @@ validateSpark(input: object): ValidationResult   // { ok, doc, warnings } | { ok
 
 ```ts
 class Effect {
-  constructor(doc: SparkDoc, opts?: { seed?: number }); // seed overrides doc.seed
+  constructor(doc: SparkDoc, opts?: { seed?: number; x?: number; y?: number }); // seed overrides doc.seed; x/y = initial emitter position
   step(dt: number): void;      // advance by dt seconds
-  reset(seed?: number): void;  // rewind to t=0 (re-prewarms if configured)
+  reset(seed?: number): void;  // rewind to t=0 (re-prewarms if configured); keeps the emitter position
+  setEmitterPosition(x: number, y: number): void; // emitter position at the END of the next step (drives world-space trails)
+  teleportEmitter(x: number, y: number): void;    // jump with no velocity/interpolation (respawns, screen wraps)
+  readonly emitterX: number;
+  readonly emitterY: number;
   readonly time: number;       // effect-local seconds
   readonly seed: number;
   readonly isDone: boolean;    // non-looping effect finished and no particles remain
@@ -94,6 +98,39 @@ class Effect {
   readonly layers: readonly LayerSim[]; // per-layer: count, capped, typed-array state
 }
 ```
+
+#### Simulation space & moving emitters (schemaVersion 2)
+
+Each layer has a `space`: **`local`** particles ride the emitter (weld to the
+source — muzzle flash, aura); **`world`** particles spawn at the emitter's
+current position and then simulate independently, so a moving emitter leaves
+them behind — a **trail** (flamethrower, rocket smoke, comet, a flaming
+projectile).
+
+**Host contract:** place `view.container` at the effect's world origin **once**,
+then drive motion through the emitter — never by moving the container (that drags
+world-space particles too). A projectile with a trail:
+
+```ts
+const fx = new Effect(fireballDoc, { seed });
+const view = new PixiSparkRenderer(fx);
+view.container.position.set(0, 0);      // fixed; the emitter moves, not this
+fx.teleportEmitter(startX, startY);     // launch point, no start smear
+app.stage.addChild(view.container);
+
+app.ticker.add((t) => {
+  x += speed * (t.deltaMS / 1000);
+  fx.setEmitterPosition(x, y);          // advance the head; world layers shed a trail
+  fx.step(t.deltaMS / 1000);
+  view.sync();
+});
+```
+
+`inheritVelocity` (per layer, `[-2,2]`) adds a fraction of the emitter's velocity
+to each spawned particle; `emission.rateOverDistance` spawns particles per pixel
+traveled (uniform trail density at any speed). Both are world-space only.
+Determinism extends to identical `(document, seed, sequence of (dt, emitter
+position))`.
 
 Each `LayerSim` exposes read-only per-particle typed arrays (`x`, `y`, `velX`,
 `velY`, `age`, `lifetime`, `rotation`, …) plus `count` and `capped`. Use
@@ -112,6 +149,8 @@ identical to the preview.
 | E7 | pool full (`maxParticles`) | new spawns dropped silently; `layer.capped` flags it |
 | E8 | seeking a time | `reset(seed)` then `step(1/60)` to the target — exact, thanks to determinism |
 | E9 | serializing while playing | `serializeSpark` uses the authored document; playback state never serializes |
+| E15 | `teleportEmitter` (respawn/wrap) | jump with no velocity and no spawn interpolation across the gap; resets the distance accumulator |
+| E16 | prewarm on a world-space layer | prewarm runs at the initial emitter position with zero velocity; particles pile there |
 
 ## Pixi adapter (`@sparkr/runtime/pixi`)
 

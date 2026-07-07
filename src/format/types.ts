@@ -5,6 +5,12 @@
 export type BlendMode = "normal" | "add" | "multiply" | "screen";
 export type EmitFrom = "volume" | "surface";
 export type Ease = "linear" | "easeIn" | "easeOut" | "easeInOut" | "step";
+/** The frame a layer's particles simulate in (schemaVersion 2). `local`:
+ * positions are relative to the effect origin and the renderer places the whole
+ * layer at the emitter (v1 behavior). `world`: particles spawn at the emitter's
+ * current position and thereafter simulate independently in the parent frame, so
+ * a moving emitter leaves them behind — the trail. (EMITTER_MOTION_PLAN) */
+export type SimSpace = "local" | "world";
 
 export type ScalarInit =
   | { mode: "constant"; value: number }
@@ -46,6 +52,10 @@ export interface Burst {
 
 export interface Emission {
   rateOverTime: ScalarTrack;
+  /** Particles per pixel the emitter travels (schemaVersion 2). World-space
+   * only — keeps trail density uniform regardless of emitter speed. Null =
+   * disabled (v1 behavior). Same rate ceiling as rateOverTime. */
+  rateOverDistance: ScalarTrack | null;
   bursts: Burst[];
   delay: number;
   prewarm: boolean;
@@ -97,6 +107,13 @@ export interface Layer {
   texture: TextureRef;
   emission: Emission;
   shape: Shape;
+  /** Simulation space (schemaVersion 2). Default "local" = v1 behavior. */
+  space: SimSpace;
+  /** Fraction of the emitter's velocity added to each particle's spawn velocity
+   * (schemaVersion 2). Range [-2, 2]. Applied in world space only; ignored (but
+   * preserved) for local layers. Plain constant, not a ScalarInit, so it costs
+   * zero PRNG draws and preserves the normative 13-draw spawn order (§2.7). */
+  inheritVelocity: number;
   initial: InitialProps;
   overLifetime: OverLifetime;
   subEmitters: null;
@@ -110,7 +127,7 @@ export interface SparkMeta {
 }
 
 export interface SparkDoc {
-  schemaVersion: 1;
+  schemaVersion: 2;
   meta: SparkMeta;
   duration: number;
   looping: boolean;
@@ -136,6 +153,7 @@ export const EMIT_FROM: readonly EmitFrom[] = ["volume", "surface"];
 export const EASES: readonly Ease[] = ["linear", "easeIn", "easeOut", "easeInOut", "step"];
 export const FLIPBOOK_MODES: readonly Flipbook["mode"][] = ["loop", "once", "random"];
 export const SHAPE_KINDS: readonly Shape["kind"][] = ["point", "circle", "cone", "rect", "edge"];
+export const SIM_SPACES: readonly SimSpace[] = ["local", "world"];
 
 /** Current schema version this build understands. */
-export const CURRENT_SCHEMA_VERSION = 1;
+export const CURRENT_SCHEMA_VERSION = 2;

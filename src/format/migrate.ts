@@ -8,7 +8,27 @@ import type { ValidationIssue } from "./validate.js";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const MIGRATIONS: Record<number, (doc: any) => any> = {
-  // 1: (doc) => ({ ...doc, schemaVersion: 2, /* ... */ }),  // added when v2 lands
+  // v1 -> v2: emitter motion / simulation space (EMITTER_MOTION_PLAN).
+  // Inject inert defaults so a migrated v1 document is bit-identical to its v1
+  // behavior: local space, no inherited velocity, no rate-over-distance. Spread
+  // the originals AFTER the defaults so a present value is never clobbered (the
+  // validator then rules on whatever survives).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  1: (doc: any) => ({
+    ...doc,
+    schemaVersion: 2,
+    layers: Array.isArray(doc.layers)
+      ? doc.layers.map((l: any) => ({
+          space: "local",
+          inheritVelocity: 0,
+          ...l,
+          emission:
+            l && typeof l.emission === "object" && l.emission !== null
+              ? { rateOverDistance: null, ...l.emission }
+              : l?.emission,
+        }))
+      : doc.layers,
+  }),
 };
 
 export type MigrateResult =

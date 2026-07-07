@@ -10,6 +10,7 @@ import {
   EASES,
   EMIT_FROM,
   FLIPBOOK_MODES,
+  SIM_SPACES,
   type SparkDoc,
 } from "./types.js";
 
@@ -266,6 +267,12 @@ function checkEmission(ctx: Ctx, v: unknown, path: string): void {
   }
   checkScalarTrack(ctx, v.rateOverTime, `${path}.rateOverTime`);
   checkRateCeiling(ctx, v.rateOverTime, `${path}.rateOverTime`);
+  // rateOverDistance (schemaVersion 2): optional track, same ceiling. The
+  // world-space-only warning is emitted by checkLayer, which sees `space`.
+  if (v.rateOverDistance !== null && v.rateOverDistance !== undefined) {
+    checkScalarTrack(ctx, v.rateOverDistance, `${path}.rateOverDistance`);
+    checkRateCeiling(ctx, v.rateOverDistance, `${path}.rateOverDistance`);
+  }
   if (!Array.isArray(v.bursts)) {
     err(ctx, `${path}.bursts`, "bursts must be an array");
   } else {
@@ -351,6 +358,32 @@ function checkLayer(ctx: Ctx, v: unknown, path: string): void {
   checkShape(ctx, v.shape, `${path}.shape`);
   checkInitial(ctx, v.initial, `${path}.initial`);
   checkOverLifetime(ctx, v.overLifetime, `${path}.overLifetime`);
+
+  // Simulation space + inherited velocity (schemaVersion 2).
+  const spaceOk = checkEnum(ctx, v.space, SIM_SPACES, `${path}.space`);
+  if (v.inheritVelocity !== undefined) {
+    if (!isNum(v.inheritVelocity)) {
+      err(ctx, `${path}.inheritVelocity`, "must be a finite number");
+    } else if ((v.inheritVelocity as number) < -2 || (v.inheritVelocity as number) > 2) {
+      err(ctx, `${path}.inheritVelocity`, "inheritVelocity must be in [-2, 2]");
+    }
+  } else {
+    err(ctx, `${path}.inheritVelocity`, "must be a finite number");
+  }
+  // Authoring-trap warnings: motion features are inert in local space.
+  const isLocal = spaceOk && v.space === "local";
+  if (isLocal && isNum(v.inheritVelocity) && v.inheritVelocity !== 0)
+    warn(ctx, `${path}.inheritVelocity`, "inheritVelocity has no effect in local simulation space");
+  const em = v.emission;
+  if (isObject(em)) {
+    if (isLocal && em.rateOverDistance !== null && em.rateOverDistance !== undefined)
+      warn(ctx, `${path}.emission.rateOverDistance`, "rateOverDistance has no effect in local simulation space");
+    // Prewarm runs at the initial emitter position with zero emitter velocity,
+    // so a world-space layer's prewarmed particles pile at that point (E16).
+    if (spaceOk && v.space === "world" && em.prewarm === true)
+      warn(ctx, `${path}.emission.prewarm`, "prewarmed particles spawn at the initial emitter position in world space");
+  }
+
   // Reserved fields (locked decision L8) must be null in v1.
   if (v.subEmitters !== null && v.subEmitters !== undefined)
     err(ctx, `${path}.subEmitters`, "subEmitters is reserved and must be null in v1", "reserved-field");

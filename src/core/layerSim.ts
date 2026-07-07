@@ -18,6 +18,20 @@ export class LayerSim {
   capped = false;
   /** Continuous-emission fractional accumulator (§2.8), owned by Effect. */
   acc = 0;
+  /** Rate-over-distance fractional accumulator (schemaVersion 2), owned by Effect. */
+  accDist = 0;
+
+  // Emitter motion segment for the current step (schemaVersion 2). Effect pushes
+  // these before emission; a world-space spawn interpolates its position along
+  // [emS, emE] by its step fraction and inherits `emV` (emitter velocity). Zero
+  // for a stationary emitter and for every local-space layer, keeping the local
+  // spawn path byte-identical to v1.
+  private emSX = 0;
+  private emSY = 0;
+  private emEX = 0;
+  private emEY = 0;
+  private emVX = 0;
+  private emVY = 0;
 
   constructor(layer: Layer, layerSeed: number) {
     this.layer = layer;
@@ -34,14 +48,30 @@ export class LayerSim {
     this.pool.clear();
     this.capped = false;
     this.acc = 0;
+    this.accDist = 0;
+  }
+
+  /** Record the emitter's motion over the current step (schemaVersion 2). */
+  setEmitterStep(sx: number, sy: number, ex: number, ey: number, vx: number, vy: number): void {
+    this.emSX = sx;
+    this.emSY = sy;
+    this.emEX = ex;
+    this.emEY = ey;
+    this.emVX = vx;
+    this.emVY = vy;
   }
 
   /**
    * Spawn one particle. Performs exactly the fixed 13 draws in the normative
-   * order regardless of shape/mode (§2.7). If the pool is full the spawn is
+   * order regardless of shape/mode/space (§2.7). If the pool is full the spawn is
    * dropped with no draws (deterministic) and `capped` is set; returns false.
+   *
+   * `f` ∈ [0,1] is the spawn's fractional position through the current step
+   * (schemaVersion 2). It is used ONLY by world-space layers, to interpolate the
+   * spawn position along the emitter's motion segment; local-space layers ignore
+   * it, so their spawn path is byte-identical to v1.
    */
-  spawn(): boolean {
+  spawn(f = 1): boolean {
     const p = this.pool;
     if (p.count >= p.capacity) {
       this.capped = true;
@@ -70,10 +100,24 @@ export class LayerSim {
     const i = p.spawn();
     const s = sampleShape(this.layer.shape, uPos1, uPos2, uDir);
     const dirRad = s.dirDeg * RAD;
-    p.x[i] = s.px;
-    p.y[i] = s.py;
-    p.velX[i] = speed * Math.cos(dirRad);
-    p.velY[i] = speed * Math.sin(dirRad);
+    let px = s.px;
+    let py = s.py;
+    let vx = speed * Math.cos(dirRad);
+    let vy = speed * Math.sin(dirRad);
+    if (this.layer.space === "world") {
+      // Spawn at the emitter's interpolated position along this step's segment,
+      // and inherit a fraction of its velocity (schemaVersion 2). For a
+      // stationary emitter both terms are zero — identical to local.
+      px += this.emSX + (this.emEX - this.emSX) * f;
+      py += this.emSY + (this.emEY - this.emSY) * f;
+      const iv = this.layer.inheritVelocity;
+      vx += iv * this.emVX;
+      vy += iv * this.emVY;
+    }
+    p.x[i] = px;
+    p.y[i] = py;
+    p.velX[i] = vx;
+    p.velY[i] = vy;
     p.age[i] = 0;
     p.lifetime[i] = life;
     p.sizeInit[i] = size;
