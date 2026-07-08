@@ -6,7 +6,7 @@ exports[`preset snapshots (Gate 1) > bubbles.prt state @60 steps is stable 1`] =
 
 exports[`preset snapshots (Gate 1) > coin-fountain.prt state @60 steps is stable 1`] = `"69605c8d"`;
 
-exports[`preset snapshots (Gate 1) > comet.prt state @60 steps is stable 1`] = `"1a1ae39e"`;
+exports[`preset snapshots (Gate 1) > comet.prt state @60 steps is stable 1`] = `"126d090f"`;
 
 exports[`preset snapshots (Gate 1) > confetti.prt state @60 steps is stable 1`] = `"7af2e9a1"`;
 
@@ -36,7 +36,7 @@ exports[`preset snapshots (Gate 1) > geyser.prt state @60 steps is stable 1`] = 
 
 exports[`preset snapshots (Gate 1) > goo-splatter.prt state @60 steps is stable 1`] = `"bc5d1cda"`;
 
-exports[`preset snapshots (Gate 1) > healing-aura.prt state @60 steps is stable 1`] = `"bdd155ac"`;
+exports[`preset snapshots (Gate 1) > healing-aura.prt state @60 steps is stable 1`] = `"42022106"`;
 
 exports[`preset snapshots (Gate 1) > hit-flash.prt state @60 steps is stable 1`] = `"69691905"`;
 
@@ -46,13 +46,13 @@ exports[`preset snapshots (Gate 1) > laser-impact.prt state @60 steps is stable 
 
 exports[`preset snapshots (Gate 1) > level-up-burst.prt state @60 steps is stable 1`] = `"38221e01"`;
 
-exports[`preset snapshots (Gate 1) > magic-burst.prt state @60 steps is stable 1`] = `"b47f6d50"`;
+exports[`preset snapshots (Gate 1) > magic-burst.prt state @60 steps is stable 1`] = `"4d9a02bd"`;
 
 exports[`preset snapshots (Gate 1) > muzzle-flash.prt state @60 steps is stable 1`] = `"bc5d1cda"`;
 
 exports[`preset snapshots (Gate 1) > pickup-sparkle.prt state @60 steps is stable 1`] = `"ef1c81da"`;
 
-exports[`preset snapshots (Gate 1) > portal.prt state @60 steps is stable 1`] = `"789f8e6b"`;
+exports[`preset snapshots (Gate 1) > portal.prt state @60 steps is stable 1`] = `"12f49c1c"`;
 
 exports[`preset snapshots (Gate 1) > rain.prt state @60 steps is stable 1`] = `"b0db7f15"`;
 
@@ -62,9 +62,9 @@ exports[`preset snapshots (Gate 1) > rocket-exhaust.prt state @60 steps is stabl
 
 exports[`preset snapshots (Gate 1) > shell-casings.prt state @60 steps is stable 1`] = `"093ddaae"`;
 
-exports[`preset snapshots (Gate 1) > shield-shimmer.prt state @60 steps is stable 1`] = `"f14381d6"`;
+exports[`preset snapshots (Gate 1) > shield-shimmer.prt state @60 steps is stable 1`] = `"d5318599"`;
 
-exports[`preset snapshots (Gate 1) > shockwave-ring.prt state @60 steps is stable 1`] = `"576cd805"`;
+exports[`preset snapshots (Gate 1) > shockwave-ring.prt state @60 steps is stable 1`] = `"483f9355"`;
 
 exports[`preset snapshots (Gate 1) > smoke.prt state @60 steps is stable 1`] = `"c25569a7"`;
 
@@ -74,12 +74,12 @@ exports[`preset snapshots (Gate 1) > soda-fizz.prt state @60 steps is stable 1`]
 
 exports[`preset snapshots (Gate 1) > sparks.prt state @60 steps is stable 1`] = `"f6b2f1e1"`;
 
-exports[`preset snapshots (Gate 1) > starfield.prt state @60 steps is stable 1`] = `"663ca5ce"`;
+exports[`preset snapshots (Gate 1) > starfield.prt state @60 steps is stable 1`] = `"0dffdf89"`;
 
 exports[`preset snapshots (Gate 1) > teleport-flash.prt state @60 steps is stable 1`] = `"bc5d1cda"`;
 
 exports[`preset snapshots (Gate 1) > torch-flame.prt state @60 steps is stable 1`] = `"0258c41e"`;
 
-exports[`preset snapshots (Gate 1) > vortex.prt state @60 steps is stable 1`] = `"07e51c96"`;
+exports[`preset snapshots (Gate 1) > vortex.prt state @60 steps is stable 1`] = `"0f4095ea"`;
 
 exports[`preset snapshots (Gate 1) > waterfall-mist.prt state @60 steps is stable 1`] = `"5a7a27bd"`;
