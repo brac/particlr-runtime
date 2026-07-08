@@ -1,6 +1,6 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`preset snapshots (Gate 1) > blizzard.prt state @60 steps is stable 1`] = `"a8d3f397"`;
+exports[`preset snapshots (Gate 1) > blizzard.prt state @60 steps is stable 1`] = `"25be413f"`;
 
 exports[`preset snapshots (Gate 1) > bubbles.prt state @60 steps is stable 1`] = `"d46dec4d"`;
 
@@ -20,17 +20,17 @@ exports[`preset snapshots (Gate 1) > ember-field.prt state @60 steps is stable 1
 
 exports[`preset snapshots (Gate 1) > explosion.prt state @60 steps is stable 1`] = `"70a20ede"`;
 
-exports[`preset snapshots (Gate 1) > falling-leaves.prt state @60 steps is stable 1`] = `"e1dded78"`;
+exports[`preset snapshots (Gate 1) > falling-leaves.prt state @60 steps is stable 1`] = `"6734768b"`;
 
 exports[`preset snapshots (Gate 1) > fire.prt state @60 steps is stable 1`] = `"c3fd1a45"`;
 
 exports[`preset snapshots (Gate 1) > fireball.prt state @60 steps is stable 1`] = `"ae451f38"`;
 
-exports[`preset snapshots (Gate 1) > firefly-field.prt state @60 steps is stable 1`] = `"a20009bc"`;
+exports[`preset snapshots (Gate 1) > firefly-field.prt state @60 steps is stable 1`] = `"87641533"`;
 
 exports[`preset snapshots (Gate 1) > fireworks.prt state @60 steps is stable 1`] = `"4b5feb77"`;
 
-exports[`preset snapshots (Gate 1) > fog-bank.prt state @60 steps is stable 1`] = `"3f35e09d"`;
+exports[`preset snapshots (Gate 1) > fog-bank.prt state @60 steps is stable 1`] = `"8ac13984"`;
 
 exports[`preset snapshots (Gate 1) > geyser.prt state @60 steps is stable 1`] = `"a1200769"`;
 
@@ -54,9 +54,9 @@ exports[`preset snapshots (Gate 1) > pickup-sparkle.prt state @60 steps is stabl
 
 exports[`preset snapshots (Gate 1) > portal.prt state @60 steps is stable 1`] = `"12f49c1c"`;
 
-exports[`preset snapshots (Gate 1) > rain.prt state @60 steps is stable 1`] = `"b0db7f15"`;
+exports[`preset snapshots (Gate 1) > rain.prt state @60 steps is stable 1`] = `"a33fce38"`;
 
-exports[`preset snapshots (Gate 1) > rain-streaks.prt state @60 steps is stable 1`] = `"787e90b7"`;
+exports[`preset snapshots (Gate 1) > rain-streaks.prt state @60 steps is stable 1`] = `"fdc8f8a1"`;
 
 exports[`preset snapshots (Gate 1) > rocket-exhaust.prt state @60 steps is stable 1`] = `"1fd1412b"`;
 
@@ -68,7 +68,7 @@ exports[`preset snapshots (Gate 1) > shockwave-ring.prt state @60 steps is stabl
 
 exports[`preset snapshots (Gate 1) > smoke.prt state @60 steps is stable 1`] = `"c25569a7"`;
 
-exports[`preset snapshots (Gate 1) > snow.prt state @60 steps is stable 1`] = `"4d429703"`;
+exports[`preset snapshots (Gate 1) > snow.prt state @60 steps is stable 1`] = `"bc55e748"`;
 
 exports[`preset snapshots (Gate 1) > soda-fizz.prt state @60 steps is stable 1`] = `"bc51c403"`;
 
