@@ -68,6 +68,25 @@ export class LayerSim {
   private emVX = 0;
   private emVY = 0;
 
+  /** When true, each resolved collision this step is recorded into
+   * `collisionEvents` (schemaVersion 3, M7 — consumed by M8 sub-emitters). The
+   * Effect sets this iff the layer feeds a collision-trigger sub-emitter; nothing
+   * in M7 turns it on, so it stays false and the recorder is never touched. A
+   * single boolean check inside the (already collision-only) resolve branch makes
+   * recording zero-cost when off. */
+  recordCollisionEvents = false;
+  /** Per-layer collision-event scratch (schemaVersion 3, M7). Flat quintuples
+   * `[x, y, vxAfter, vyAfter, ordinal]` — post-resolve position, post-resolve
+   * stored velocity, and the particle's live index as an ordinal placeholder
+   * (M8 swaps in `pool.ordinal`). A plain `number[]` chosen over a typed array
+   * because the per-step event count is unbounded a priori (every live particle
+   * could bounce in one step) and set-length-0 reuse keeps it allocation-free
+   * after it warms to the per-step high-water mark. NULL until the first step
+   * that runs with `recordCollisionEvents` true, so a layer that never feeds a
+   * collision sub-emitter allocates nothing (zero bytes, the M7 default). Cleared
+   * at the top of each `update()` so it holds only THIS step's events. */
+  collisionEvents: number[] | null = null;
+
   constructor(layer: Layer, layerSeed: number) {
     this.layer = layer;
     // Optional pool columns are allocated only for the modules this layer uses
@@ -104,6 +123,9 @@ export class LayerSim {
     // Forget every burst-gate outcome: a reset/seek re-simulates from t=0 with a
     // fresh stream, so identical draws rebuild identical gate state (§0.2).
     this.burstGates = null;
+    // Drop any recorded collision events; the flag itself is owned by the Effect
+    // (M8) and survives a reset, but the per-step scratch does not.
+    if (this.collisionEvents !== null) this.collisionEvents.length = 0;
   }
 
   /** Push the effect clock (step start) into this sim (schemaVersion 3); the
@@ -361,6 +383,24 @@ export class LayerSim {
     const bsRotMax = bySpeed !== null ? bySpeed.range.max : 0;
     const bsRotSpan = bsRotMax - bsRotMin;
 
+    // Collision (schemaVersion 3, §M7). Pure resolve, ZERO PRNG draws. Config
+    // hoisted; the resolve branch below is entered only when `colShape !== null`,
+    // so a null-collision layer keeps the update loop instruction-identical (the
+    // M3 velocity-over-lifetime and M2 noise blocks — which run AFTER the resolve
+    // — do not move for it). Rect anchor: {x, y} is the TOP-LEFT corner (min x,
+    // min y in Pixi's y-down frame, matching rect-shape conventions), so the four
+    // inner faces are left = x, right = x + width, top = y, bottom = y + height.
+    const collision = this.layer.collision;
+    const colShape = collision !== null ? collision.shape : null;
+    const colBounce = collision !== null ? collision.bounce : 0;
+    const colDampen = collision !== null ? collision.dampen : 0;
+    const colLifeLoss = collision !== null ? collision.lifetimeLoss : 0;
+    const colTangent = 1 - colDampen; // tangential velocity survives, scaled
+    // The event scratch holds only THIS step's collisions; clear (reuse the
+    // backing store) when it exists. Null when the flag has never been set, so a
+    // layer that never records events pays a single null check here.
+    if (this.collisionEvents !== null) this.collisionEvents.length = 0;
+
     let i = 0;
     while (i < p.count) {
       const lifetime = p.lifetime[i]!;
@@ -381,6 +421,73 @@ export class LayerSim {
       p.y[i] = p.y[i]! + vy * sm * dt;
       p.velX[i] = vx;
       p.velY[i] = vy;
+
+      // Collision resolve (schemaVersion 3, §M7): PURE, ZERO PRNG draws, run on
+      // the BASE-integrated position — BEFORE the velocity-over-lifetime and noise
+      // perturbations below. Unlike M3/M2, a hit WRITES the stored velocity (the
+      // bounce/dampen are persistent) and defers a lifetimeLoss into `ageLoss`,
+      // folded into `newAge` so the existing age/kill stage kills a lethally-worn
+      // particle at THIS step's end with no restructuring. IMPORTANT: the M3
+      // orbital/radial and M2 noise blocks write p.x/p.y AFTER this resolve, so a
+      // strong noise curl (or an orbital track) can push a particle back through
+      // the floor on the same step — that is ACCEPTED by the normative order,
+      // which only resolves the base-integration position. Do not "fix" it by
+      // moving the resolve after those blocks.
+      let ageLoss = 0;
+      if (colShape !== null) {
+        let cx = p.x[i]!;
+        let cy = p.y[i]!;
+        let hit = false;
+        if (colShape.kind === "floor") {
+          if (cy > colShape.y && vy > 0) {
+            cy = colShape.y;
+            vy = -vy * colBounce; // reflect the normal (y) velocity
+            vx *= colTangent; // dampen the tangential (x) velocity
+            hit = true;
+          }
+        } else {
+          // rect, keep-INSIDE: each of the four inner faces resolved independently
+          // so a corner hit (both an x face and a y face violated in one step)
+          // resolves BOTH axes this step. Reflect the normal velocity, dampen the
+          // tangential velocity of the axis being resolved.
+          const left = colShape.x;
+          const right = colShape.x + colShape.width;
+          const top = colShape.y;
+          const bottom = colShape.y + colShape.height;
+          if (cx < left && vx < 0) {
+            cx = left;
+            vx = -vx * colBounce;
+            vy *= colTangent;
+            hit = true;
+          } else if (cx > right && vx > 0) {
+            cx = right;
+            vx = -vx * colBounce;
+            vy *= colTangent;
+            hit = true;
+          }
+          if (cy < top && vy < 0) {
+            cy = top;
+            vy = -vy * colBounce;
+            vx *= colTangent;
+            hit = true;
+          } else if (cy > bottom && vy > 0) {
+            cy = bottom;
+            vy = -vy * colBounce;
+            vx *= colTangent;
+            hit = true;
+          }
+        }
+        if (hit) {
+          p.x[i] = cx;
+          p.y[i] = cy;
+          p.velX[i] = vx; // collision WRITES stored velocity (persistent bounce)
+          p.velY[i] = vy;
+          ageLoss = colLifeLoss * lifetime;
+          if (this.recordCollisionEvents) {
+            (this.collisionEvents ??= []).push(cx, cy, vx, vy, i);
+          }
+        }
+      }
 
       // Velocity over lifetime AFTER the base position update, BEFORE noise (§M3).
       // Rotate the offset (p − origin) clockwise by orbital(ageNorm)·dt, push
@@ -446,7 +553,11 @@ export class LayerSim {
       }
       p.rotation[i] = p.rotation[i]! + (p.angVel[i]! + extra) * dt;
 
-      const newAge = age + dt;
+      // `ageLoss` is 0 for every non-colliding particle (and every null-collision
+      // layer), so `+ ageLoss` is an exact IEEE no-op there — the age/kill stage
+      // and its snapshot are byte-identical unless a collision actually wore this
+      // particle down (§M7 lifetimeLoss).
+      const newAge = age + dt + ageLoss;
       p.age[i] = newAge;
       if (newAge >= lifetime) {
         p.kill(i); // swap-remove; re-check slot i without advancing

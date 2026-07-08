@@ -214,12 +214,19 @@ describe("validateParticle — schemaVersion 3 feature modules", () => {
   });
 
   it("warns 'unimplemented' for a not-yet-landed module (M0 ships surface, not behavior)", () => {
-    // render/noise/startColor/render/bySpeed have landed; use a module still
-    // awaiting its milestone (collision, M7) as the representative not-yet-behaving one.
+    // render/noise/startColor/bySpeed/collision have landed; use a module still
+    // awaiting its milestone (trail, M9) as the representative not-yet-behaving one.
+    const l = makeLayer({ trail: { maxPoints: 8, minVertexDistance: 2, width: { mode: "constant", value: 4 }, color: null } });
+    const r = validateParticle(makeDoc({ layers: [l] }));
+    expect(r.ok).toBe(true);
+    expect(r.warnings.some((w) => w.code === "unimplemented" && w.path === "layers[0].trail")).toBe(true);
+  });
+
+  it("does NOT warn 'unimplemented' for the collision module (implemented in M7)", () => {
     const l = makeLayer({ collision: { shape: { kind: "floor", y: 100 }, bounce: 0.5, dampen: 0.1, lifetimeLoss: 0 } });
     const r = validateParticle(makeDoc({ layers: [l] }));
     expect(r.ok).toBe(true);
-    expect(r.warnings.some((w) => w.code === "unimplemented" && w.path === "layers[0].collision")).toBe(true);
+    expect(r.warnings.some((w) => w.code === "unimplemented" && w.path === "layers[0].collision")).toBe(false);
   });
 
   it("does NOT warn 'unimplemented' for the noise module (implemented in M2)", () => {

@@ -642,8 +642,9 @@ function checkLayer(ctx: Ctx, v: unknown, path: string): void {
     checkRender(ctx, v.render, `${path}.render`);
   }
   if (v.collision !== null && v.collision !== undefined) {
+    // collision behaves as of M7 — no "unimplemented" warning (the E20 local-frame
+    // hint below still applies).
     checkCollision(ctx, v.collision, `${path}.collision`);
-    unimplemented("collision");
     // E20 hint: in local space, collision planes ride the emitter (they live in
     // the layer's local sim frame, not world coordinates).
     if (spaceOk && v.space === "local")
