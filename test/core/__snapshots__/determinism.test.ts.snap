@@ -12,7 +12,7 @@ exports[`preset snapshots (Gate 1) > confetti.prt state @60 steps is stable 1`] 
 
 exports[`preset snapshots (Gate 1) > confetti-mix.prt state @60 steps is stable 1`] = `"d2618442"`;
 
-exports[`preset snapshots (Gate 1) > debris-bounce.prt state @60 steps is stable 1`] = `"595e9ca3"`;
+exports[`preset snapshots (Gate 1) > debris-bounce.prt state @60 steps is stable 1`] = `"ddeaa221"`;
 
 exports[`preset snapshots (Gate 1) > dust-puff.prt state @60 steps is stable 1`] = `"449c839a"`;
 
@@ -48,7 +48,7 @@ exports[`preset snapshots (Gate 1) > level-up-burst.prt state @60 steps is stabl
 
 exports[`preset snapshots (Gate 1) > magic-burst.prt state @60 steps is stable 1`] = `"b47f6d50"`;
 
-exports[`preset snapshots (Gate 1) > muzzle-flash.prt state @60 steps is stable 1`] = `"d13fa33a"`;
+exports[`preset snapshots (Gate 1) > muzzle-flash.prt state @60 steps is stable 1`] = `"bc5d1cda"`;
 
 exports[`preset snapshots (Gate 1) > pickup-sparkle.prt state @60 steps is stable 1`] = `"ef1c81da"`;
 
@@ -60,7 +60,7 @@ exports[`preset snapshots (Gate 1) > rain-streaks.prt state @60 steps is stable 
 
 exports[`preset snapshots (Gate 1) > rocket-exhaust.prt state @60 steps is stable 1`] = `"86654cac"`;
 
-exports[`preset snapshots (Gate 1) > shell-casings.prt state @60 steps is stable 1`] = `"06a9089c"`;
+exports[`preset snapshots (Gate 1) > shell-casings.prt state @60 steps is stable 1`] = `"093ddaae"`;
 
 exports[`preset snapshots (Gate 1) > shield-shimmer.prt state @60 steps is stable 1`] = `"f14381d6"`;
 
@@ -72,7 +72,7 @@ exports[`preset snapshots (Gate 1) > snow.prt state @60 steps is stable 1`] = `"
 
 exports[`preset snapshots (Gate 1) > soda-fizz.prt state @60 steps is stable 1`] = `"40c4d281"`;
 
-exports[`preset snapshots (Gate 1) > sparks.prt state @60 steps is stable 1`] = `"921625d1"`;
+exports[`preset snapshots (Gate 1) > sparks.prt state @60 steps is stable 1`] = `"f6b2f1e1"`;
 
 exports[`preset snapshots (Gate 1) > starfield.prt state @60 steps is stable 1`] = `"663ca5ce"`;
 
