@@ -710,15 +710,13 @@ function checkLayer(ctx: Ctx, v: unknown, path: string): void {
     err(ctx, `${path}.inheritVelocity`, "must be a finite number");
   }
   // Host-attractor influence (schemaVersion 4). Mirrors inheritVelocity: a plain
-  // constant in [-2, 2], zero PRNG draws. Non-zero draws the temporary
-  // "unimplemented" warning until M2 (the host setAttractor hook lands there).
+  // constant in [-2, 2], zero PRNG draws. Behaves as of M2 (the host setAttractor
+  // hook), so it no longer draws the temporary "unimplemented" warning.
   if (v.attractorInfluence !== undefined) {
     if (!isNum(v.attractorInfluence)) {
       err(ctx, `${path}.attractorInfluence`, "must be a finite number");
     } else if ((v.attractorInfluence as number) < -2 || (v.attractorInfluence as number) > 2) {
       err(ctx, `${path}.attractorInfluence`, "attractorInfluence must be in [-2, 2]");
-    } else if (v.attractorInfluence !== 0) {
-      unimplemented(ctx, `${path}.attractorInfluence`, "attractorInfluence");
     }
   } else {
     err(ctx, `${path}.attractorInfluence`, "must be a finite number");
@@ -795,8 +793,9 @@ function checkLayer(ctx: Ctx, v: unknown, path: string): void {
       warn(ctx, `${path}.dissolve`, "dissolve does not erode trail ribbons; the trail renders un-eroded (E25)");
   }
   if (v.attractor !== null && v.attractor !== undefined) {
+    // attractor behaves as of M2 — no "unimplemented" warning (the E24 local-frame
+    // hint below still applies).
     checkAttractor(ctx, v.attractor, `${path}.attractor`);
-    unimplemented(ctx, `${path}.attractor`, "attractor");
     // E24: in local space the attractor point rides the emitter (its coordinates
     // are in the layer's local sim frame, not world coordinates).
     if (spaceOk && v.space === "local")

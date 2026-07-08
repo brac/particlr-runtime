@@ -69,6 +69,17 @@ export class LayerSim {
   private emVX = 0;
   private emVY = 0;
 
+  // Host attractor for the current step (schemaVersion 4, §0.3b). Effect pushes
+  // these before update, ALREADY converted into this layer's sim frame (E24:
+  // world layers as-is, local layers relative to the step-end emitter). A radius
+  // of 0 means "inactive" — the host force is skipped, so a layer with no host
+  // attractor (or a cleared one) keeps the motion block instruction-identical.
+  // Scaled per particle by `layer.attractorInfluence`; zero PRNG draws.
+  private hostAttractorX = 0;
+  private hostAttractorY = 0;
+  private hostAttractorStrength = 0;
+  private hostAttractorRadius = 0;
+
   /** Sub-emitter event recorders (schemaVersion 3, M8). Each is set by the Effect
    * iff the layer feeds a sub-emitter with the matching trigger, AND forced false
    * during prewarm (event capture belongs to the visible cycle, E19). A false flag
@@ -184,6 +195,18 @@ export class LayerSim {
     this.emEY = ey;
     this.emVX = vx;
     this.emVY = vy;
+  }
+
+  /** Push the host attractor for the current step (schemaVersion 4, §0.3b),
+   * already converted into this layer's sim frame (E24). A `radius` of `null` or
+   * `<= 0` marks it inactive (the per-particle host force is skipped). Mirrors the
+   * `setEmitterStep` setter pattern; the value in force at update() time applies
+   * for the whole step (last call wins). */
+  setHostAttractor(x: number, y: number, strength: number, radius: number | null): void {
+    this.hostAttractorX = x;
+    this.hostAttractorY = y;
+    this.hostAttractorStrength = strength;
+    this.hostAttractorRadius = radius !== null && radius > 0 ? radius : 0;
   }
 
   /**
@@ -511,6 +534,31 @@ export class LayerSim {
     const colLifeLoss = collision !== null ? collision.lifetimeLoss : 0;
     const colTangent = 1 - colDampen; // tangential velocity survives, scaled
 
+    // Point attractor / vortex (schemaVersion 4, §0.3b). Radial (`strength`) +
+    // tangential acceleration toward a point in the layer's sim frame, written
+    // into the STORED velocity (physical, like gravity), applied AFTER the gravity
+    // add and BEFORE drag — so suction composes with drag/collision/bySpeed. Config
+    // hoisted; the whole per-particle block below is gated behind `anyAttractor`, so
+    // a layer with no document attractor AND no active host attractor keeps the
+    // motion block instruction-identical to before this milestone. Zero PRNG draws.
+    // The host attractor (fixed `smooth` falloff, radial only, no kill, scaled by
+    // `attractorInfluence`) is applied immediately after the document one.
+    const att = this.layer.attractor;
+    const attX = att !== null ? att.x : 0;
+    const attY = att !== null ? att.y : 0;
+    const attStrength = att !== null ? att.strength : null;
+    const attTangential = att !== null ? att.tangential : null;
+    const attRadius = att !== null ? att.radius : 0;
+    const attFalloff = att !== null ? att.falloff : "none";
+    const attKillRadius = att !== null ? att.killRadius : 0;
+    const hostX = this.hostAttractorX;
+    const hostY = this.hostAttractorY;
+    const hostStrength = this.hostAttractorStrength;
+    const hostRadius = this.hostAttractorRadius;
+    const hostInfluence = this.layer.attractorInfluence;
+    const hostActive = hostRadius > 0 && hostInfluence !== 0;
+    const anyAttractor = att !== null || hostActive;
+
     // Per-particle trail recording (schemaVersion 3, §M9). Zero PRNG draws. The
     // ring buffer and its minVertexDistance² gate are hoisted; the per-particle
     // push below runs at the END of each particle's update (after ALL position
@@ -536,10 +584,60 @@ export class LayerSim {
       const lifetime = p.lifetime[i]!;
       const age = p.age[i]!;
       const ageNorm = lifetime > 0 ? age / lifetime : 1;
+      // Accumulated lifetime loss for this step (§M7 kill mechanism). Hoisted above
+      // the attractor block so a killRadius consumption and a collision lifetimeLoss
+      // both fold into the SAME kill at this step's age/kill stage. 0 for every
+      // non-attractor, non-colliding particle, so `+ ageLoss` stays an exact IEEE
+      // no-op and the null path is byte-identical to before this milestone.
+      let ageLoss = 0;
 
-      // gravity, then drag, then position (normative order §2.4)
+      // gravity, then attractor, then drag, then position (normative order §0.3b)
       let vx = p.velX[i]! + gx * dt;
       let vy = p.velY[i]! + gy * dt;
+      // Point attractor / vortex (§0.3b): entered only when a document attractor is
+      // set or an active host attractor scales onto this layer. Reads the CURRENT
+      // position (pre-integration), writes the STORED velocity via the vx/vy locals
+      // (committed below like gravity/drag), so the force is dragged this same step.
+      if (anyAttractor) {
+        const ax = p.x[i]!;
+        const ay = p.y[i]!;
+        if (att !== null) {
+          const dx = attX - ax;
+          const dy = attY - ay;
+          const d = Math.sqrt(dx * dx + dy * dy);
+          if (d < attRadius && d >= 1e-6) {
+            const s = 1 - d / attRadius;
+            const w = attFalloff === "none" ? 1 : attFalloff === "linear" ? s : s * s * (3 - 2 * s);
+            const ux = dx / d;
+            const uy = dy / d;
+            const aR = evalScalarTrack(attStrength!, ageNorm, 0) * w;
+            const aT = attTangential !== null ? evalScalarTrack(attTangential, ageNorm, 0) * w : 0;
+            // Positive tangential ⇒ clockwise on the y-down screen (a particle at +x
+            // of the point gains +vy), matching orbital's convention (§0.3b).
+            vx += (ux * aR + uy * aT) * dt;
+            vy += (uy * aR - ux * aT) * dt;
+          }
+          // killRadius (0 = off): consume the particle regardless of the force skip
+          // above (a particle AT the center, d < 1e-6, is still consumed). Folds the
+          // full lifetime into ageLoss so it dies THIS step and death-trigger
+          // sub-emitters fire (a black hole spawns a consumption flash).
+          if (attKillRadius > 0 && d < attKillRadius) ageLoss += lifetime;
+        }
+        if (hostActive) {
+          const dx = hostX - ax;
+          const dy = hostY - ay;
+          const d = Math.sqrt(dx * dx + dy * dy);
+          if (d < hostRadius && d >= 1e-6) {
+            const s = 1 - d / hostRadius;
+            const w = s * s * (3 - 2 * s); // host falloff is fixed smooth (§0.3b)
+            const ux = dx / d;
+            const uy = dy / d;
+            const aR = hostStrength * hostInfluence * w; // radial only, scaled per layer
+            vx += ux * aR * dt;
+            vy += uy * aR * dt;
+          }
+        }
+      }
       if (drag) {
         const d = evalScalarTrack(drag, ageNorm, p.rand2[i]!);
         const f = Math.max(0, 1 - d * dt);
@@ -563,7 +661,6 @@ export class LayerSim {
       // the floor on the same step — that is ACCEPTED by the normative order,
       // which only resolves the base-integration position. Do not "fix" it by
       // moving the resolve after those blocks.
-      let ageLoss = 0;
       if (colShape !== null) {
         let cx = p.x[i]!;
         let cy = p.y[i]!;
@@ -612,7 +709,10 @@ export class LayerSim {
           p.y[i] = cy;
           p.velX[i] = vx; // collision WRITES stored velocity (persistent bounce)
           p.velY[i] = vy;
-          ageLoss = colLifeLoss * lifetime;
+          // Accumulate (not overwrite): an attractor killRadius may have already
+          // added `lifetime` above. For every collision-only layer ageLoss is 0
+          // here, so `+=` is byte-identical to the pre-M2 `=` (exact IEEE no-op).
+          ageLoss += colLifeLoss * lifetime;
           if (this.recordCollisionEvents) {
             // Record the STABLE ordinal (M8), not the live index `i`: swap-remove
             // can move a different particle into slot `i` before the Effect reads

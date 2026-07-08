@@ -213,9 +213,10 @@ describe("validator — texture shape", () => {
 });
 
 describe("validator — attractor", () => {
-  it("accepts a valid attractor with the unimplemented warning", () => {
+  it("accepts a valid attractor with no unimplemented warning (M2: implemented)", () => {
     expect(ok({ attractor: attractor(), space: "world" })).toBe(true);
-    expect(hasWarn({ attractor: attractor(), space: "world" }, (w) => w.code === "unimplemented" && w.path === "layers[0].attractor")).toBe(true);
+    // M2 landed the behavior: the temporary "unimplemented" warning is gone.
+    expect(hasWarn({ attractor: attractor(), space: "world" }, (w) => w.code === "unimplemented" && w.path === "layers[0].attractor")).toBe(false);
   });
 
   it("accepts curve strength + tangential tracks", () => {
@@ -256,9 +257,10 @@ describe("validator — attractorInfluence", () => {
     expect(hasWarn({ attractorInfluence: 0 }, (w) => w.code === "unimplemented" && w.path === "layers[0].attractorInfluence")).toBe(false);
   });
 
-  it("warns (unimplemented) when non-zero", () => {
+  it("draws no unimplemented warning when non-zero (M2: implemented)", () => {
     expect(ok({ attractorInfluence: 1 })).toBe(true);
-    expect(hasWarn({ attractorInfluence: 1 }, (w) => w.code === "unimplemented" && w.path === "layers[0].attractorInfluence")).toBe(true);
+    // M2 landed the host hook: a non-zero influence no longer warns.
+    expect(hasWarn({ attractorInfluence: 1 }, (w) => w.code === "unimplemented" && w.path === "layers[0].attractorInfluence")).toBe(false);
   });
 
   it("rejects out-of-range or non-finite values", () => {

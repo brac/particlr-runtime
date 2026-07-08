@@ -75,6 +75,18 @@ export class Effect {
   private stepEndX = 0;
   private stepEndY = 0;
 
+  // Host attractor (schemaVersion 4, §0.3b). Parent-frame coordinates (same frame
+  // as setEmitterPosition), converted per layer in advance() (E24). `attRadius`
+  // null = inactive; the value in force at step() time applies for the whole step,
+  // last call wins, and it PERSISTS across step() and reset() until cleared (a step
+  // input like emitter position — the determinism-tuple amendment). A layer only
+  // feels it when its `attractorInfluence !== 0`, so it is a no-op on every doc
+  // that hasn't opted in (the migration default is 0).
+  private attX = 0;
+  private attY = 0;
+  private attStrength = 0;
+  private attRadius: number | null = null;
+
   // Sub-emitter plan (schemaVersion 3, M8), built once at construction. `parents`
   // lists (in layer index order) every layer that spawns children, with its
   // resolved entries. `wantBirth/Death/Collision` are per-sim-index recorder
@@ -173,6 +185,34 @@ export class Effect {
     this.pendingX = null;
     this.pendingY = null;
   }
+  /**
+   * Drive a transient host attractor (schemaVersion 4, §0.3b). `(x, y)` are
+   * parent-frame coordinates (the same frame as `setEmitterPosition`), converted
+   * per layer at step time (E24: world layers use them as-is, local layers relative
+   * to the step-end emitter). The force is radial (`strength`, px/s² toward the
+   * point) with a fixed `smooth` falloff over `radius`, scaled per layer by
+   * `attractorInfluence` — so it is inert on any layer with influence 0. A
+   * non-positive `radius` clears the attractor instead (same as `clearAttractor`).
+   * The last call before a `step()` wins; the value persists across `step()` and
+   * `reset()` until cleared.
+   */
+  setAttractor(x: number, y: number, strength: number, radius: number): void {
+    if (radius > 0) {
+      this.attX = x;
+      this.attY = y;
+      this.attStrength = strength;
+      this.attRadius = radius;
+    } else {
+      this.attRadius = null;
+    }
+  }
+
+  /** Clear the host attractor (schemaVersion 4). Subsequent steps restore the
+   * null force path (no host force on any layer) until `setAttractor` is called. */
+  clearAttractor(): void {
+    this.attRadius = null;
+  }
+
   get layers(): readonly LayerSim[] {
     return this.sims;
   }
@@ -245,6 +285,18 @@ export class Effect {
       ls.recordCollisionEvents = capture && this.wantCollision[i]!;
       ls.setEmitterStep(this.stepStartX, this.stepStartY, this.stepEndX, this.stepEndY, this.evx, this.evy);
       ls.setClock(tStart); // schemaVersion 3: scroll the noise field over effect time
+      // Host attractor for this step (schemaVersion 4, E24). A cleared attractor
+      // (attRadius null) pushes the inactive state so the null force path is
+      // restored. World layers get the parent-frame point as-is; local layers get
+      // it relative to the step-end emitter position — the SAME position the
+      // sub-emitter world→local frame conversion uses (E22 precedent).
+      if (this.attRadius === null) {
+        ls.setHostAttractor(0, 0, 0, null);
+      } else if (ls.layer.space === "world") {
+        ls.setHostAttractor(this.attX, this.attY, this.attStrength, this.attRadius);
+      } else {
+        ls.setHostAttractor(this.attX - this.stepEndX, this.attY - this.stepEndY, this.attStrength, this.attRadius);
+      }
       if (ls.layer.enabled) ls.update(dt);
     }
     this.emit(dt);

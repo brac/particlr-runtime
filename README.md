@@ -89,6 +89,8 @@ class Effect {
   reset(seed?: number): void;  // rewind to t=0 (re-prewarms if configured); keeps the emitter position
   setEmitterPosition(x: number, y: number): void; // emitter position at the END of the next step (drives world-space trails)
   teleportEmitter(x: number, y: number): void;    // jump with no velocity/interpolation (respawns, screen wraps)
+  setAttractor(x: number, y: number, strength: number, radius: number): void; // host-driven attractor (schemaVersion 4); radius <= 0 clears
+  clearAttractor(): void;                          // remove the host attractor
   readonly emitterX: number;
   readonly emitterY: number;
   readonly time: number;       // effect-local seconds
@@ -157,6 +159,39 @@ behave bit-identically. Feature behaviors land milestone-by-milestone
 `"unimplemented"` warning and the field stays inert. Full semantics:
 `docs/FORMAT_SPEC.md`.
 
+#### Schema v4 — point attractor / vortex + host hook
+
+schemaVersion 4 adds a per-layer `attractor` (point attractor / vortex; `null` =
+off) and a per-layer `attractorInfluence` (`[-2, 2]`, `0` = off). The document
+`attractor: { x, y, strength, tangential, radius, falloff, killRadius }` applies
+a radial (`strength`) and tangential (`tangential`, orbiting) acceleration in
+px/s² over particle ageNorm to particles within `radius`, in the layer's **sim
+frame** (local ⇒ the point rides the emitter). Positive `tangential` orbits
+clockwise on screen. `killRadius` (`0` = off) consumes particles that reach it —
+firing death-trigger sub-emitters. The force is applied to **stored velocity**
+(like gravity, so it composes with drag/collision/bySpeed), after the gravity
+add and before drag. `strength`/`tangential` are constant/curve only (zero PRNG
+draws). Exported types: `AttractorConfig`, `AttractorFalloff`,
+`ATTRACTOR_FALLOFFS`, `DissolveConfig`.
+
+**Host attractor hook.** `effect.setAttractor(x, y, strength, radius)` drives a
+transient attractor from game code; `effect.clearAttractor()` removes it (a
+non-positive `radius` clears too). Coordinates are **parent-frame** — the same
+frame as `setEmitterPosition` — and are converted per layer (world layers use
+them as-is; local layers subtract the step-end emitter position). The host force
+uses a fixed `smooth` falloff, is **radial only** (no tangential, no kill), and
+is scaled per layer by `attractorInfluence` — so it is inert on any layer with
+influence `0` (the migration default, hence a no-op on every v1–v3 document). The
+last call before a `step()` wins, and the value **persists across `step()` and
+`reset()` until cleared**.
+
+```ts
+const fx = new Effect(doc, { seed });
+fx.setAttractor(pointerX, pointerY, 800, 240); // suck particles toward the cursor
+// …later…
+fx.clearAttractor();                            // release them
+```
+
 ### Behavioral guarantees (edge cases)
 
 | # | Case | Behavior |
@@ -196,10 +231,13 @@ concern; a document embedding many large textures is out of scope for v1).
 
 ## Determinism contract
 
-Given identical `(document, seed, sequence of dt values)`, output is
-bit-identical. The runtime never reads wall-clock time, `Math.random`, or any
-global — the only randomness is a seeded mulberry32 PRNG, one stream per layer.
-This is what makes seek/scrub exact and enables golden-frame testing.
+Given identical `(document, seed, sequence of (dt, emitter-position,
+host-attractor state) tuples)`, output is bit-identical — the emitter position
+(`setEmitterPosition`) and the host attractor (`setAttractor` parameters) are
+per-step host inputs exactly like `dt` (schemaVersion 4 amendment). The runtime
+never reads wall-clock time, `Math.random`, or any global — the only randomness
+is a seeded mulberry32 PRNG, one stream per layer. This is what makes seek/scrub
+exact and enables golden-frame testing.
 
 ## The `.prt` format
 

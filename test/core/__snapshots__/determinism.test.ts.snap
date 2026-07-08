@@ -1,5 +1,7 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
+exports[`preset snapshots (Gate 1) > black-hole.prt state @60 steps is stable 1`] = `"479a33af"`;
+
 exports[`preset snapshots (Gate 1) > blizzard.prt state @60 steps is stable 1`] = `"25be413f"`;
 
 exports[`preset snapshots (Gate 1) > bubbles.prt state @60 steps is stable 1`] = `"d46dec4d"`;
