@@ -68,24 +68,35 @@ export class LayerSim {
   private emVX = 0;
   private emVY = 0;
 
-  /** When true, each resolved collision this step is recorded into
-   * `collisionEvents` (schemaVersion 3, M7 — consumed by M8 sub-emitters). The
-   * Effect sets this iff the layer feeds a collision-trigger sub-emitter; nothing
-   * in M7 turns it on, so it stays false and the recorder is never touched. A
-   * single boolean check inside the (already collision-only) resolve branch makes
-   * recording zero-cost when off. */
+  /** Sub-emitter event recorders (schemaVersion 3, M8). Each is set by the Effect
+   * iff the layer feeds a sub-emitter with the matching trigger, AND forced false
+   * during prewarm (event capture belongs to the visible cycle, E19). A false flag
+   * makes recording a single boolean check — zero-cost when off. `recordCollision`
+   * landed in M7 (its recorder was already wired); birth/death are new here. */
+  recordBirthEvents = false;
+  recordDeathEvents = false;
   recordCollisionEvents = false;
-  /** Per-layer collision-event scratch (schemaVersion 3, M7). Flat quintuples
-   * `[x, y, vxAfter, vyAfter, ordinal]` — post-resolve position, post-resolve
-   * stored velocity, and the particle's live index as an ordinal placeholder
-   * (M8 swaps in `pool.ordinal`). A plain `number[]` chosen over a typed array
-   * because the per-step event count is unbounded a priori (every live particle
-   * could bounce in one step) and set-length-0 reuse keeps it allocation-free
-   * after it warms to the per-step high-water mark. NULL until the first step
-   * that runs with `recordCollisionEvents` true, so a layer that never feeds a
-   * collision sub-emitter allocates nothing (zero bytes, the M7 default). Cleared
-   * at the top of each `update()` so it holds only THIS step's events. */
+  /** Per-layer event scratches (schemaVersion 3, M8). Flat quintuples
+   * `[x, y, vx, vy, ordinal]`: the event particle's position, stored velocity, and
+   * its STABLE monotone ordinal (`pool.ordinal` — not the live index, which
+   * swap-remove can reassign before the Effect reads the scratch). A plain
+   * `number[]` (not a typed array) because the per-step event count is unbounded a
+   * priori and `length = 0` reuse keeps it allocation-free after warming to the
+   * per-step high-water mark. NULL until the first recorded event of that kind, so
+   * a non-parent layer allocates nothing. The Effect consumes all three ONCE after
+   * update+emit and they are cleared at the top of each `update()` so they never
+   * leak across steps (birth fills during emit, after the clear; death/collision
+   * fill during update, after the clear). */
+  birthEvents: number[] | null = null;
+  deathEvents: number[] | null = null;
   collisionEvents: number[] | null = null;
+  /** Per-layer monotone spawn counter (schemaVersion 3, M8). Every particle this
+   * layer spawns gets `pool.ordinal[i] = spawnCounter++` when the ordinal column
+   * exists (i.e. the layer is a sub-emitter parent). Advances during prewarm too —
+   * prewarmed particles are real and can fire death triggers later, so their
+   * ordinals must be assigned; only event CAPTURE is suppressed during prewarm.
+   * Reset to 0 by reset(). */
+  private spawnCounter = 0;
 
   constructor(layer: Layer, layerSeed: number) {
     this.layer = layer;
@@ -104,6 +115,10 @@ export class LayerSim {
       // pool columns only when the owning module is set (§0.2, §M5).
       tint: layer.startColor !== null,
       flip: layer.randomFlip !== null,
+      // A layer with sub-emitters needs a stable per-particle ordinal to key its
+      // event child streams (§0.2, M8). Derived from the layer alone, so the pool
+      // footprint is unchanged for every non-parent layer.
+      ordinal: layer.subEmitters !== null,
     });
     this.rng = mulberry32(layerSeed);
     this.layerSeed = layerSeed;
@@ -123,8 +138,13 @@ export class LayerSim {
     // Forget every burst-gate outcome: a reset/seek re-simulates from t=0 with a
     // fresh stream, so identical draws rebuild identical gate state (§0.2).
     this.burstGates = null;
-    // Drop any recorded collision events; the flag itself is owned by the Effect
-    // (M8) and survives a reset, but the per-step scratch does not.
+    // Restart the ordinal counter so a re-simulation from t=0 assigns identical
+    // ordinals (the event child streams depend on them, §0.2, M8).
+    this.spawnCounter = 0;
+    // Drop any recorded events; the record flags are owned by the Effect (M8) and
+    // survive a reset, but the per-step scratches do not.
+    if (this.birthEvents !== null) this.birthEvents.length = 0;
+    if (this.deathEvents !== null) this.deathEvents.length = 0;
     if (this.collisionEvents !== null) this.collisionEvents.length = 0;
   }
 
@@ -190,9 +210,10 @@ export class LayerSim {
   }
 
   /**
-   * Spawn one particle. Performs exactly the fixed 13 draws in the normative
-   * order regardless of shape/mode/space (§2.7). If the pool is full the spawn is
-   * dropped with no draws (deterministic) and `capped` is set; returns false.
+   * Spawn one particle from this layer's OWN emission stream. Performs exactly the
+   * fixed 13 draws in the normative order regardless of shape/mode/space (§2.7). If
+   * the pool is full the spawn is dropped with no draws (deterministic) and
+   * `capped` is set; returns false.
    *
    * `f` ∈ [0,1] is the spawn's fractional position through the current step
    * (schemaVersion 2). It is used ONLY by world-space layers, to interpolate the
@@ -205,12 +226,45 @@ export class LayerSim {
    * and, when `arcT` overrides it, simply discarded (§0.2, M4).
    */
   spawn(f = 1, arcT = -1): boolean {
+    return this.spawnImpl(this.rng, f, arcT, false, 0, 0, 0, 0);
+  }
+
+  /**
+   * Spawn one CHILD particle from a sub-emitter EVENT stream (schemaVersion 3, M8).
+   * Runs the identical spawn body as `spawn()` — same fixed 13 + conditional draw
+   * order against THIS (child) layer's config — but draws exclusively from the
+   * supplied `rng` (the per-event stream, §0.2), so the child layer's OWN emission
+   * stream is never touched. The particle is placed at its shape-sampled offset
+   * PLUS `(ox, oy)` (the event location already converted into this layer's sim
+   * frame, E22) and its velocity gets `(bvx, bvy)` added (the caller pre-scales the
+   * event velocity by `entry.inheritVelocity`; velocity is translation-invariant so
+   * no frame conversion is needed).
+   *
+   * Mirrors `spawn()`'s early return: when the pool is full it drops the child with
+   * NO draws and sets `capped` (E7). This is deterministic — the child pool's fill
+   * state is itself a deterministic function of the seed and dt sequence, so
+   * early-return-before-draws consumes a deterministic number of draws per event.
+   * Sub-emitter spawns never fire an arc sweep, so `arcT` is always -1.
+   */
+  spawnFrom(rng: Rng, ox: number, oy: number, bvx: number, bvy: number): boolean {
+    return this.spawnImpl(rng, 1, -1, true, ox, oy, bvx, bvy);
+  }
+
+  // Shared spawn body for both the own-emission path (`spawn`) and the sub-emitter
+  // event path (`spawnFrom`). Keeping ONE body guarantees the two draw sequences
+  // can never drift apart — a load-bearing determinism invariant (the child stream
+  // must run the child layer's exact draw order). `fromEvent` selects the
+  // position/velocity finalization: an event child is placed absolutely at
+  // `shape + (ox, oy)` with `(bvx, bvy)` added, whereas an own spawn interpolates
+  // along the emitter segment (world space) or stays local. Byte-identical to the
+  // pre-M8 `spawn()` when `fromEvent` is false (the ordinal branch and the birth
+  // recorder are both no-ops for a non-parent layer).
+  private spawnImpl(rng: Rng, f: number, arcT: number, fromEvent: boolean, ox: number, oy: number, bvx: number, bvy: number): boolean {
     const p = this.pool;
     if (p.count >= p.capacity) {
       this.capped = true;
       return false;
     }
-    const rng = this.rng;
     const init = this.layer.initial;
 
     // 1) position (2 draws), 2) direction (1 draw)
@@ -289,7 +343,16 @@ export class LayerSim {
     let py = s.py;
     let vx = speed * Math.cos(dirRad);
     let vy = speed * Math.sin(dirRad);
-    if (this.layer.space === "world") {
+    if (fromEvent) {
+      // Sub-emitter child (M8): place the particle at the event location (already
+      // converted into this layer's sim frame, E22) plus its shape spread, and add
+      // the inherited event velocity. The emitter-segment interpolation below is
+      // NOT applied — the event location is absolute in this frame.
+      px += ox;
+      py += oy;
+      vx += bvx;
+      vy += bvy;
+    } else if (this.layer.space === "world") {
       // Spawn at the emitter's interpolated position along this step's segment,
       // and inherit a fraction of its velocity (schemaVersion 2). For a
       // stationary emitter both terms are zero — identical to local.
@@ -325,6 +388,21 @@ export class LayerSim {
       p.tintA![i] = tintA;
     }
     if (p.flipBits !== null) p.flipBits[i] = flipBits;
+    // Assign the stable spawn ordinal (M8) when this layer is a sub-emitter parent.
+    // Advances during prewarm too (prewarmed particles can fire death triggers
+    // later); only event CAPTURE is suppressed during prewarm. A no-op (zero draws,
+    // no column) for every non-parent layer, so the spawn stream is unchanged.
+    let ordinal = 0;
+    if (p.ordinal !== null) {
+      ordinal = this.spawnCounter++;
+      p.ordinal[i] = ordinal;
+    }
+    // Birth event (M8): record the parent's OWN births (not event children, which
+    // are `fromEvent`). Gated on the recorder, which the Effect keeps false unless
+    // this layer feeds a birth-trigger sub-emitter and it is not prewarming (E19).
+    if (!fromEvent && this.recordBirthEvents) {
+      (this.birthEvents ??= []).push(px, py, vx, vy, ordinal);
+    }
     return true;
   }
 
@@ -396,9 +474,15 @@ export class LayerSim {
     const colDampen = collision !== null ? collision.dampen : 0;
     const colLifeLoss = collision !== null ? collision.lifetimeLoss : 0;
     const colTangent = 1 - colDampen; // tangential velocity survives, scaled
-    // The event scratch holds only THIS step's collisions; clear (reuse the
-    // backing store) when it exists. Null when the flag has never been set, so a
-    // layer that never records events pays a single null check here.
+    // The event scratches hold only THIS step's events; clear (reuse the backing
+    // store) whichever exist. Null when a flag has never been set, so a layer that
+    // never records events pays only null checks. Cleared here at the TOP of
+    // update() — before this step's death/collision fills below and before this
+    // step's emit() fills birth — so the Effect (which consumes all three after
+    // update+emit) never sees a stale event, and prewarm's recorded-but-unprocessed
+    // events are dropped before the first visible step processes anything (E19).
+    if (this.birthEvents !== null) this.birthEvents.length = 0;
+    if (this.deathEvents !== null) this.deathEvents.length = 0;
     if (this.collisionEvents !== null) this.collisionEvents.length = 0;
 
     let i = 0;
@@ -484,7 +568,12 @@ export class LayerSim {
           p.velY[i] = vy;
           ageLoss = colLifeLoss * lifetime;
           if (this.recordCollisionEvents) {
-            (this.collisionEvents ??= []).push(cx, cy, vx, vy, i);
+            // Record the STABLE ordinal (M8), not the live index `i`: swap-remove
+            // can move a different particle into slot `i` before the Effect reads
+            // this scratch, so `i` is not a durable identity. A layer that records
+            // collision events is a sub-emitter parent, so the ordinal column exists.
+            const ord = p.ordinal !== null ? p.ordinal[i]! : 0;
+            (this.collisionEvents ??= []).push(cx, cy, vx, vy, ord);
           }
         }
       }
@@ -560,6 +649,15 @@ export class LayerSim {
       const newAge = age + dt + ageLoss;
       p.age[i] = newAge;
       if (newAge >= lifetime) {
+        // Death event (M8): record the dying particle's position, stored velocity,
+        // and stable ordinal BEFORE the swap-remove reassigns slot `i`. Covers both
+        // natural age-out and lifetimeLoss-induced death (both reach here via
+        // `newAge >= lifetime`). Gated on the recorder (false unless this layer
+        // feeds a death-trigger sub-emitter and it is not prewarming, E19).
+        if (this.recordDeathEvents) {
+          const ord = p.ordinal !== null ? p.ordinal[i]! : 0;
+          (this.deathEvents ??= []).push(p.x[i]!, p.y[i]!, p.velX[i]!, p.velY[i]!, ord);
+        }
         p.kill(i); // swap-remove; re-check slot i without advancing
       } else {
         i++;

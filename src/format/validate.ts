@@ -651,8 +651,9 @@ function checkLayer(ctx: Ctx, v: unknown, path: string): void {
       warn(ctx, `${path}.collision`, "collision planes are in the layer's local frame and ride the emitter (E20)");
   }
   if (v.subEmitters !== null && v.subEmitters !== undefined) {
+    // subEmitters behave as of M8 — no "unimplemented" warning (the depth-1 /
+    // self-ref / count / continuous-child checks in checkSubEmitters still apply).
     checkSubEmitters(ctx, v.subEmitters, `${path}.subEmitters`, selfId);
-    unimplemented("subEmitters");
   }
   if (v.trail !== null && v.trail !== undefined) {
     checkTrail(ctx, v.trail, `${path}.trail`);

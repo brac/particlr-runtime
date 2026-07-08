@@ -51,10 +51,17 @@ export function stateHash(fx: Effect): string {
         h = fnv1a(bytes, h);
       }
     }
-    // flipBits is a Uint8Array (one byte per particle), folded last.
+    // flipBits is a Uint8Array (one byte per particle), folded after the Float32s.
     if (ls.pool.flipBits !== null) {
       const fb = ls.pool.flipBits;
       h = fnv1a(new Uint8Array(fb.buffer, fb.byteOffset, count), h);
+    }
+    // ordinal is a Uint32Array (M8 sub-emitter parents), folded LAST and only when
+    // present (count*4 bytes), so a preset with no sub-emitters keeps its exact
+    // pre-M8 digest.
+    if (ls.pool.ordinal !== null) {
+      const od = ls.pool.ordinal;
+      h = fnv1a(new Uint8Array(od.buffer, od.byteOffset, count * 4), h);
     }
   }
   return (h >>> 0).toString(16).padStart(8, "0");

@@ -2,10 +2,35 @@
 // drives emission timing (§2.8), motion integration (via LayerSim.update), the
 // effect clock, prewarm (E5), dt clamping (E1/E2), and isDone (E6). This is the
 // same code path the editor preview and the shipped runtime both use (L4).
-import type { Layer, ScalarTrack, ParticleDoc, Shape } from "../format/types.js";
-import { deriveLayerSeed } from "./prng.js";
+import type { Layer, ScalarTrack, ParticleDoc, Shape, SubEmitterRef } from "../format/types.js";
+import { deriveLayerSeed, mulberry32 } from "./prng.js";
 import { evalCurve } from "./tracks.js";
 import { LayerSim } from "./layerSim.js";
+
+// Sub-emitter event codes (schemaVersion 3, §0.2). Fixed integers folded into the
+// child-stream seed formula; also index which per-layer event scratch to consume.
+const EVENT_BIRTH = 1;
+const EVENT_DEATH = 2;
+const EVENT_COLLISION = 3;
+// Golden constants of the child-stream seed mix (§0.2). Two odd 32-bit constants
+// (the golden-ratio and an xxHash prime) decorrelate the three inputs.
+const SEED_MIX_ORDINAL = 0x9e3779b9;
+const SEED_MIX_EVENTCODE = 0x85ebca6b;
+
+/** One resolved sub-emitter entry: the child sim it spawns into, its event code,
+ * and the authored ref (count/probability/inheritVelocity). Resolved ONCE at
+ * construction so processing never does a per-event layer lookup. */
+interface SubEntry {
+  entry: SubEmitterRef;
+  child: LayerSim;
+  eventCode: number;
+}
+/** A parent layer that owns at least one resolvable sub-emitter entry. */
+interface ParentPlan {
+  index: number; // layer index → parent layer seed via deriveLayerSeed
+  sim: LayerSim;
+  entries: SubEntry[];
+}
 
 /** dt is clamped to this ceiling so a tab-unhide can't explode emitters (E1). */
 export const MAX_DT = 1 / 20;
@@ -50,6 +75,16 @@ export class Effect {
   private stepEndX = 0;
   private stepEndY = 0;
 
+  // Sub-emitter plan (schemaVersion 3, M8), built once at construction. `parents`
+  // lists (in layer index order) every layer that spawns children, with its
+  // resolved entries. `wantBirth/Death/Collision` are per-sim-index recorder
+  // desires; each advance sets the sim's live recorder to `want && !prewarming`, so
+  // event capture is suppressed during prewarm (E19) with a single check.
+  private parents: ParentPlan[] = [];
+  private wantBirth: boolean[] = [];
+  private wantDeath: boolean[] = [];
+  private wantCollision: boolean[] = [];
+
   constructor(doc: ParticleDoc, opts?: { seed?: number; x?: number; y?: number }) {
     // A non-positive duration would make the looping emit loop never terminate
     // (room stays 0). Fail loud rather than hang; validateParticle enforces the
@@ -62,7 +97,44 @@ export class Effect {
     this.ex = this.stepStartX = this.stepEndX = opts?.x ?? 0;
     this.ey = this.stepStartY = this.stepEndY = opts?.y ?? 0;
     this.sims = doc.layers.map((layer, i) => new LayerSim(layer, deriveLayerSeed(this.effectSeed, i)));
+    this.buildSubEmitterPlan();
     this.runPrewarm();
+  }
+
+  /**
+   * Resolve the sub-emitter graph once (schemaVersion 3, M8). For each layer with
+   * `subEmitters`, resolve every entry's target LayerSim by id (a map, not a
+   * per-event `find`) and mark which recorders the parent needs. Depth-1 is a
+   * validator invariant, so a child never itself appears here as a parent unless
+   * the document is invalid; this method only reads a layer's OWN `subEmitters`,
+   * so it can never recurse into a child's — the sub-emitter graph is strictly one
+   * level deep by construction. Unresolvable / self references are skipped
+   * defensively (the validator already rejects them).
+   */
+  private buildSubEmitterPlan(): void {
+    const n = this.sims.length;
+    this.wantBirth = new Array<boolean>(n).fill(false);
+    this.wantDeath = new Array<boolean>(n).fill(false);
+    this.wantCollision = new Array<boolean>(n).fill(false);
+    this.parents = [];
+    const byId = new Map<string, LayerSim>();
+    for (const ls of this.sims) byId.set(ls.layer.id, ls);
+    this.sims.forEach((sim, index) => {
+      const subs = sim.layer.subEmitters;
+      if (subs === null || subs.length === 0) return;
+      const entries: SubEntry[] = [];
+      for (const entry of subs) {
+        const child = byId.get(entry.layerId);
+        if (child === undefined || child === sim) continue; // validated out; guard
+        const eventCode =
+          entry.trigger === "birth" ? EVENT_BIRTH : entry.trigger === "death" ? EVENT_DEATH : EVENT_COLLISION;
+        if (eventCode === EVENT_BIRTH) this.wantBirth[index] = true;
+        else if (eventCode === EVENT_DEATH) this.wantDeath[index] = true;
+        else this.wantCollision[index] = true;
+        entries.push({ entry, child, eventCode });
+      }
+      if (entries.length > 0) this.parents.push({ index, sim, entries });
+    });
   }
 
   get time(): number {
@@ -161,14 +233,86 @@ export class Effect {
     // Integrate existing particles once with the full dt (no substeps, E1),
     // then emit new particles (age 0) for the interval this step covers.
     const tStart = this.t;
-    for (const ls of this.sims) {
+    const capture = !this.prewarming; // event capture belongs to the visible cycle (E19)
+    for (let i = 0; i < this.sims.length; i++) {
+      const ls = this.sims[i]!;
       ls.capped = false;
+      // Set the sub-emitter recorders for this step (M8): a parent records the
+      // triggers it feeds, but never during prewarm. Cheap booleans; the update
+      // and spawn recorders below read them. Non-parent layers keep all three off.
+      ls.recordBirthEvents = capture && this.wantBirth[i]!;
+      ls.recordDeathEvents = capture && this.wantDeath[i]!;
+      ls.recordCollisionEvents = capture && this.wantCollision[i]!;
       ls.setEmitterStep(this.stepStartX, this.stepStartY, this.stepEndX, this.stepEndY, this.evx, this.evy);
       ls.setClock(tStart); // schemaVersion 3: scroll the noise field over effect time
       if (ls.layer.enabled) ls.update(dt);
     }
     this.emit(dt);
     this.emitDistance(dt, tStart);
+    // Sub-emitter processing (M8) runs AFTER update+emit+emitDistance so it sees a
+    // complete set of this step's birth/death/collision events, and is suppressed
+    // during prewarm (E19). Children spawn with age 0 and first integrate next step.
+    if (capture) this.processSubEmitters();
+  }
+
+  /**
+   * Spawn sub-emitter children for every event captured this step (schemaVersion 3,
+   * M8). Normative order: parents in layer index order, each parent's entries in
+   * array order, each entry's events in capture order. Every event derives its own
+   * independent PRNG stream (§0.2) so the child layer's OWN emission stream is never
+   * touched — the child continuous stream stays byte-identical whether or not events
+   * fire into it. A pool-full child drops silently (E7); the draws are deterministic
+   * regardless because the child's fill state is itself deterministic.
+   */
+  private processSubEmitters(): void {
+    for (const parent of this.parents) {
+      // Recompute the parent layer seed from the CURRENT effect seed each step so a
+      // reset(seed) is honored (deriveLayerSeed is cheap and pure).
+      const parentLayerSeed = deriveLayerSeed(this.effectSeed, parent.index);
+      const parentLocal = parent.sim.layer.space === "local";
+      for (const { entry, child, eventCode } of parent.entries) {
+        const scratch =
+          eventCode === EVENT_BIRTH
+            ? parent.sim.birthEvents
+            : eventCode === EVENT_DEATH
+              ? parent.sim.deathEvents
+              : parent.sim.collisionEvents;
+        if (scratch === null || scratch.length === 0) continue;
+        const childLocal = child.layer.space === "local";
+        for (let e = 0; e + 4 < scratch.length; e += 5) {
+          const ex = scratch[e]!;
+          const ey = scratch[e + 1]!;
+          const evx = scratch[e + 2]!;
+          const evy = scratch[e + 3]!;
+          const ordinal = scratch[e + 4]!;
+          // Child-stream seed (§0.2): decorrelate by ordinal and event code.
+          const eventSeed =
+            (parentLayerSeed ^ Math.imul(ordinal + 1, SEED_MIX_ORDINAL) ^ Math.imul(eventCode, SEED_MIX_EVENTCODE)) >>> 0;
+          const rng = mulberry32(eventSeed);
+          // Probability gate (§0.2): ONE draw iff probability !== 1; fires iff the
+          // draw < probability. probability === 1 takes no draw (migration default).
+          if (entry.probability !== 1 && rng() >= entry.probability) continue;
+          // Frame conversion (E22). Velocity is translation-invariant, so only the
+          // position needs the emitter-relative shift; pass velocity through.
+          let ox = ex;
+          let oy = ey;
+          if (parentLocal !== childLocal) {
+            if (parentLocal) {
+              // parent-local event → child-world: add the step-end emitter position.
+              ox = ex + this.stepEndX;
+              oy = ey + this.stepEndY;
+            } else {
+              // parent-world event → child-local: subtract it.
+              ox = ex - this.stepEndX;
+              oy = ey - this.stepEndY;
+            }
+          }
+          const bvx = entry.inheritVelocity * evx;
+          const bvy = entry.inheritVelocity * evy;
+          for (let k = 0; k < entry.count; k++) child.spawnFrom(rng, ox, oy, bvx, bvy);
+        }
+      }
+    }
   }
 
   private runPrewarm(): void {

@@ -25,6 +25,12 @@ export interface PoolFlags {
   tint?: boolean;
   /** Per-particle random-flip bitmask column (draws 20–21). Set iff layer.randomFlip !== null. */
   flip?: boolean;
+  /** Per-particle monotone spawn ordinal (schemaVersion 3, M8). Set iff the layer
+   * is a sub-emitter PARENT (layer.subEmitters !== null): its birth/death/collision
+   * event streams key an independent child PRNG off each event particle's ordinal.
+   * Draws nothing (assigned from a per-layer counter at spawn), so it never
+   * perturbs the spawn stream. */
+  ordinal?: boolean;
 }
 
 export class ParticlePool {
@@ -68,10 +74,18 @@ export class ParticlePool {
    * Uint8Array (values 0..3) — the swap-remove `all` list carries it alongside
    * the Float32 columns. */
   readonly flipBits: Uint8Array | null;
+  /** Per-particle monotone spawn ordinal (schemaVersion 3, M8); null unless the
+   * layer is a sub-emitter parent. A Uint32Array (values 0..2^32−1). Survives
+   * swap-remove like every column so an event particle carries the SAME ordinal
+   * regardless of how the pool has compacted since it spawned — the M7 event
+   * scratch recorded the live index as a placeholder, which swap-remove could
+   * reassign; the ordinal is the stable identity the event stream keys off. */
+  readonly ordinal: Uint32Array | null;
 
-  // Float32 columns plus the single Uint8 flipBits column are swap-removed
-  // together; both typed arrays support numeric index read/write identically.
-  private readonly all: (Float32Array | Uint8Array)[];
+  // Float32 columns plus the single Uint8 flipBits column and the Uint32 ordinal
+  // column are swap-removed together; all typed arrays support numeric index
+  // read/write identically.
+  private readonly all: (Float32Array | Uint8Array | Uint32Array)[];
 
   constructor(capacity: number, flags: PoolFlags = {}) {
     this.capacity = capacity;
@@ -115,6 +129,9 @@ export class ParticlePool {
     // Random-flip bitmask (draws 20–21): one Uint8 column carried by swap-remove.
     this.flipBits = flags.flip ? new Uint8Array(capacity) : null;
     if (this.flipBits) this.all.push(this.flipBits);
+    // Sub-emitter spawn ordinal (M8): one Uint32 column carried by swap-remove.
+    this.ordinal = flags.ordinal ? new Uint32Array(capacity) : null;
+    if (this.ordinal) this.all.push(this.ordinal);
   }
 
   /** Allocate a slot for a new particle; returns its index, or -1 if full (E7). */
