@@ -55,12 +55,6 @@ function warn(ctx: Ctx, path: string, message: string, code?: string): void {
   ctx.warnings.push(code ? { path, message, code } : { path, message });
 }
 
-// Temporary "accepted but inert" warning for a schemaVersion-4 field whose
-// behavior lands in a later milestone (removed in that milestone).
-function unimplemented(ctx: Ctx, path: string, field: string): void {
-  warn(ctx, path, `${field} is not yet implemented by this build`, "unimplemented");
-}
-
 function checkNumber(ctx: Ctx, v: unknown, path: string): boolean {
   if (!isNum(v)) {
     err(ctx, path, "must be a finite number");
@@ -783,11 +777,11 @@ function checkLayer(ctx: Ctx, v: unknown, path: string): void {
       warn(ctx, `${path}.trail`, "flipbook frames are ignored for trail ribbon sampling (E18)");
   }
 
-  // schemaVersion 4 feature modules (each null = off). Validated when present;
-  // each draws a temporary "unimplemented" warning until its milestone lands.
+  // schemaVersion 4 feature modules (each null = off). Validated when present.
   if (v.dissolve !== null && v.dissolve !== undefined) {
+    // dissolve behaves as of M3 — no "unimplemented" warning (the E25 trail
+    // hint below still applies).
     checkDissolve(ctx, v.dissolve, `${path}.dissolve`);
-    unimplemented(ctx, `${path}.dissolve`, "dissolve");
     // E25: dissolve does not erode a trail ribbon (separate mesh shader).
     if (v.trail !== null && v.trail !== undefined)
       warn(ctx, `${path}.dissolve`, "dissolve does not erode trail ribbons; the trail renders un-eroded (E25)");

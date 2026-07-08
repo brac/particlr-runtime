@@ -271,9 +271,10 @@ describe("validator — attractorInfluence", () => {
 });
 
 describe("validator — dissolve", () => {
-  it("accepts a valid dissolve with the unimplemented warning", () => {
+  it("accepts a valid dissolve with no unimplemented warning (M3: implemented)", () => {
     expect(ok({ dissolve: dissolve() })).toBe(true);
-    expect(hasWarn({ dissolve: dissolve() }, (w) => w.code === "unimplemented" && w.path === "layers[0].dissolve")).toBe(true);
+    // M3 landed the renderer behavior: the temporary "unimplemented" warning is gone.
+    expect(hasWarn({ dissolve: dissolve() }, (w) => w.code === "unimplemented" && w.path === "layers[0].dissolve")).toBe(false);
   });
 
   it("rejects frequency out of (0, 64]", () => {

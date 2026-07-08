@@ -1,0 +1,3 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`dissolve noise tile (0.3c) > pixel digest is stable (regression guard) 1`] = `"9b216f53"`;

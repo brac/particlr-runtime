@@ -31,7 +31,7 @@
     "size": "node scripts/check-size.mjs"
   },
   "peerDependencies": {
-    "pixi.js": "^8.0.0"
+    "pixi.js": ">=8.6.0 <9"
   },
   "peerDependenciesMeta": {
     "pixi.js": {
@@ -40,7 +40,7 @@
   },
   "devDependencies": {
     "esbuild": "^0.24.2",
-    "pixi.js": "^8.6.6",
+    "pixi.js": "8.19.0",
     "ts-json-schema-generator": "^2.3.0",
     "tsx": "^4.19.2"
   }

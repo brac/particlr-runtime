@@ -192,6 +192,31 @@ fx.setAttractor(pointerX, pointerY, 800, 240); // suck particles toward the curs
 fx.clearAttractor();                            // release them
 ```
 
+#### Schema v4 — dissolve / alpha erosion
+
+schemaVersion 4 adds a per-layer `dissolve` (`null` = off):
+`{ frequency, scroll, edgeWidth, edgeColor }`. It is a **renderer-only** effect —
+the sim is untouched, no PRNG draws, no pool columns. The particle's final render
+alpha **is** the erosion progress: whatever modules drive per-particle alpha (the
+color gradient, `bySpeed`, `startColor`) drive the dissolve, so a fading puff
+erodes through an internal procedural noise tile instead of fading uniformly.
+`frequency ∈ (0, 64]` is the noise repeat across the sprite; `scroll` is UV/s over
+the effect clock (`uTime = effect.time`, so the burn is exact under scrub and
+golden replay); `edgeWidth ∈ [0, 1]` is the soft erosion band; `edgeColor`
+(`null` = off) is a hot-rim RGBA tint that glows at the erosion edge. It keeps
+**one draw call per layer** (no render targets, no extra passes) via a forked
+`ParticleContainer` shader. Exported type: `DissolveConfig`.
+
+**Renderer parity — WebGL only.** The dissolve fork ships both a GLSL and a WGSL
+source, but only the **WebGL (GLSL)** path is verified: the golden-frame suite
+runs SwiftShader WebGL and there is no WebGPU golden lane yet, so L4
+preview/runtime parity is **attested on WebGL only**; the WGSL path ships
+unverified. Pin `preference: "webgl"` in your host `app.init` if you rely on
+byte-exact parity (the editor preview, the golden harness, and the
+`samples/pixi-game` host all do). Dissolve does **not** erode a trail ribbon
+(E25) — a trail on the same layer renders un-eroded through its separate mesh
+shader.
+
 ### Behavioral guarantees (edge cases)
 
 | # | Case | Behavior |

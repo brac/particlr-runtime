@@ -12,6 +12,7 @@ import {
   Rectangle,
   Texture,
   type BLEND_MODES,
+  type UniformGroup,
 } from "pixi.js";
 import type { BlendMode, BuiltinTextureId, Flipbook, ParticleDoc } from "../format/types.js";
 import { BUILTIN_TEXTURE_IDS } from "../format/types.js";
@@ -20,6 +21,7 @@ import { computeTrailGeometry, makeTrailGeometry } from "../core/trailGeometry.j
 import type { Effect } from "../core/effect.js";
 import { generateBuiltinTexture, type TextureData } from "./textures.js";
 import { makeTrailView, syncTrailView, type TrailView } from "./trailMesh.js";
+import { makeDissolveShader } from "./dissolveShader.js";
 
 const DEG2RAD = Math.PI / 180;
 
@@ -127,6 +129,11 @@ interface LayerView {
    * trail module. Its Mesh is added to the container BEHIND this layer's
    * ParticleContainer, so the ribbon renders under the sprites. (M9) */
   trail: TrailView | null;
+  /** The dissolve shader's `uTime` uniform group (schemaVersion 4, M3); null
+   * unless the layer has a dissolve module AND the shader constructed (it falls
+   * back to null in a headless env). `sync()` writes `effect.time` into it each
+   * frame so the erosion scroll is deterministic under scrub/golden replay. */
+  dissolveUniforms: UniformGroup | null;
 }
 
 export interface PixiParticleRendererOptions {
@@ -178,6 +185,19 @@ export class PixiParticleRenderer {
       const sliced = isPending ? { frames: null, invFrameWidth: 1 / tex.width } : framesFor(tex, fb);
       const particleTex = sliced.frames ? sliced.frames[0]! : tex;
 
+      // Dissolve (schemaVersion 4, M3): a dissolve layer OWNS a forked particle
+      // shader. Built ONLY when layer.dissolve !== null, so every other layer
+      // constructs its ParticleContainer with the EXACTLY-as-before options
+      // object (no `shader` key — the spread below adds it only for dissolve).
+      // makeDissolveShader returns null in a headless test env (no GL context);
+      // we then fall back to the default-shader path silently (trailMesh
+      // precedent — the dissolve golden preset is the live-GL proof). The pipe
+      // rebinds the layer texture from container.texture each frame, so
+      // applyTexture keeps working without touching the shader (see dissolveShader.ts).
+      let dissolveUniforms: UniformGroup | null = null;
+      const dissolveShader = layer.dissolve !== null ? makeDissolveShader(tex, layer.dissolve) : null;
+      if (dissolveShader) dissolveUniforms = dissolveShader.resources.dissolveUniforms as UniformGroup;
+
       const pc = new ParticleContainer({
         // Pixi's key for the scale-carrying attribute is `vertex` (quad corners
         // = texture size x scale x anchor), NOT `scale` — an unknown key is
@@ -197,6 +217,9 @@ export class PixiParticleRenderer {
         // unchanged. (P4.1)
         dynamicProperties: { position: true, rotation: true, vertex: true, color: true, uvs: fb !== null },
         texture: tex,
+        // Only dissolve layers add a `shader`; the spread keeps every other
+        // layer's options object byte-identical to before (§0.5).
+        ...(dissolveShader ? { shader: dissolveShader } : {}),
       });
       pc.blendMode = blendOf(layer.blend);
 
@@ -237,6 +260,7 @@ export class PixiParticleRenderer {
         frames: sliced.frames,
         renderHighWater: 0,
         trail,
+        dissolveUniforms,
       };
       this.views.push(view);
 
@@ -262,6 +286,15 @@ export class PixiParticleRenderer {
       const view = this.views[i]!;
       const enabled = ls.layer.enabled;
       const count = enabled ? ls.count : 0;
+
+      // Dissolve (M3): advance the erosion clock. uTime = effect.time, so the
+      // scroll is a pure function of the deterministic clock (exact under scrub
+      // and golden replay). Done every frame regardless of count — the field
+      // scrolls even while the layer is momentarily empty.
+      if (view.dissolveUniforms !== null) {
+        view.dissolveUniforms.uniforms.uTime = this.effect.time;
+        view.dissolveUniforms.update();
+      }
 
       // Per-layer container placement (schemaVersion 2). A local layer rides the
       // emitter (its particles carry effect-local coords); a world layer stays at
@@ -389,6 +422,13 @@ export class PixiParticleRenderer {
     // texture source, so destroying any source here nulls that shared bind
     // group and breaks all later particle rendering. The `destroyed` flag stops
     // an in-flight user-texture load from touching a torn-down view. (P0.1/P0.2)
+    //
+    // Dissolve (M3): each dissolve layer OWNS its shader (not shared), so
+    // destroying the container is safe — ParticleContainer.destroy() calls
+    // shader.destroy() (destroyPrograms=false), which frees the per-layer bind
+    // groups but NEVER destroys resource textures. The shared dissolve noise
+    // texture (a shader resource) is therefore left intact, exactly like the
+    // built-ins; its module-scope cache in dissolveShader.ts owns its lifetime.
     this.destroyed = true;
     this.container.destroy({ children: true });
   }

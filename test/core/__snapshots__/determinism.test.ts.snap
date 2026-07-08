@@ -16,6 +16,8 @@ exports[`preset snapshots (Gate 1) > confetti-mix.prt state @60 steps is stable 
 
 exports[`preset snapshots (Gate 1) > debris-bounce.prt state @60 steps is stable 1`] = `"ddeaa221"`;
 
+exports[`preset snapshots (Gate 1) > dissolving-smoke.prt state @60 steps is stable 1`] = `"0fdd94ba"`;
+
 exports[`preset snapshots (Gate 1) > dust-puff.prt state @60 steps is stable 1`] = `"449c839a"`;
 
 exports[`preset snapshots (Gate 1) > ember-field.prt state @60 steps is stable 1`] = `"c61723ad"`;
