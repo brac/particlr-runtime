@@ -74,7 +74,7 @@ exports[`preset snapshots (Gate 1) > soda-fizz.prt state @60 steps is stable 1`]
 
 exports[`preset snapshots (Gate 1) > sparks.prt state @60 steps is stable 1`] = `"f6b2f1e1"`;
 
-exports[`preset snapshots (Gate 1) > starfield.prt state @60 steps is stable 1`] = `"0dffdf89"`;
+exports[`preset snapshots (Gate 1) > starfield.prt state @60 steps is stable 1`] = `"4b59a0f6"`;
 
 exports[`preset snapshots (Gate 1) > teleport-flash.prt state @60 steps is stable 1`] = `"bc5d1cda"`;
 
