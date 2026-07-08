@@ -614,12 +614,10 @@ function checkLayer(ctx: Ctx, v: unknown, path: string): void {
       warn(ctx, `${path}.emission.prewarm`, "prewarmed particles spawn at the initial emitter position in world space");
   }
 
-  // schemaVersion 3 feature modules (each null = off). Validated when present;
-  // a present module also draws a temporary "unimplemented" warning until its
-  // milestone lands (M0 ships the surface, not the behavior).
+  // schemaVersion 3 feature modules (each null = off). Validated when present.
+  // As of M9 (the final Tier-1 milestone) every module is implemented, so none
+  // draws the temporary "unimplemented" warning any longer.
   const selfId = isStr(v.id) ? v.id : "";
-  const unimplemented = (field: string): void =>
-    warn(ctx, `${path}.${field}`, `${field} is not yet implemented by this build`, "unimplemented");
   if (v.noise !== null && v.noise !== undefined) {
     // noise behaves as of M2 — no "unimplemented" warning.
     checkNoise(ctx, v.noise, `${path}.noise`);
@@ -656,8 +654,9 @@ function checkLayer(ctx: Ctx, v: unknown, path: string): void {
     checkSubEmitters(ctx, v.subEmitters, `${path}.subEmitters`, selfId);
   }
   if (v.trail !== null && v.trail !== undefined) {
+    // trail behaves as of M9 — no "unimplemented" warning (the E18 flipbook hint
+    // below still applies).
     checkTrail(ctx, v.trail, `${path}.trail`);
-    unimplemented("trail");
     // E18: a trail samples the texture as a ribbon; flipbook frames are ignored.
     if (isObject(v.texture) && v.texture.frames !== null && v.texture.frames !== undefined)
       warn(ctx, `${path}.trail`, "flipbook frames are ignored for trail ribbon sampling (E18)");

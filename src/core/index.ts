@@ -11,7 +11,13 @@ export {
 } from "./tracks.js";
 export { sampleShape, type SpawnSample } from "./shapes.js";
 export { ParticlePool } from "./pool.js";
+export { TrailStore } from "./trails.js";
 export { LayerSim } from "./layerSim.js";
+export {
+  computeTrailGeometry,
+  makeTrailGeometry,
+  type TrailGeometry,
+} from "./trailGeometry.js";
 export { Effect, MAX_DT } from "./effect.js";
 export {
   computeRenderState,

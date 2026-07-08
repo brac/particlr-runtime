@@ -63,6 +63,16 @@ export function stateHash(fx: Effect): string {
       const od = ls.pool.ordinal;
       h = fnv1a(new Uint8Array(od.buffer, od.byteOffset, count * 4), h);
     }
+    // Trail ring buffer (M9): derived state (a history of rendered positions), but
+    // folding it strengthens the determinism pin. head/len are Uint16 (2 bytes ea.)
+    // and pts is Float32 (maxPoints·2 floats per particle). Folded only when the
+    // trail column exists, so every trail-null preset keeps its exact prior digest.
+    if (ls.pool.trail !== null) {
+      const tr = ls.pool.trail;
+      h = fnv1a(new Uint8Array(tr.head.buffer, tr.head.byteOffset, count * 2), h);
+      h = fnv1a(new Uint8Array(tr.len.buffer, tr.len.byteOffset, count * 2), h);
+      h = fnv1a(new Uint8Array(tr.pts.buffer, tr.pts.byteOffset, count * tr.maxPoints * 2 * 4), h);
+    }
   }
   return (h >>> 0).toString(16).padStart(8, "0");
 }

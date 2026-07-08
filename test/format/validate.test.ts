@@ -213,13 +213,13 @@ describe("validateParticle — schemaVersion 3 feature modules", () => {
     expect(validateParticle(makeDoc()).ok).toBe(true);
   });
 
-  it("warns 'unimplemented' for a not-yet-landed module (M0 ships surface, not behavior)", () => {
-    // render/noise/startColor/bySpeed/collision have landed; use a module still
-    // awaiting its milestone (trail, M9) as the representative not-yet-behaving one.
+  it("does NOT warn 'unimplemented' for any module (all landed as of M9)", () => {
+    // M9 is the final Tier-1 milestone: every schemaVersion-3 module now behaves,
+    // so the temporary "unimplemented" warning is gone. trail was the last holdout.
     const l = makeLayer({ trail: { maxPoints: 8, minVertexDistance: 2, width: { mode: "constant", value: 4 }, color: null } });
     const r = validateParticle(makeDoc({ layers: [l] }));
     expect(r.ok).toBe(true);
-    expect(r.warnings.some((w) => w.code === "unimplemented" && w.path === "layers[0].trail")).toBe(true);
+    expect(r.warnings.some((w) => w.code === "unimplemented")).toBe(false);
   });
 
   it("does NOT warn 'unimplemented' for the collision module (implemented in M7)", () => {

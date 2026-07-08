@@ -119,6 +119,9 @@ export class LayerSim {
       // event child streams (§0.2, M8). Derived from the layer alone, so the pool
       // footprint is unchanged for every non-parent layer.
       ordinal: layer.subEmitters !== null,
+      // A trail layer allocates a per-particle ring buffer of `maxPoints` points
+      // (§M9); a trail-null layer allocates nothing (0 = off). Draws nothing.
+      trailMaxPoints: layer.trail !== null ? layer.trail.maxPoints : 0,
     });
     this.rng = mulberry32(layerSeed);
     this.layerSeed = layerSeed;
@@ -388,6 +391,10 @@ export class LayerSim {
       p.tintA![i] = tintA;
     }
     if (p.flipBits !== null) p.flipBits[i] = flipBits;
+    // Record the spawn position as the trail's first (head) point (§M9). Uses the
+    // FINAL spawn coordinates (px, py — post world/event offset), so the ribbon
+    // starts exactly where the particle renders. Zero draws; no-op without a trail.
+    if (p.trail !== null) p.trail.spawn(i, px, py);
     // Assign the stable spawn ordinal (M8) when this layer is a sub-emitter parent.
     // Advances during prewarm too (prewarmed particles can fire death triggers
     // later); only event CAPTURE is suppressed during prewarm. A no-op (zero draws,
@@ -474,6 +481,16 @@ export class LayerSim {
     const colDampen = collision !== null ? collision.dampen : 0;
     const colLifeLoss = collision !== null ? collision.lifetimeLoss : 0;
     const colTangent = 1 - colDampen; // tangential velocity survives, scaled
+
+    // Per-particle trail recording (schemaVersion 3, §M9). Zero PRNG draws. The
+    // ring buffer and its minVertexDistance² gate are hoisted; the per-particle
+    // push below runs at the END of each particle's update (after ALL position
+    // writes, including VoL and noise), so the trail records the RENDERED path.
+    // Null for every trail-null layer, so the update loop stays instruction-
+    // identical there.
+    const trailStore = p.trail;
+    const trailMinDistSq =
+      this.layer.trail !== null ? this.layer.trail.minVertexDistance * this.layer.trail.minVertexDistance : 0;
     // The event scratches hold only THIS step's events; clear (reuse the backing
     // store) whichever exist. Null when a flag has never been set, so a layer that
     // never records events pays only null checks. Cleared here at the TOP of
@@ -628,6 +645,13 @@ export class LayerSim {
         p.x[i] = nx + c.x * strength * dt;
         p.y[i] = ny + c.y * strength * dt;
       }
+
+      // Trail point push (§M9): record the CURRENT (fully-perturbed) position as a
+      // new head point when it has moved ≥ minVertexDistance from the last one.
+      // Runs after every position write above so the ribbon follows the rendered
+      // path; before the kill below so index i still names this particle (a dying
+      // particle's push is harmless — swap-remove overwrites its block anyway).
+      if (trailStore !== null) trailStore.push(i, p.x[i]!, p.y[i]!, trailMinDistSq);
 
       // rotation over lifetime = (angularVelocity + track [+ bySpeed]) * dt (§2.5,
       // §M6). The by-speed spin is added into the SAME angular term, evaluated at

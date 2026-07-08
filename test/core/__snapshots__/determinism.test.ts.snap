@@ -6,6 +6,8 @@ exports[`preset snapshots (Gate 1) > bubbles.prt state @60 steps is stable 1`] =
 
 exports[`preset snapshots (Gate 1) > coin-fountain.prt state @60 steps is stable 1`] = `"69605c8d"`;
 
+exports[`preset snapshots (Gate 1) > comet.prt state @60 steps is stable 1`] = `"1a1ae39e"`;
+
 exports[`preset snapshots (Gate 1) > confetti.prt state @60 steps is stable 1`] = `"7af2e9a1"`;
 
 exports[`preset snapshots (Gate 1) > confetti-mix.prt state @60 steps is stable 1`] = `"d2618442"`;

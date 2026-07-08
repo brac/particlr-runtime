@@ -2,6 +2,7 @@
 // Fixed capacity = the layer's maxParticles. Dead particles are removed by
 // swap-remove (last alive swaps into the freed slot) so live particles occupy
 // [0, count); this ordering is part of the determinism contract (§2.7).
+import { TrailStore } from "./trails.js";
 
 /**
  * Which optional per-particle columns a pool must allocate (TIER1_PLAN §0.2).
@@ -31,6 +32,11 @@ export interface PoolFlags {
    * Draws nothing (assigned from a per-layer counter at spawn), so it never
    * perturbs the spawn stream. */
   ordinal?: boolean;
+  /** Per-particle ribbon-trail ring buffer, `maxPoints` slots per particle
+   * (schemaVersion 3, M9). Set to `layer.trail.maxPoints` iff the layer has a
+   * trail module; the store's pts/head/len are registered as STRIDED columns so
+   * swap-remove kill() moves a whole particle's ring block. Draws nothing. */
+  trailMaxPoints?: number;
 }
 
 export class ParticlePool {
@@ -81,11 +87,20 @@ export class ParticlePool {
    * scratch recorded the live index as a placeholder, which swap-remove could
    * reassign; the ordinal is the stable identity the event stream keys off. */
   readonly ordinal: Uint32Array | null;
+  /** Per-particle ribbon-trail ring buffer (schemaVersion 3, M9); null unless the
+   * layer has a trail module. Its pts (stride maxPoints·2), head and len (stride 1)
+   * arrays are registered as STRIDED columns, so swap-remove kill() moves a whole
+   * particle's block and the trail follows its particle. */
+  readonly trail: TrailStore | null;
 
   // Float32 columns plus the single Uint8 flipBits column and the Uint32 ordinal
   // column are swap-removed together; all typed arrays support numeric index
   // read/write identically.
-  private readonly all: (Float32Array | Uint8Array | Uint32Array)[];
+  private readonly all: (Float32Array | Uint8Array | Uint16Array | Uint32Array)[];
+  // Strided columns (schemaVersion 3, M9): each holds `stride` values per
+  // particle, so swap-remove copies a whole block rather than one element. Empty
+  // for every layer without a trail — kill()'s strided loop is then a no-op.
+  private readonly strided: { data: Float32Array | Uint16Array; stride: number }[] = [];
 
   constructor(capacity: number, flags: PoolFlags = {}) {
     this.capacity = capacity;
@@ -132,6 +147,23 @@ export class ParticlePool {
     // Sub-emitter spawn ordinal (M8): one Uint32 column carried by swap-remove.
     this.ordinal = flags.ordinal ? new Uint32Array(capacity) : null;
     if (this.ordinal) this.all.push(this.ordinal);
+    // Per-particle trail ring buffer (M9): allocated only when the layer has a
+    // trail module. pts is strided (maxPoints·2 floats/particle); head and len
+    // are stride-1 columns carried by the same swap-remove block copy.
+    this.trail = flags.trailMaxPoints ? new TrailStore(capacity, flags.trailMaxPoints) : null;
+    if (this.trail) {
+      this.registerStrided(this.trail.pts, flags.trailMaxPoints! * 2);
+      this.registerStrided(this.trail.head, 1);
+      this.registerStrided(this.trail.len, 1);
+    }
+  }
+
+  /** Register a strided per-particle column (schemaVersion 3, M9): `stride`
+   * consecutive values per particle. swap-remove kill() copies the whole
+   * `stride`-value block from the last slot into the freed one, so a strided
+   * store (like the trail ring buffer) follows its particle through compaction. */
+  registerStrided(data: Float32Array | Uint16Array, stride: number): void {
+    this.strided.push({ data, stride });
   }
 
   /** Allocate a slot for a new particle; returns its index, or -1 if full (E7). */
@@ -145,6 +177,13 @@ export class ParticlePool {
     const last = --this.count;
     if (i !== last) {
       for (const arr of this.all) arr[i] = arr[last]!;
+      // Strided columns (M9): copy the whole per-particle block. Empty for every
+      // non-trail layer, so this loop is a no-op there (kill stays byte-identical).
+      for (const s of this.strided) {
+        const di = i * s.stride;
+        const dl = last * s.stride;
+        for (let k = 0; k < s.stride; k++) s.data[di + k] = s.data[dl + k]!;
+      }
     }
   }
 

@@ -16,8 +16,10 @@ import {
 import type { BlendMode, BuiltinTextureId, Flipbook, ParticleDoc } from "../format/types.js";
 import { BUILTIN_TEXTURE_IDS } from "../format/types.js";
 import { computeRenderState, makeRenderBuffers, type LayerRenderBuffers } from "../core/render.js";
+import { computeTrailGeometry, makeTrailGeometry } from "../core/trailGeometry.js";
 import type { Effect } from "../core/effect.js";
 import { generateBuiltinTexture, type TextureData } from "./textures.js";
+import { makeTrailView, syncTrailView, type TrailView } from "./trailMesh.js";
 
 const DEG2RAD = Math.PI / 180;
 
@@ -121,6 +123,10 @@ interface LayerView {
    * only marked dirty when the live count reaches a *new* peak — a near-capacity
    * layer whose count jitters at its top never re-uploads the static buffer. (P4.2) */
   renderHighWater: number;
+  /** Per-particle trail ribbon (schemaVersion 3, M9); null unless the layer has a
+   * trail module. Its Mesh is added to the container BEHIND this layer's
+   * ParticleContainer, so the ribbon renders under the sprites. (M9) */
+  trail: TrailView | null;
 }
 
 export interface PixiParticleRendererOptions {
@@ -208,6 +214,19 @@ export class PixiParticleRenderer {
         particles.push(p);
       }
 
+      // Trail ribbon (M9): build the mesh BEFORE adding the ParticleContainer so
+      // it sits behind (renders under) this layer's sprites. Its geometry buffers
+      // are the core TrailGeometry arrays; sync() fills them via
+      // computeTrailGeometry. Blend mode is shared with the layer. Only trail
+      // layers add an extra child, so a trail-null document's child order — and
+      // every committed golden — is unchanged.
+      let trail: TrailView | null = null;
+      if (layer.trail !== null) {
+        const geom = makeTrailGeometry(max, layer.trail.maxPoints);
+        trail = makeTrailView(geom, tex, blendOf(layer.blend));
+        this.container.addChild(trail.mesh);
+      }
+
       this.container.addChild(pc);
       const view: LayerView = {
         pc,
@@ -217,6 +236,7 @@ export class PixiParticleRenderer {
         flipbook: fb,
         frames: sliced.frames,
         renderHighWater: 0,
+        trail,
       };
       this.views.push(view);
 
@@ -250,6 +270,12 @@ export class PixiParticleRenderer {
       // never-moved emitter both resolve to (0,0), keeping v1 output identical.
       if (ls.layer.space === "world") view.pc.position.set(0, 0);
       else view.pc.position.set(ex, ey);
+      // The trail mesh's vertices carry the same sim-frame coordinates as the
+      // particles, so it rides the emitter exactly like the ParticleContainer (M9).
+      if (view.trail !== null) {
+        if (ls.layer.space === "world") view.trail.mesh.position.set(0, 0);
+        else view.trail.mesh.position.set(ex, ey);
+      }
 
       if (enabled && count > 0) {
         computeRenderState(ls, view.buffers);
@@ -308,6 +334,20 @@ export class PixiParticleRenderer {
             if (frames) part.texture = frames[b.frame[j]!]!;
           }
         }
+      }
+      // Trail ribbon geometry (M9): rebuild from the layer's ring buffers and
+      // update the mesh buffers + draw range. computeRenderState above filled
+      // view.buffers (the trail's null-color path reads each particle's current
+      // render RGBA from it); when the layer is disabled or empty there is no
+      // render state, so clear the ribbon to zero draws.
+      if (view.trail !== null) {
+        if (enabled && count > 0) {
+          computeTrailGeometry(ls, view.buffers, view.trail.geom);
+        } else {
+          view.trail.geom.vertexCount = 0;
+          view.trail.geom.indexCount = 0;
+        }
+        syncTrailView(view.trail);
       }
       this.syncRenderList(view, count);
     }
