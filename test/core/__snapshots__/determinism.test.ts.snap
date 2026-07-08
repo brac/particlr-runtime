@@ -38,6 +38,8 @@ exports[`preset snapshots (Gate 1) > goo-splatter.prt state @60 steps is stable 
 
 exports[`preset snapshots (Gate 1) > healing-aura.prt state @60 steps is stable 1`] = `"42022106"`;
 
+exports[`preset snapshots (Gate 1) > heart-burst.prt state @60 steps is stable 1`] = `"ef48e8f7"`;
+
 exports[`preset snapshots (Gate 1) > hit-flash.prt state @60 steps is stable 1`] = `"69691905"`;
 
 exports[`preset snapshots (Gate 1) > impact-sparks.prt state @60 steps is stable 1`] = `"d4a35cb6"`;

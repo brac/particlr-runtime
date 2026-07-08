@@ -10,6 +10,7 @@ export {
   type RGBA,
 } from "./tracks.js";
 export { sampleShape, type SpawnSample } from "./shapes.js";
+export { buildMaskSampler, MaskSampler } from "./maskSampler.js";
 export { ParticlePool } from "./pool.js";
 export { TrailStore } from "./trails.js";
 export { LayerSim } from "./layerSim.js";

@@ -164,9 +164,10 @@ describe("v3 -> v4 migration", () => {
 });
 
 describe("validator — texture shape", () => {
-  it("accepts a 1×1 opaque mask (uniform rect) with only the unimplemented warning", () => {
+  it("accepts a 1×1 opaque mask (uniform rect) with no warnings (M1: implemented)", () => {
     expect(ok({ shape: textureShape() })).toBe(true);
-    expect(hasWarn({ shape: textureShape() }, (w) => w.code === "unimplemented" && w.path === "layers[0].shape")).toBe(true);
+    // M1 landed the behavior: the temporary "unimplemented" warning is gone.
+    expect(hasWarn({ shape: textureShape() }, (w) => w.code === "unimplemented" && w.path === "layers[0].shape")).toBe(false);
     expect(hasWarn({ shape: textureShape() }, (w) => w.code === "bad-mask")).toBe(false);
   });
 

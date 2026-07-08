@@ -322,8 +322,8 @@ function checkShape(ctx: Ctx, v: unknown, path: string): void {
       // E26: surface emission has no effect on a texture shape (treated as volume).
       if (v.emitFrom === "surface")
         warn(ctx, `${path}.emitFrom`, 'emitFrom "surface" has no effect on a texture shape (treated as volume) (E26)');
-      // Temporary: emit-from-texture behavior lands in M1.
-      unimplemented(ctx, path, "texture shape");
+      // emit-from-texture behaves as of M1 — no "unimplemented" warning (the E23
+      // bad-mask and E26 surface hints above still apply).
       break;
     default:
       err(ctx, `${path}.kind`, "must be one of: point, circle, cone, rect, edge, texture");

@@ -7,6 +7,7 @@ import { mulberry32, type Rng } from "./prng.js";
 import { drawScalarInit, evalScalarTrack, evalGradient, type RGBA } from "./tracks.js";
 import { ParticlePool } from "./pool.js";
 import { sampleShape } from "./shapes.js";
+import { buildMaskSampler, type MaskSampler } from "./maskSampler.js";
 import { curl2 } from "./noise.js";
 
 const RAD = Math.PI / 180;
@@ -98,6 +99,13 @@ export class LayerSim {
    * Reset to 0 by reset(). */
   private spawnCounter = 0;
 
+  /** Emit-from-texture mask sampler (schemaVersion 4, §0.3a). Config-derived and
+   * built ONCE in the constructor: non-null only for a `kind === "texture"` layer
+   * with a usable mask, null for every other kind AND for any E23-corrupt mask
+   * (the spawn path then falls back to point-shape spawning via shapes.ts). It
+   * carries no per-run state, so reset() does not rebuild it. */
+  private readonly maskSampler: MaskSampler | null;
+
   constructor(layer: Layer, layerSeed: number) {
     this.layer = layer;
     // Optional pool columns are allocated only for the modules this layer uses
@@ -125,6 +133,9 @@ export class LayerSim {
     });
     this.rng = mulberry32(layerSeed);
     this.layerSeed = layerSeed;
+    // Emit-from-texture: decode + CDF-build the mask once (§0.3a). Null for every
+    // non-texture layer, so no existing document allocates or pays for this.
+    this.maskSampler = layer.shape.kind === "texture" ? buildMaskSampler(layer.shape) : null;
   }
 
   get count(): number {
@@ -338,9 +349,27 @@ export class LayerSim {
       if (ux < randomFlip.x) flipBits |= 1;
       if (uy < randomFlip.y) flipBits |= 2;
     }
+    // Draws 22–24 (TIER2_PLAN §0.2 / FORMAT_SPEC draws 22–24): the mask CDF index
+    // (uIdx) and intra-pixel jitter (jx, jy), appended AFTER the flip draws and
+    // taken ONLY for a texture shape. Drawn from the SAME `rng` as every draw
+    // above (own-emission or sub-emitter event stream). The count is constant
+    // regardless of mask size/validity — a corrupt/empty mask (E23) still takes
+    // and discards these three, so the stream stays mask-content-independent.
+    const isTexture = this.layer.shape.kind === "texture";
+    const uIdx = isTexture ? rng() : 0;
+    const jx = isTexture ? rng() : 0;
+    const jy = isTexture ? rng() : 0;
 
     const i = p.spawn();
-    const s = sampleShape(this.layer.shape, uPos1, uPos2, uDir, arcT);
+    // Position resolution: a usable mask samples the CDF (§0.3a); otherwise the
+    // shapes.ts switch handles every other kind AND the E23 corrupt-mask fallback
+    // (point-shape spawning). The `kind === "texture"` guard narrows the shape for
+    // the sampler and is always true when maskSampler !== null.
+    const shape = this.layer.shape;
+    const s =
+      this.maskSampler !== null && shape.kind === "texture"
+        ? this.maskSampler.sample(uIdx, jx, jy, shape, uDir)
+        : sampleShape(shape, uPos1, uPos2, uDir, arcT);
     const dirRad = s.dirDeg * RAD;
     let px = s.px;
     let py = s.py;
