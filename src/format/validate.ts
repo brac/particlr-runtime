@@ -5,6 +5,7 @@
 
 import {
   ARC_MODES,
+  ATTRACTOR_FALLOFFS,
   BLEND_MODES,
   BUILTIN_TEXTURE_IDS,
   CURRENT_SCHEMA_VERSION,
@@ -15,6 +16,7 @@ import {
   SUB_TRIGGERS,
   type ParticleDoc,
 } from "./types.js";
+import { decodeBase64 } from "./base64.js";
 
 export interface ValidationIssue {
   path: string;
@@ -51,6 +53,12 @@ function err(ctx: Ctx, path: string, message: string, code?: string): void {
 }
 function warn(ctx: Ctx, path: string, message: string, code?: string): void {
   ctx.warnings.push(code ? { path, message, code } : { path, message });
+}
+
+// Temporary "accepted but inert" warning for a schemaVersion-4 field whose
+// behavior lands in a later milestone (removed in that milestone).
+function unimplemented(ctx: Ctx, path: string, field: string): void {
+  warn(ctx, path, `${field} is not yet implemented by this build`, "unimplemented");
 }
 
 function checkNumber(ctx: Ctx, v: unknown, path: string): boolean {
@@ -237,6 +245,46 @@ function checkArc(ctx: Ctx, v: Record<string, unknown>, path: string, radius: nu
   checkArcModeSpeed(ctx, v, path);
 }
 
+// Emit-from-texture mask (schemaVersion 4). Structural problems (missing object,
+// non-integer / out-of-range dims, non-string data) are ERRORS. Semantic
+// corruption (undecodable base64, decoded length ≠ width·height, or zero pixels
+// passing the threshold) is a non-blocking WARNING (E23, code "bad-mask"): the
+// layer degrades to point-shape spawning at runtime, and the document data is
+// preserved untouched. `threshold` is the (already-validated) shape threshold.
+function checkMask(ctx: Ctx, v: unknown, path: string, threshold: unknown): void {
+  if (!isObject(v)) {
+    err(ctx, path, "must be a MaskData object");
+    return;
+  }
+  const okW = isInt(v.width) && (v.width as number) >= 1 && (v.width as number) <= 128;
+  const okH = isInt(v.height) && (v.height as number) >= 1 && (v.height as number) <= 128;
+  if (!okW) err(ctx, `${path}.width`, "mask width must be an integer in [1, 128]");
+  if (!okH) err(ctx, `${path}.height`, "mask height must be an integer in [1, 128]");
+  if (!isStr(v.data)) {
+    err(ctx, `${path}.data`, "mask data must be a base64 string");
+    return;
+  }
+  if (!okW || !okH) return; // can't check length/coverage without sound dims
+  // All E23 conditions share one message tail (the runtime degrades identically).
+  const badMask = (reason: string): void =>
+    warn(ctx, path, `mask ${reason}; the layer will emit from a point (E23)`, "bad-mask");
+  const bytes = decodeBase64(v.data);
+  if (bytes === null) return badMask("data is not valid base64");
+  const expected = (v.width as number) * (v.height as number);
+  if (bytes.length !== expected) return badMask(`data length ${bytes.length} does not match width·height (${expected})`);
+  // Zero passing pixels: with the threshold gate, no pixel carries weight (a
+  // pixel emits iff alpha > 0 and alpha/255 >= threshold — 0.3a).
+  const gate = (isNum(threshold) ? Math.max(0, Math.min(1, threshold as number)) : 0) * 255;
+  let anyPass = false;
+  for (let i = 0; i < bytes.length; i++) {
+    if (bytes[i]! > 0 && bytes[i]! >= gate) {
+      anyPass = true;
+      break;
+    }
+  }
+  if (!anyPass) badMask("has no pixels passing the threshold");
+}
+
 function checkShape(ctx: Ctx, v: unknown, path: string): void {
   if (!isObject(v)) {
     err(ctx, path, "must be a Shape object");
@@ -263,8 +311,22 @@ function checkShape(ctx: Ctx, v: unknown, path: string): void {
     case "edge":
       checkNumber(ctx, v.length, `${path}.length`);
       break;
+    case "texture":
+      if (checkNumber(ctx, v.width, `${path}.width`) && (v.width as number) <= 0)
+        err(ctx, `${path}.width`, "width must be > 0");
+      if (checkNumber(ctx, v.height, `${path}.height`) && (v.height as number) <= 0)
+        err(ctx, `${path}.height`, "height must be > 0");
+      if (checkNumber(ctx, v.threshold, `${path}.threshold`) && ((v.threshold as number) < 0 || (v.threshold as number) > 1))
+        err(ctx, `${path}.threshold`, "threshold must be in [0, 1]");
+      checkMask(ctx, v.mask, `${path}.mask`, v.threshold);
+      // E26: surface emission has no effect on a texture shape (treated as volume).
+      if (v.emitFrom === "surface")
+        warn(ctx, `${path}.emitFrom`, 'emitFrom "surface" has no effect on a texture shape (treated as volume) (E26)');
+      // Temporary: emit-from-texture behavior lands in M1.
+      unimplemented(ctx, path, "texture shape");
+      break;
     default:
-      err(ctx, `${path}.kind`, "must be one of: point, circle, cone, rect, edge");
+      err(ctx, `${path}.kind`, "must be one of: point, circle, cone, rect, edge, texture");
   }
 }
 
@@ -540,6 +602,53 @@ function checkTrail(ctx: Ctx, v: unknown, path: string): void {
   if (v.color !== null) checkGradient(ctx, v.color, `${path}.color`);
 }
 
+// Point attractor / vortex (schemaVersion 4). strength/tangential are
+// constant/curve only (checkScalarTrackNoRange — no per-particle range mode, so
+// no reserved PRNG draw, same ruling as noise.strength). radius > 0; killRadius
+// in [0, radius] (0 = off). The E24 local-frame hint is emitted by checkLayer.
+function checkAttractor(ctx: Ctx, v: unknown, path: string): void {
+  if (!isObject(v)) {
+    err(ctx, path, "must be an AttractorConfig object or null");
+    return;
+  }
+  checkNumber(ctx, v.x, `${path}.x`);
+  checkNumber(ctx, v.y, `${path}.y`);
+  checkScalarTrackNoRange(ctx, v.strength, `${path}.strength`);
+  if (v.tangential !== null) checkScalarTrackNoRange(ctx, v.tangential, `${path}.tangential`);
+  checkEnum(ctx, v.falloff, ATTRACTOR_FALLOFFS, `${path}.falloff`);
+  const okR = checkNumber(ctx, v.radius, `${path}.radius`);
+  if (okR && (v.radius as number) <= 0) err(ctx, `${path}.radius`, "radius must be > 0");
+  if (checkNumber(ctx, v.killRadius, `${path}.killRadius`)) {
+    const kr = v.killRadius as number;
+    if (kr < 0) err(ctx, `${path}.killRadius`, "killRadius must be >= 0");
+    else if (okR && kr > (v.radius as number)) err(ctx, `${path}.killRadius`, "killRadius must be <= radius");
+  }
+}
+
+// Alpha-erosion dissolve (schemaVersion 4). Renderer-only; the E25 trail-conflict
+// hint is emitted by checkLayer.
+function checkDissolve(ctx: Ctx, v: unknown, path: string): void {
+  if (!isObject(v)) {
+    err(ctx, path, "must be a DissolveConfig object or null");
+    return;
+  }
+  if (checkNumber(ctx, v.frequency, `${path}.frequency`) && ((v.frequency as number) <= 0 || (v.frequency as number) > 64))
+    err(ctx, `${path}.frequency`, "frequency must be in (0, 64]");
+  checkVec2(ctx, v.scroll, `${path}.scroll`);
+  if (checkNumber(ctx, v.edgeWidth, `${path}.edgeWidth`) && ((v.edgeWidth as number) < 0 || (v.edgeWidth as number) > 1))
+    err(ctx, `${path}.edgeWidth`, "edgeWidth must be in [0, 1]");
+  if (v.edgeColor !== null) {
+    if (!isObject(v.edgeColor)) {
+      err(ctx, `${path}.edgeColor`, "edgeColor must be an {r,g,b,a} object or null");
+    } else {
+      for (const ch of ["r", "g", "b", "a"] as const) {
+        if (checkNumber(ctx, v.edgeColor[ch], `${path}.edgeColor.${ch}`) && ((v.edgeColor[ch] as number) < 0 || (v.edgeColor[ch] as number) > 1))
+          err(ctx, `${path}.edgeColor.${ch}`, `${ch} must be in [0,1]`);
+      }
+    }
+  }
+}
+
 // Sub-emitter refs need cross-layer state, so this runs against the ctx registry
 // built in validateParticle. `selfId` is the owning layer's id (self-ref is
 // illegal; a referenced layer must itself have subEmitters === null — depth 1).
@@ -599,6 +708,20 @@ function checkLayer(ctx: Ctx, v: unknown, path: string): void {
     }
   } else {
     err(ctx, `${path}.inheritVelocity`, "must be a finite number");
+  }
+  // Host-attractor influence (schemaVersion 4). Mirrors inheritVelocity: a plain
+  // constant in [-2, 2], zero PRNG draws. Non-zero draws the temporary
+  // "unimplemented" warning until M2 (the host setAttractor hook lands there).
+  if (v.attractorInfluence !== undefined) {
+    if (!isNum(v.attractorInfluence)) {
+      err(ctx, `${path}.attractorInfluence`, "must be a finite number");
+    } else if ((v.attractorInfluence as number) < -2 || (v.attractorInfluence as number) > 2) {
+      err(ctx, `${path}.attractorInfluence`, "attractorInfluence must be in [-2, 2]");
+    } else if (v.attractorInfluence !== 0) {
+      unimplemented(ctx, `${path}.attractorInfluence`, "attractorInfluence");
+    }
+  } else {
+    err(ctx, `${path}.attractorInfluence`, "must be a finite number");
   }
   // Authoring-trap warnings: motion features are inert in local space.
   const isLocal = spaceOk && v.space === "local";
@@ -660,6 +783,24 @@ function checkLayer(ctx: Ctx, v: unknown, path: string): void {
     // E18: a trail samples the texture as a ribbon; flipbook frames are ignored.
     if (isObject(v.texture) && v.texture.frames !== null && v.texture.frames !== undefined)
       warn(ctx, `${path}.trail`, "flipbook frames are ignored for trail ribbon sampling (E18)");
+  }
+
+  // schemaVersion 4 feature modules (each null = off). Validated when present;
+  // each draws a temporary "unimplemented" warning until its milestone lands.
+  if (v.dissolve !== null && v.dissolve !== undefined) {
+    checkDissolve(ctx, v.dissolve, `${path}.dissolve`);
+    unimplemented(ctx, `${path}.dissolve`, "dissolve");
+    // E25: dissolve does not erode a trail ribbon (separate mesh shader).
+    if (v.trail !== null && v.trail !== undefined)
+      warn(ctx, `${path}.dissolve`, "dissolve does not erode trail ribbons; the trail renders un-eroded (E25)");
+  }
+  if (v.attractor !== null && v.attractor !== undefined) {
+    checkAttractor(ctx, v.attractor, `${path}.attractor`);
+    unimplemented(ctx, `${path}.attractor`, "attractor");
+    // E24: in local space the attractor point rides the emitter (its coordinates
+    // are in the layer's local sim frame, not world coordinates).
+    if (spaceOk && v.space === "local")
+      warn(ctx, `${path}.attractor`, "attractor coordinates are in the layer's local frame and ride the emitter (E24)");
   }
 
   // Rendering-conflict warnings (schemaVersion 3).

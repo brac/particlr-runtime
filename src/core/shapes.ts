@@ -97,5 +97,13 @@ export function sampleShape(shape: Shape, uPos1: number, uPos2: number, uDir: nu
 
     case "edge":
       return { px: (uPos1 - 0.5) * shape.length, py: 0, dirDeg: -90 };
+
+    case "texture":
+      // schemaVersion 4: emit-from-texture mask sampling lands in M1 (via a
+      // dedicated MaskSampler). Here it keeps the switch exhaustive AND is the
+      // E23 corrupt/empty-mask fallback: spawn at the origin with a random
+      // direction (point-shape behavior). No existing document has this kind, so
+      // this branch is unreachable across the current determinism/golden suites.
+      return { px: 0, py: 0, dirDeg: uDir * 360 };
   }
 }

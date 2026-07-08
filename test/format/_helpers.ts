@@ -20,6 +20,7 @@ export function makeLayer(overrides: Partial<Layer> = {}): Layer {
     shape: { kind: "cone", direction: -90, spread: 30, radius: 10, arcMode: "random", arcSpeed: 1, emitFrom: "volume" },
     space: "local",
     inheritVelocity: 0,
+    attractorInfluence: 0,
     initial: {
       life: { mode: "range", min: 0.5, max: 1 },
       speed: { mode: "range", min: 40, max: 80 },
@@ -51,7 +52,9 @@ export function makeLayer(overrides: Partial<Layer> = {}): Layer {
     startColor: null,
     randomFlip: null,
     render: null,
+    dissolve: null,
     collision: null,
+    attractor: null,
     subEmitters: null,
     trail: null,
     ...overrides,
@@ -60,7 +63,7 @@ export function makeLayer(overrides: Partial<Layer> = {}): Layer {
 
 export function makeDoc(overrides: Partial<ParticleDoc> = {}): ParticleDoc {
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     meta: { name: "Test", createdWith: "particlr@0.x", notes: "" },
     duration: 1.2,
     looping: true,

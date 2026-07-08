@@ -43,7 +43,28 @@ export const MIGRATIONS: Record<number, (doc: any) => any> = {
     schemaVersion: 3,
     layers: Array.isArray(doc.layers) ? doc.layers.map(migrateLayer2to3) : doc.layers,
   }),
+
+  // v3 -> v4: Tier-2 feature surface (TIER2_PLAN §0.1). Inject the three inert
+  // per-layer defaults so a migrated v3 document produces a byte-identical PRNG
+  // stream, pool state, and golden frames as the v3 runtime (the "bit-identity
+  // invariant"): `attractor`/`dissolve` null (no force / no shader) and
+  // `attractorInfluence: 0` (the host `setAttractor` hook is a no-op). No shape,
+  // emission, or velocity structures change this time (the texture shape is a new
+  // Shape.kind — no existing document has one). Spread the originals AFTER the
+  // defaults so a present value is never clobbered and unknown fields survive.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  3: (doc: any) => ({
+    ...doc,
+    schemaVersion: 4,
+    layers: Array.isArray(doc.layers) ? doc.layers.map(migrateLayer3to4) : doc.layers,
+  }),
 };
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function migrateLayer3to4(l: any): any {
+  if (l === null || typeof l !== "object") return l;
+  return { attractor: null, dissolve: null, attractorInfluence: 0, ...l };
+}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function migrateLayer2to3(l: any): any {

@@ -10,7 +10,7 @@ function maximalDoc(): ParticleDoc {
   const grad = { keys: [{ t: 0, r: 1, g: 0.5, b: 0.2, a: 1 }, { t: 1, r: 0, g: 0, b: 0, a: 0 }] };
   const curve = { mode: "curve" as const, keys: [{ t: 0, v: 1, ease: "easeOut" as const }, { t: 1, v: 0 }] };
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     meta: { name: "Maximal", createdWith: "particlr@0.x", notes: "" },
     duration: 2,
     looping: true,
@@ -33,6 +33,7 @@ function maximalDoc(): ParticleDoc {
         shape: { kind: "circle", radius: 40, innerRadius: 12, arc: 270, arcMode: "loop", arcSpeed: 2, emitFrom: "surface" },
         space: "world",
         inheritVelocity: 0.3,
+        attractorInfluence: 0,
         initial: {
           life: { mode: "range", min: 0.5, max: 1 },
           speed: { mode: "constant", value: 60 },
@@ -59,7 +60,9 @@ function maximalDoc(): ParticleDoc {
         startColor: { mode: "palette", colors: [{ r: 1, g: 0, b: 0, a: 1 }, { r: 0, g: 1, b: 0, a: 1 }] },
         randomFlip: { x: 0.5, y: 0.25 },
         render: { align: "velocity", speedScale: 0.01, minStretch: 1, maxStretch: 4 },
+        dissolve: null,
         collision: { shape: { kind: "rect", x: -100, y: -100, width: 200, height: 200 }, bounce: 0.6, dampen: 0.1, lifetimeLoss: 0.05 },
+        attractor: null,
         subEmitters: [{ trigger: "death", layerId: "child", count: 8, probability: 0.9, inheritVelocity: 0.5 }],
         trail: null,
       },
@@ -80,6 +83,7 @@ function maximalDoc(): ParticleDoc {
         shape: { kind: "cone", direction: -90, spread: 40, radius: 2, arcMode: "pingPong", arcSpeed: 1.5, emitFrom: "volume" },
         space: "world",
         inheritVelocity: 0,
+        attractorInfluence: 0,
         initial: {
           life: { mode: "range", min: 0.3, max: 0.6 },
           speed: { mode: "range", min: 80, max: 160 },
@@ -98,7 +102,9 @@ function maximalDoc(): ParticleDoc {
         startColor: { mode: "gradients", a: grad, b: { keys: [{ t: 0, r: 0.2, g: 0.4, b: 1, a: 1 }] } },
         randomFlip: null,
         render: null,
+        dissolve: null,
         collision: null,
+        attractor: null,
         subEmitters: null,
         trail: { maxPoints: 16, minVertexDistance: 3, width: curve, color: grad },
       },

@@ -48,9 +48,12 @@ describe("parseParticle", () => {
     };
     const r = parseParticle(v2);
     expect(r.ok).toBe(true);
-    expect(r.doc?.schemaVersion).toBe(3);
+    expect(r.doc?.schemaVersion).toBe(4);
     expect(r.doc?.layers[0]?.noise).toBe(null);
     expect(r.doc?.layers[0]?.overLifetime.velocity.orbital).toBe(null);
+    // v3 -> v4 defaults injected too.
+    expect(r.doc?.layers[0]?.attractor).toBe(null);
+    expect(r.doc?.layers[0]?.attractorInfluence).toBe(0);
   });
 
   it("surfaces warnings on success (E10 missing texture)", () => {
@@ -70,7 +73,7 @@ describe("migrateToCurrent", () => {
     if (r.ok) expect(r.doc).toBe(doc);
   });
 
-  it("chains a v1 document all the way to v3, injecting both migrations' defaults", () => {
+  it("chains a v1 document all the way to v4, injecting every migration's defaults", () => {
     // A v1 layer/emission with none of the schemaVersion-2 or -3 fields.
     const v1 = {
       ...makeDoc(),
@@ -94,7 +97,7 @@ describe("migrateToCurrent", () => {
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     const doc = r.doc as { schemaVersion: number; layers: Array<Record<string, unknown>> };
-    expect(doc.schemaVersion).toBe(3);
+    expect(doc.schemaVersion).toBe(4);
     // v1->v2 defaults
     expect(doc.layers[0]!.space).toBe("local");
     expect(doc.layers[0]!.inheritVelocity).toBe(0);
@@ -103,11 +106,15 @@ describe("migrateToCurrent", () => {
     expect(doc.layers[0]!.noise).toBe(null);
     expect(doc.layers[0]!.render).toBe(null);
     expect((doc.layers[0]!.shape as Record<string, unknown>).arcMode).toBe("random");
+    // v3->v4 defaults
+    expect(doc.layers[0]!.attractor).toBe(null);
+    expect(doc.layers[0]!.dissolve).toBe(null);
+    expect(doc.layers[0]!.attractorInfluence).toBe(0);
     // The migrated document validates cleanly (defaults are spec-valid).
     expect(parseParticle(doc).ok).toBe(true);
   });
 
-  it("is idempotent on an already-current v3 document", () => {
+  it("is idempotent on an already-current v4 document", () => {
     const doc = makeDoc();
     const once = migrateToCurrent(doc);
     expect(once.ok).toBe(true);
@@ -115,7 +122,7 @@ describe("migrateToCurrent", () => {
   });
 
   it("refuses newer and rejects invalid versions", () => {
-    expect(migrateToCurrent({ schemaVersion: 4 }).ok).toBe(false);
+    expect(migrateToCurrent({ schemaVersion: 5 }).ok).toBe(false);
     expect(migrateToCurrent({ schemaVersion: 0 }).ok).toBe(false);
     expect(migrateToCurrent(null).ok).toBe(false);
   });

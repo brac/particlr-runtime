@@ -69,7 +69,31 @@ export type Shape =
       emitFrom: EmitFrom;
     }
   | { kind: "rect"; width: number; height: number; emitFrom: EmitFrom }
-  | { kind: "edge"; length: number; emitFrom: EmitFrom };
+  | { kind: "edge"; length: number; emitFrom: EmitFrom }
+  | {
+      kind: "texture";
+      /** schemaVersion 4. Rendered size in px of the mask, centered on the layer
+       * origin (mask cell (0,0) maps to the top-left corner). Must be > 0. */
+      width: number;
+      height: number;
+      /** schemaVersion 4. Alpha gate in [0,1]; a mask pixel emits only when its
+       * alpha (0..1) is >= threshold, and then weights spawn density by alpha. */
+      threshold: number;
+      /** schemaVersion 4. The base64-packed alpha mask sampled for positions. */
+      mask: MaskData;
+      emitFrom: EmitFrom;
+    };
+
+/** A base64-packed alpha mask for emit-from-texture (schemaVersion 4). `data` is
+ * the base64 of `width·height` raw alpha bytes (0–255), row-major, top-left
+ * origin. Dims are integers in [1, 128]. The stored string is never re-encoded
+ * so round-trip is byte-stable; the 1×1 opaque default (`data: "/w=="`) sampled
+ * over `shape.width × shape.height` is exactly a uniform rect. */
+export interface MaskData {
+  width: number;
+  height: number;
+  data: string;
+}
 
 export interface Burst {
   time: number;
@@ -231,6 +255,40 @@ export interface TrailConfig {
 /** The event that fires a sub-emitter (schemaVersion 3). */
 export type SubTrigger = "birth" | "death" | "collision";
 
+/** How an attractor's force falls off toward its `radius` (schemaVersion 4).
+ * `none` = full strength inside the radius (hard cutoff); `linear` = ramps to 0
+ * at the edge; `smooth` = smoothstep ease. */
+export type AttractorFalloff = "none" | "linear" | "smooth";
+
+/** Point attractor / vortex in the layer's sim frame (schemaVersion 4). Applies
+ * a radial (`strength`) and tangential (`tangential`, orbiting) acceleration in
+ * px/s² over the particle's ageNorm to particles within `radius`; both tracks
+ * are constant/curve only (no per-particle range mode, so zero PRNG draws — the
+ * same ruling as `noise.strength`). `killRadius` (0 = off) kills particles that
+ * fall inside it via the M7 ageLoss mechanism, so death-trigger sub-emitters
+ * fire. See FORMAT_SPEC "Point attractor / vortex" for the force + sign rules. */
+export interface AttractorConfig {
+  x: number;
+  y: number;
+  strength: ScalarTrack;
+  tangential: ScalarTrack | null;
+  radius: number;
+  falloff: AttractorFalloff;
+  killRadius: number;
+}
+
+/** Alpha-erosion "dissolve" (schemaVersion 4); renderer-only, off when null. A
+ * per-layer noise pattern erodes the particle's alpha: the final render alpha is
+ * the dissolve progress. `frequency` is the pattern repeat across the sprite in
+ * (0, 64]; `scroll` is UV/s over the effect clock; `edgeWidth` in [0,1] is the
+ * soft erosion band; `edgeColor` (null = off) tints a hot edge along that band. */
+export interface DissolveConfig {
+  frequency: number;
+  scroll: Vec2;
+  edgeWidth: number;
+  edgeColor: RGBAColor | null;
+}
+
 export interface Layer {
   id: string;
   name: string;
@@ -246,6 +304,12 @@ export interface Layer {
    * preserved) for local layers. Plain constant, not a ScalarInit, so it costs
    * zero PRNG draws and preserves the normative 13-draw spawn order (§2.7). */
   inheritVelocity: number;
+  /** Per-layer scale on the host attractor's force (schemaVersion 4). Range
+   * [-2, 2]; 0 = the host `setAttractor` hook has no effect on this layer (the
+   * migration default, so every existing document is unaffected). A plain
+   * constant, not a ScalarTrack, so it costs zero PRNG draws (same rationale as
+   * `inheritVelocity`). */
+  attractorInfluence: number;
   initial: InitialProps;
   overLifetime: OverLifetime;
   /** Turbulence field (schemaVersion 3); null = off. */
@@ -258,8 +322,12 @@ export interface Layer {
   randomFlip: RandomFlip | null;
   /** Velocity-aligned / stretched rendering (schemaVersion 3); null = off. */
   render: RenderConfig | null;
+  /** Alpha-erosion dissolve (schemaVersion 4); null = off. */
+  dissolve: DissolveConfig | null;
   /** Simple collision (schemaVersion 3); null = off. */
   collision: CollisionConfig | null;
+  /** Point attractor / vortex (schemaVersion 4); null = off. */
+  attractor: AttractorConfig | null;
   /** Sub-emitters (schemaVersion 3); null = none (was reserved in v1/v2). */
   subEmitters: SubEmitterRef[] | null;
   /** Per-particle trail (schemaVersion 3); null = off (was reserved in v1/v2). */
@@ -273,7 +341,7 @@ export interface ParticleMeta {
 }
 
 export interface ParticleDoc {
-  schemaVersion: 3;
+  schemaVersion: 4;
   meta: ParticleMeta;
   duration: number;
   looping: boolean;
@@ -298,10 +366,11 @@ export const BLEND_MODES: readonly BlendMode[] = ["normal", "add", "multiply", "
 export const EMIT_FROM: readonly EmitFrom[] = ["volume", "surface"];
 export const EASES: readonly Ease[] = ["linear", "easeIn", "easeOut", "easeInOut", "step"];
 export const FLIPBOOK_MODES: readonly Flipbook["mode"][] = ["loop", "once", "random"];
-export const SHAPE_KINDS: readonly Shape["kind"][] = ["point", "circle", "cone", "rect", "edge"];
+export const SHAPE_KINDS: readonly Shape["kind"][] = ["point", "circle", "cone", "rect", "edge", "texture"];
 export const SIM_SPACES: readonly SimSpace[] = ["local", "world"];
 export const ARC_MODES: readonly ArcMode[] = ["random", "loop", "pingPong", "burstSpread"];
 export const SUB_TRIGGERS: readonly SubTrigger[] = ["birth", "death", "collision"];
+export const ATTRACTOR_FALLOFFS: readonly AttractorFalloff[] = ["none", "linear", "smooth"];
 
 /** Current schema version this build understands. */
-export const CURRENT_SCHEMA_VERSION = 3;
+export const CURRENT_SCHEMA_VERSION = 4;

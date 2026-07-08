@@ -60,6 +60,8 @@ const SHAPE_ORDER: Record<string, readonly string[]> = {
   cone: ["kind", "direction", "spread", "radius", "arcMode", "arcSpeed", "emitFrom"],
   rect: ["kind", "width", "height", "emitFrom"],
   edge: ["kind", "length", "emitFrom"],
+  // schemaVersion 4: mask blob last, human-legible header first.
+  texture: ["kind", "width", "height", "threshold", "mask", "emitFrom"],
 };
 
 // --- schemaVersion 3 feature-module canonicalizers -------------------------
@@ -132,6 +134,27 @@ const cTrail = (v: unknown): unknown =>
         return t;
       });
 
+// --- schemaVersion 4 feature-module canonicalizers -------------------------
+const cAttractor = (v: unknown): unknown =>
+  v === null
+    ? null
+    : map(v, (o) => {
+        const a = orderKeys(o, ["x", "y", "strength", "tangential", "radius", "falloff", "killRadius"]);
+        a.strength = cTrack(a.strength);
+        a.tangential = cTrackOrNull(a.tangential);
+        return a;
+      });
+
+const cDissolve = (v: unknown): unknown =>
+  v === null
+    ? null
+    : map(v, (o) => {
+        const d = orderKeys(o, ["frequency", "scroll", "edgeWidth", "edgeColor"]);
+        d.scroll = map(d.scroll, (s) => orderKeys(s, ["x", "y"]));
+        d.edgeColor = d.edgeColor === null ? null : map(d.edgeColor, (c) => orderKeys(c, ["r", "g", "b", "a"]));
+        return d;
+      });
+
 function cLayer(v: unknown): unknown {
   return map(v, (o) => {
     const l = orderKeys(o, [
@@ -144,6 +167,7 @@ function cLayer(v: unknown): unknown {
       "shape",
       "space",
       "inheritVelocity",
+      "attractorInfluence",
       "initial",
       "overLifetime",
       "noise",
@@ -151,7 +175,9 @@ function cLayer(v: unknown): unknown {
       "startColor",
       "randomFlip",
       "render",
+      "dissolve",
       "collision",
+      "attractor",
       "subEmitters",
       "trail",
     ]);
@@ -168,7 +194,12 @@ function cLayer(v: unknown): unknown {
         em.bursts = em.bursts.map((b) => map(b, (bb) => orderKeys(bb, ["time", "count", "spread", "cycles", "interval", "probability"])));
       return em;
     });
-    l.shape = map(l.shape, (s) => orderKeys(s, SHAPE_ORDER[String(s.kind)] ?? ["kind", "emitFrom"]));
+    l.shape = map(l.shape, (s) => {
+      const so = orderKeys(s, SHAPE_ORDER[String(s.kind)] ?? ["kind", "emitFrom"]);
+      // schemaVersion 4: order the nested texture mask (blob last).
+      if (so.kind === "texture") so.mask = map(so.mask, (m) => orderKeys(m, ["width", "height", "data"]));
+      return so;
+    });
     l.initial = map(l.initial, (init) => {
       const io = orderKeys(init, ["life", "speed", "size", "rotation", "angularVelocity"]);
       for (const key of ["life", "speed", "size", "rotation", "angularVelocity"]) {
@@ -199,7 +230,9 @@ function cLayer(v: unknown): unknown {
     l.startColor = cStartColor(l.startColor);
     l.randomFlip = cRandomFlip(l.randomFlip);
     l.render = cRender(l.render);
+    l.dissolve = cDissolve(l.dissolve);
     l.collision = cCollision(l.collision);
+    l.attractor = cAttractor(l.attractor);
     l.subEmitters = cSubEmitters(l.subEmitters);
     l.trail = cTrail(l.trail);
     return l;

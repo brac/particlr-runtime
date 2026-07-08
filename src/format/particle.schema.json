@@ -7,7 +7,7 @@
       "properties": {
         "schemaVersion": {
           "type": "number",
-          "const": 3
+          "const": 4
         },
         "meta": {
           "$ref": "#/definitions/ParticleMeta"
@@ -95,6 +95,10 @@
           "type": "number",
           "description": "Fraction of the emitter's velocity added to each particle's spawn velocity (schemaVersion 2). Range [-2, 2]. Applied in world space only; ignored (but preserved) for local layers. Plain constant, not a ScalarInit, so it costs zero PRNG draws and preserves the normative 13-draw spawn order (§2.7)."
         },
+        "attractorInfluence": {
+          "type": "number",
+          "description": "Per-layer scale on the host attractor's force (schemaVersion 4). Range [-2, 2]; 0 = the host `setAttractor` hook has no effect on this layer (the migration default, so every existing document is unaffected). A plain constant, not a ScalarTrack, so it costs zero PRNG draws (same rationale as `inheritVelocity`)."
+        },
         "initial": {
           "$ref": "#/definitions/InitialProps"
         },
@@ -156,6 +160,17 @@
           ],
           "description": "Velocity-aligned / stretched rendering (schemaVersion 3); null = off."
         },
+        "dissolve": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/DissolveConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Alpha-erosion dissolve (schemaVersion 4); null = off."
+        },
         "collision": {
           "anyOf": [
             {
@@ -166,6 +181,17 @@
             }
           ],
           "description": "Simple collision (schemaVersion 3); null = off."
+        },
+        "attractor": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/AttractorConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Point attractor / vortex (schemaVersion 4); null = off."
         },
         "subEmitters": {
           "anyOf": [
@@ -203,6 +229,7 @@
         "shape",
         "space",
         "inheritVelocity",
+        "attractorInfluence",
         "initial",
         "overLifetime",
         "noise",
@@ -210,7 +237,9 @@
         "startColor",
         "randomFlip",
         "render",
+        "dissolve",
         "collision",
+        "attractor",
         "subEmitters",
         "trail"
       ]
@@ -576,6 +605,41 @@
             "length",
             "emitFrom"
           ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "texture"
+            },
+            "width": {
+              "type": "number",
+              "description": "schemaVersion 4. Rendered size in px of the mask, centered on the layer origin (mask cell (0,0) maps to the top-left corner). Must be > 0."
+            },
+            "height": {
+              "type": "number"
+            },
+            "threshold": {
+              "type": "number",
+              "description": "schemaVersion 4. Alpha gate in [0,1]; a mask pixel emits only when its alpha (0..1) is >= threshold, and then weights spawn density by alpha."
+            },
+            "mask": {
+              "$ref": "#/definitions/MaskData",
+              "description": "schemaVersion 4. The base64-packed alpha mask sampled for positions."
+            },
+            "emitFrom": {
+              "$ref": "#/definitions/EmitFrom"
+            }
+          },
+          "required": [
+            "kind",
+            "width",
+            "height",
+            "threshold",
+            "mask",
+            "emitFrom"
+          ]
         }
       ]
     },
@@ -595,6 +659,26 @@
         "burstSpread"
       ],
       "description": "How the emission angle sweeps across a circle arc / cone spread (schemaVersion 3). `random` = the v2 behavior (uniform within the span). The others make emission march deterministically around the arc."
+    },
+    "MaskData": {
+      "type": "object",
+      "properties": {
+        "width": {
+          "type": "number"
+        },
+        "height": {
+          "type": "number"
+        },
+        "data": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "width",
+        "height",
+        "data"
+      ],
+      "description": "A base64-packed alpha mask for emit-from-texture (schemaVersion 4). `data` is the base64 of `width·height` raw alpha bytes (0–255), row-major, top-left origin. Dims are integers in [1, 128]. The stored string is never re-encoded so round-trip is byte-stable; the 1×1 opaque default (`data: \"/w==\"`) sampled over `shape.width × shape.height` is exactly a uniform rect."
     },
     "SimSpace": {
       "type": "string",
@@ -1035,6 +1119,37 @@
       ],
       "description": "Velocity-aligned rendering + speed stretch (schemaVersion 3). `align: \"velocity\"` rotates the sprite to face its motion; `speedScale` grows the along-motion stretch with speed, clamped to [minStretch, maxStretch]."
     },
+    "DissolveConfig": {
+      "type": "object",
+      "properties": {
+        "frequency": {
+          "type": "number"
+        },
+        "scroll": {
+          "$ref": "#/definitions/Vec2"
+        },
+        "edgeWidth": {
+          "type": "number"
+        },
+        "edgeColor": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/RGBAColor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "frequency",
+        "scroll",
+        "edgeWidth",
+        "edgeColor"
+      ],
+      "description": "Alpha-erosion \"dissolve\" (schemaVersion 4); renderer-only, off when null. A per-layer noise pattern erodes the particle's alpha: the final render alpha is the dissolve progress. `frequency` is the pattern repeat across the sprite in (0, 64]; `scroll` is UV/s over the effect clock; `edgeWidth` in [0,1] is the soft erosion band; `edgeColor` (null = off) tints a hot edge along that band."
+    },
     "CollisionConfig": {
       "type": "object",
       "properties": {
@@ -1103,6 +1218,58 @@
         "lifetimeLoss"
       ],
       "description": "Simple collision plane(s) in the layer's sim frame (schemaVersion 3). `floor`: a horizontal line at `y`. `rect`: keep particles inside the box. `bounce`/`dampen`/`lifetimeLoss` are all in [0,1]."
+    },
+    "AttractorConfig": {
+      "type": "object",
+      "properties": {
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        },
+        "strength": {
+          "$ref": "#/definitions/ScalarTrack"
+        },
+        "tangential": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ScalarTrack"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "radius": {
+          "type": "number"
+        },
+        "falloff": {
+          "$ref": "#/definitions/AttractorFalloff"
+        },
+        "killRadius": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "strength",
+        "tangential",
+        "radius",
+        "falloff",
+        "killRadius"
+      ],
+      "description": "Point attractor / vortex in the layer's sim frame (schemaVersion 4). Applies a radial (`strength`) and tangential (`tangential`, orbiting) acceleration in px/s² over the particle's ageNorm to particles within `radius`; both tracks are constant/curve only (no per-particle range mode, so zero PRNG draws — the same ruling as `noise.strength`). `killRadius` (0 = off) kills particles that fall inside it via the M7 ageLoss mechanism, so death-trigger sub-emitters fire. See FORMAT_SPEC \"Point attractor / vortex\" for the force + sign rules."
+    },
+    "AttractorFalloff": {
+      "type": "string",
+      "enum": [
+        "none",
+        "linear",
+        "smooth"
+      ],
+      "description": "How an attractor's force falls off toward its `radius` (schemaVersion 4). `none` = full strength inside the radius (hard cutoff); `linear` = ramps to 0 at the edge; `smooth` = smoothstep ease."
     },
     "SubEmitterRef": {
       "type": "object",

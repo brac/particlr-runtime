@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 3,
+  "schemaVersion": 4,
   "meta": {
     "name": "Explosion",
     "createdWith": "particlr@0.x",
@@ -44,6 +44,7 @@
       },
       "space": "local",
       "inheritVelocity": 0,
+      "attractorInfluence": 0,
       "initial": {
         "life": {
           "mode": "constant",
@@ -118,7 +119,9 @@
       "startColor": null,
       "randomFlip": null,
       "render": null,
+      "dissolve": null,
       "collision": null,
+      "attractor": null,
       "subEmitters": null,
       "trail": null
     },
@@ -162,6 +165,7 @@
       },
       "space": "local",
       "inheritVelocity": 0,
+      "attractorInfluence": 0,
       "initial": {
         "life": {
           "mode": "range",
@@ -250,7 +254,9 @@
       "startColor": null,
       "randomFlip": null,
       "render": null,
+      "dissolve": null,
       "collision": null,
+      "attractor": null,
       "subEmitters": null,
       "trail": null
     },
@@ -285,6 +291,7 @@
       },
       "space": "local",
       "inheritVelocity": 0,
+      "attractorInfluence": 0,
       "initial": {
         "life": {
           "mode": "range",
@@ -374,7 +381,9 @@
       "startColor": null,
       "randomFlip": null,
       "render": null,
+      "dissolve": null,
       "collision": null,
+      "attractor": null,
       "subEmitters": null,
       "trail": null
     }
