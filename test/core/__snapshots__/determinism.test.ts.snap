@@ -2,7 +2,7 @@
 
 exports[`preset snapshots (Gate 1) > blizzard.prt state @60 steps is stable 1`] = `"a8d3f397"`;
 
-exports[`preset snapshots (Gate 1) > bubbles.prt state @60 steps is stable 1`] = `"4b68e517"`;
+exports[`preset snapshots (Gate 1) > bubbles.prt state @60 steps is stable 1`] = `"d46dec4d"`;
 
 exports[`preset snapshots (Gate 1) > coin-fountain.prt state @60 steps is stable 1`] = `"bc60a4ee"`;
 
@@ -32,7 +32,7 @@ exports[`preset snapshots (Gate 1) > fireworks.prt state @60 steps is stable 1`]
 
 exports[`preset snapshots (Gate 1) > fog-bank.prt state @60 steps is stable 1`] = `"3f35e09d"`;
 
-exports[`preset snapshots (Gate 1) > geyser.prt state @60 steps is stable 1`] = `"a26008a1"`;
+exports[`preset snapshots (Gate 1) > geyser.prt state @60 steps is stable 1`] = `"a1200769"`;
 
 exports[`preset snapshots (Gate 1) > goo-splatter.prt state @60 steps is stable 1`] = `"bc5d1cda"`;
 
@@ -70,7 +70,7 @@ exports[`preset snapshots (Gate 1) > smoke.prt state @60 steps is stable 1`] = `
 
 exports[`preset snapshots (Gate 1) > snow.prt state @60 steps is stable 1`] = `"4d429703"`;
 
-exports[`preset snapshots (Gate 1) > soda-fizz.prt state @60 steps is stable 1`] = `"40c4d281"`;
+exports[`preset snapshots (Gate 1) > soda-fizz.prt state @60 steps is stable 1`] = `"bc51c403"`;
 
 exports[`preset snapshots (Gate 1) > sparks.prt state @60 steps is stable 1`] = `"f6b2f1e1"`;
 
@@ -82,4 +82,4 @@ exports[`preset snapshots (Gate 1) > torch-flame.prt state @60 steps is stable 1
 
 exports[`preset snapshots (Gate 1) > vortex.prt state @60 steps is stable 1`] = `"0f4095ea"`;
 
-exports[`preset snapshots (Gate 1) > waterfall-mist.prt state @60 steps is stable 1`] = `"5a7a27bd"`;
+exports[`preset snapshots (Gate 1) > waterfall-mist.prt state @60 steps is stable 1`] = `"ad713072"`;
