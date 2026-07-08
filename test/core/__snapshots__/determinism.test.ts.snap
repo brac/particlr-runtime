@@ -16,15 +16,15 @@ exports[`preset snapshots (Gate 1) > debris-bounce.prt state @60 steps is stable
 
 exports[`preset snapshots (Gate 1) > dust-puff.prt state @60 steps is stable 1`] = `"449c839a"`;
 
-exports[`preset snapshots (Gate 1) > ember-field.prt state @60 steps is stable 1`] = `"268f23ca"`;
+exports[`preset snapshots (Gate 1) > ember-field.prt state @60 steps is stable 1`] = `"c61723ad"`;
 
 exports[`preset snapshots (Gate 1) > explosion.prt state @60 steps is stable 1`] = `"70a20ede"`;
 
 exports[`preset snapshots (Gate 1) > falling-leaves.prt state @60 steps is stable 1`] = `"e1dded78"`;
 
-exports[`preset snapshots (Gate 1) > fire.prt state @60 steps is stable 1`] = `"169cb25a"`;
+exports[`preset snapshots (Gate 1) > fire.prt state @60 steps is stable 1`] = `"c3fd1a45"`;
 
-exports[`preset snapshots (Gate 1) > fireball.prt state @60 steps is stable 1`] = `"6ca8b28f"`;
+exports[`preset snapshots (Gate 1) > fireball.prt state @60 steps is stable 1`] = `"ae451f38"`;
 
 exports[`preset snapshots (Gate 1) > firefly-field.prt state @60 steps is stable 1`] = `"a20009bc"`;
 
@@ -58,7 +58,7 @@ exports[`preset snapshots (Gate 1) > rain.prt state @60 steps is stable 1`] = `"
 
 exports[`preset snapshots (Gate 1) > rain-streaks.prt state @60 steps is stable 1`] = `"787e90b7"`;
 
-exports[`preset snapshots (Gate 1) > rocket-exhaust.prt state @60 steps is stable 1`] = `"86654cac"`;
+exports[`preset snapshots (Gate 1) > rocket-exhaust.prt state @60 steps is stable 1`] = `"1fd1412b"`;
 
 exports[`preset snapshots (Gate 1) > shell-casings.prt state @60 steps is stable 1`] = `"093ddaae"`;
 
@@ -66,7 +66,7 @@ exports[`preset snapshots (Gate 1) > shield-shimmer.prt state @60 steps is stabl
 
 exports[`preset snapshots (Gate 1) > shockwave-ring.prt state @60 steps is stable 1`] = `"576cd805"`;
 
-exports[`preset snapshots (Gate 1) > smoke.prt state @60 steps is stable 1`] = `"a5cbf794"`;
+exports[`preset snapshots (Gate 1) > smoke.prt state @60 steps is stable 1`] = `"c25569a7"`;
 
 exports[`preset snapshots (Gate 1) > snow.prt state @60 steps is stable 1`] = `"4d429703"`;
 
@@ -78,7 +78,7 @@ exports[`preset snapshots (Gate 1) > starfield.prt state @60 steps is stable 1`]
 
 exports[`preset snapshots (Gate 1) > teleport-flash.prt state @60 steps is stable 1`] = `"bc5d1cda"`;
 
-exports[`preset snapshots (Gate 1) > torch-flame.prt state @60 steps is stable 1`] = `"e6a97b4e"`;
+exports[`preset snapshots (Gate 1) > torch-flame.prt state @60 steps is stable 1`] = `"0258c41e"`;
 
 exports[`preset snapshots (Gate 1) > vortex.prt state @60 steps is stable 1`] = `"07e51c96"`;
 
