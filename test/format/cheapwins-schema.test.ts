@@ -255,12 +255,12 @@ describe("validator — A7 flipbook fields", () => {
   });
 });
 
-describe("validator — unimplemented warnings fire for A6/A7, NOT A4/A5", () => {
+describe("validator — unimplemented warnings fire for A7, NOT A4/A5/A6", () => {
   it("A4 limitVelocity (non-null) does NOT warn unimplemented (implemented in M1)", () => {
     expect(hasUnimpl((l) => (l.limitVelocity = { mode: "constant", value: 300 }), "layers[0].limitVelocity")).toBe(false);
   });
-  it("A6 hueJitter warns unimplemented", () => {
-    expect(hasUnimpl((l) => (l.startColor = { mode: "hueJitter", degrees: 30 }), "layers[0].startColor.mode")).toBe(true);
+  it("A6 hueJitter does NOT warn unimplemented (implemented in M3)", () => {
+    expect(hasUnimpl((l) => (l.startColor = { mode: "hueJitter", degrees: 30 }), "layers[0].startColor.mode")).toBe(false);
   });
   it("A7 flipbook randomStartFrame:true warns unimplemented", () => {
     expect(hasUnimpl((l) => (l.texture = { ref: "spark", frames: { cols: 2, rows: 2, fps: 12, mode: "loop", randomStartFrame: true, frameOverLife: null } }), "layers[0].texture.frames")).toBe(true);

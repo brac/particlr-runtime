@@ -83,6 +83,81 @@ export function evalScalarTrack(track: ScalarTrack, t: number, particleRand: num
   }
 }
 
+/**
+ * Rotate an RGB color's hue by `degrees` (A6 hueJitter, §0.3c / E29). Pure:
+ * RGB→HSV, `h += degrees` (wrapped to [0,360)), HSV→RGB. Writes r/g/b into `out`
+ * and leaves `out.a` untouched (the caller owns alpha), matching evalGradient's
+ * write-into-scratch, zero-allocation pattern. Inputs are clamped to [0,1].
+ *
+ * Runs at RENDER time only — the pool holds just the per-particle offset (in the
+ * tint column), so this math never touches the sim state or the statehash.
+ * `degrees === 0` (the u=0.5 spawn) is a bitwise no-op, so the hueJitter render
+ * path collapses to the exact no-startColor path when a particle draws no jitter.
+ * A saturation-0 (gray) input has an undefined hue, so any rotation returns it
+ * unchanged (bitwise).
+ */
+export function hueRotateRGB(r: number, g: number, b: number, degrees: number, out: RGBA): RGBA {
+  r = r < 0 ? 0 : r > 1 ? 1 : r;
+  g = g < 0 ? 0 : g > 1 ? 1 : g;
+  b = b < 0 ? 0 : b > 1 ? 1 : b;
+  const max = r > g ? (r > b ? r : b) : g > b ? g : b;
+  const min = r < g ? (r < b ? r : b) : g < b ? g : b;
+  const d = max - min;
+  // Achromatic (d === 0) or an exact zero rotation ⇒ hue is unchanged; copy the
+  // (already-clamped) input straight through so an in-range color round-trips
+  // bitwise.
+  if (d === 0 || degrees === 0) {
+    out.r = r;
+    out.g = g;
+    out.b = b;
+    return out;
+  }
+  let h: number;
+  if (max === r) h = (g - b) / d;
+  else if (max === g) h = (b - r) / d + 2;
+  else h = (r - g) / d + 4;
+  h = h * 60 + degrees;
+  h = ((h % 360) + 360) % 360; // wrap into [0,360)
+  const s = max === 0 ? 0 : d / max;
+  const v = max;
+  const c = v * s;
+  const hp = h / 60;
+  const x = c * (1 - Math.abs((hp % 2) - 1));
+  const m = v - c;
+  let r1: number;
+  let g1: number;
+  let b1: number;
+  if (hp < 1) {
+    r1 = c;
+    g1 = x;
+    b1 = 0;
+  } else if (hp < 2) {
+    r1 = x;
+    g1 = c;
+    b1 = 0;
+  } else if (hp < 3) {
+    r1 = 0;
+    g1 = c;
+    b1 = x;
+  } else if (hp < 4) {
+    r1 = 0;
+    g1 = x;
+    b1 = c;
+  } else if (hp < 5) {
+    r1 = x;
+    g1 = 0;
+    b1 = c;
+  } else {
+    r1 = c;
+    g1 = 0;
+    b1 = x;
+  }
+  out.r = r1 + m;
+  out.g = g1 + m;
+  out.b = b1 + m;
+  return out;
+}
+
 /** Evaluate a gradient at normalized time t into `out` (linear interpolation, L7). */
 export function evalGradient(track: GradientTrack, t: number, out: RGBA): RGBA {
   const keys = track.keys;

@@ -582,10 +582,10 @@ function checkStartColor(ctx: Ctx, v: unknown, path: string): void {
     }
   } else if (v.mode === "hueJitter") {
     // A6 (schemaVersion 5): degrees finite ∈ [0, 180]. Mutually exclusive with
-    // gradients/palette (a distinct mode arm). The renderer hue-rotate lands in M3.
+    // gradients/palette (a distinct mode arm). Behaves as of M3 (the render-time
+    // per-particle hue rotation), so it no longer draws an "unimplemented" warning.
     if (checkNumber(ctx, v.degrees, `${path}.degrees`) && ((v.degrees as number) < 0 || (v.degrees as number) > 180))
       err(ctx, `${path}.degrees`, "degrees must be in [0, 180]");
-    warn(ctx, `${path}.mode`, "startColor hueJitter mode is not yet implemented by this build", "unimplemented");
   } else {
     err(ctx, `${path}.mode`, 'must be "gradients", "palette", or "hueJitter"');
   }

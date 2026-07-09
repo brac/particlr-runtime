@@ -7,6 +7,7 @@ export {
   evalCurve,
   evalScalarTrack,
   evalGradient,
+  hueRotateRGB,
   type RGBA,
 } from "./tracks.js";
 export { sampleShape, type SpawnSample } from "./shapes.js";

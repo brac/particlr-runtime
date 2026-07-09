@@ -360,6 +360,17 @@ export class LayerSim {
         tintG = a.g + (b.g - a.g) * u;
         tintB = a.b + (b.b - a.b) * u;
         tintA = a.a + (b.a - a.a) * u;
+      } else if (startColor.mode === "hueJitter") {
+        // A6 hue jitter (§0.3c / E29): store a per-particle hue OFFSET in degrees,
+        // drawn from the SAME draw-19 uniform `u` (no new draw). `u=0.5 ⇒ 0`, the
+        // ends ⇒ ±degrees. The offset rides tintR; tintG/B/A carry neutral
+        // placeholders (G=0, B=0, A=1 — the render side reads the offset from R
+        // only and never multiplies these). render.ts hue-rotates the
+        // over-lifetime gradient color by this offset instead of tinting.
+        tintR = (u - 0.5) * 2 * startColor.degrees;
+        tintG = 0;
+        tintB = 0;
+        tintA = 1;
       }
     }
     // Draws 20–21 (§0.2): two uniforms for the random-flip bitmask, ONLY when the

@@ -3,7 +3,7 @@
 // identical — preview/runtime parity by construction (L4).
 import type { Flipbook } from "../format/types.js";
 import type { LayerSim } from "./layerSim.js";
-import { evalScalarTrack, evalGradient, type RGBA } from "./tracks.js";
+import { evalScalarTrack, evalGradient, hueRotateRGB, type RGBA } from "./tracks.js";
 
 const RAD2DEG = 180 / Math.PI;
 /** Below this speed, velocity direction is undefined, so align:"velocity" keeps
@@ -81,6 +81,12 @@ export function computeRenderState(ls: LayerSim, buf: LayerRenderBuffers): void 
   const tintG = p.tintG;
   const tintB = p.tintB;
   const tintA = p.tintA;
+  // Hue-jitter (schemaVersion 5, §0.3c / E29): a distinct startColor mode whose
+  // per-particle uniform is a HUE OFFSET (degrees, stored in tintR) rather than a
+  // tint multiplier. Hoisted out of the loop so the gradients/palette multiply
+  // path below stays byte-identical to HEAD (branch on the mode once, not per
+  // particle).
+  const hueJitter = startColor !== null && startColor.mode === "hueJitter";
 
   // By-speed remaps (schemaVersion 3, §M6): when the layer has a bySpeed module,
   // the particle's instantaneous speed √(velX²+velY²) — the SAME definition the
@@ -112,7 +118,18 @@ export function computeRenderState(ls: LayerSim, buf: LayerRenderBuffers): void 
     buf.size[i] = p.sizeInit[i]! * sizeMul;
 
     evalGradient(ol.color, t, rgba);
-    if (startColor !== null) {
+    if (hueJitter) {
+      // Rotate the evaluated gradient RGB by the per-particle offset (tintR);
+      // alpha is unchanged (rgba.a stays THE gradient's alpha). An offset of 0
+      // (the u=0.5 spawn) is a bitwise no-op, so a no-jitter particle renders
+      // byte-identically to the no-startColor path.
+      const off = tintR![i]!;
+      if (off !== 0) hueRotateRGB(rgba.r, rgba.g, rgba.b, off, rgba);
+      buf.r[i] = rgba.r;
+      buf.g[i] = rgba.g;
+      buf.b[i] = rgba.b;
+      buf.a[i] = rgba.a;
+    } else if (startColor !== null) {
       buf.r[i] = rgba.r * tintR![i]!;
       buf.g[i] = rgba.g * tintG![i]!;
       buf.b[i] = rgba.b * tintB![i]!;
