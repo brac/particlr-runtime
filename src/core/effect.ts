@@ -2,7 +2,7 @@
 // drives emission timing (§2.8), motion integration (via LayerSim.update), the
 // effect clock, prewarm (E5), dt clamping (E1/E2), and isDone (E6). This is the
 // same code path the editor preview and the shipped runtime both use (L4).
-import type { Layer, ScalarTrack, ParticleDoc, Shape, SubEmitterRef } from "../format/types.js";
+import type { Layer, ScalarTrack, ParticleDoc, Shape, SubEmitterRef, ParamDef } from "../format/types.js";
 import { deriveLayerSeed, mulberry32 } from "./prng.js";
 import { evalCurve } from "./tracks.js";
 import { LayerSim } from "./layerSim.js";
@@ -116,6 +116,22 @@ export class Effect {
   onDone: (() => void) | null = null;
   private doneFired = false;
 
+  // Host-exposed parameters (schemaVersion 6, A9). Built ONCE in the constructor
+  // from `doc.params` (tolerating a doc that omits the field — hand-built test
+  // docs and pre-migration objects; the house `burst.cycles ?? 1` pattern):
+  // `paramDefs` is the authored {default,min,max} lookup that setParam clamps
+  // against and paramMul resolves through; `paramValues` holds each param's
+  // CURRENT value, initialized to its authored `default` and driven live by
+  // setParam. Both PERSIST across reset() (like _timeScale/attractor) — a param
+  // is a per-step host input, not play state (the A9 determinism-tuple
+  // amendment). `hasParams` gates the event-driven multiplier push
+  // (pushParamMuls — construction + every setParam) so a doc that declares no
+  // params keeps the v5 hot path instruction-identical (the sim/render sites
+  // read null and take their untouched code path).
+  private readonly paramDefs: Map<string, ParamDef>;
+  private readonly paramValues: Map<string, number>;
+  private readonly hasParams: boolean;
+
   // Sub-emitter plan (schemaVersion 3, M8), built once at construction. `parents`
   // lists (in layer index order) every layer that spawns children, with its
   // resolved entries. `wantBirth/Death/Collision` are per-sim-index recorder
@@ -134,11 +150,25 @@ export class Effect {
       throw new Error("ParticleDoc.duration must be > 0 (run validateParticle first — the floor is 0.05s)");
     }
     this.doc = doc;
+    // Build the param store before runPrewarm (prewarm's advance() reads it).
+    // Duplicate names (the validator rejects them via E31) resolve last-wins,
+    // the natural Map.set semantics — documented, not enforced here.
+    const params = doc.params ?? [];
+    this.paramDefs = new Map();
+    this.paramValues = new Map();
+    for (const def of params) {
+      this.paramDefs.set(def.name, def);
+      this.paramValues.set(def.name, def.default);
+    }
+    this.hasParams = this.paramDefs.size > 0;
     this.effectSeed = (opts?.seed ?? doc.seed) >>> 0;
     this.ex = this.stepStartX = this.stepEndX = opts?.x ?? 0;
     this.ey = this.stepStartY = this.stepEndY = opts?.y ?? 0;
     this.sims = doc.layers.map((layer, i) => new LayerSim(layer, deriveLayerSeed(this.effectSeed, i)));
     this.buildSubEmitterPlan();
+    // A9: seed the sims' bound-knob multipliers from the authored defaults BEFORE
+    // prewarm, so prewarm spawns and a pre-first-step render both honor them.
+    this.pushParamMuls();
     this.runPrewarm();
   }
 
@@ -251,6 +281,83 @@ export class Effect {
    * null force path (no host force on any layer) until `setAttractor` is called. */
   clearAttractor(): void {
     this.attRadius = null;
+  }
+
+  /**
+   * Drive a host-exposed parameter (schemaVersion 6, A9). Sets the current value
+   * of the param named `name`, clamped into its authored `[min, max]`; the runtime
+   * then multiplies every knob bound to it (`…Param` fields) by this value at the
+   * knob's EVALUATED value — never its stored track keys (multiply-only, A9_PLAN
+   * §0.3). Mid-flight semantics follow the application site: `size`/`opacity`/
+   * `gravity` are LIVE (already-alive particles respond on the next step/render);
+   * `speed`/`life` affect FUTURE SPAWNS only (a particle's launch velocity and age
+   * are baked at spawn); `rateOverTime`/`rateOverDistance` change emission timing.
+   * A non-finite `value` is ignored (the call is a no-op, mirroring the timeScale
+   * setter's normalization spirit); an unknown `name` is a silent no-op (house
+   * tolerance — timeScale normalizes, setAttractor clears, neither throws). For
+   * sim-consumed knobs (rate/speed/life/gravity) the last call before a `step()`
+   * wins; the render-path knobs (size/opacity) are FRAME-live — a set is visible
+   * in the very next render even while paused (`timeScale = 0`), no step needed.
+   * The value PERSISTS across `step()` and `reset()` (like `_timeScale`/the
+   * attractor) — it is a per-step host input, the A9 amendment to the determinism
+   * tuple. See `getParam` for the read side.
+   */
+  setParam(name: string, value: number): void {
+    const def = this.paramDefs.get(name);
+    if (def === undefined) return; // unknown name — silent no-op (D5)
+    if (!Number.isFinite(value)) return; // non-finite — ignore the call (no-op)
+    this.paramValues.set(name, value < def.min ? def.min : value > def.max ? def.max : value);
+    this.pushParamMuls(); // event-driven: sims see the new value immediately (frame-live render knobs)
+  }
+
+  /**
+   * Current value of the host param `name` (schemaVersion 6, A9): the authored
+   * `default` until the host first calls `setParam`, thereafter the last clamped
+   * `setParam` value. Persists across `reset()` (like `_timeScale`), so a host
+   * that sets a param once and then `reset(seed)`s replays the sim deterministically
+   * under it. An unknown `name` returns `NaN` — no throw (house tolerance; a host
+   * checks the names it declared, cf. VFX Graph's `HasFloat`).
+   */
+  getParam(name: string): number {
+    const v = this.paramValues.get(name);
+    return v === undefined ? NaN : v;
+  }
+
+  /** Resolve a knob's `…Param` binding to its CURRENT multiplier, or `null` when
+   * the knob is unbound OR names a param not declared in `params` (a dangling
+   * binding the validator rejects via E32, tolerated at runtime by taking the
+   * untouched v5 path). `null` is the "no multiply" signal every application site
+   * gates on — never a multiply-by-1, so an unbound knob stays instruction-
+   * identical to v5. */
+  private paramMul(binding: string | null): number | null {
+    if (binding === null) return null;
+    const v = this.paramValues.get(binding);
+    return v === undefined ? null : v;
+  }
+
+  /** Push every layer's bound-knob multipliers into its sim (schemaVersion 6, A9)
+   * — speed/life are read at spawn, gravity in update(), size/opacity by render.ts.
+   * EVENT-DRIVEN, not per-step: param values change only via `setParam`, so this
+   * runs exactly (1) at construction — BEFORE `runPrewarm`, so prewarm's spawns and
+   * the render path both honor an authored `default` from the very first frame,
+   * even before the host ever calls `step()` — and (2) at the end of every
+   * effective `setParam`, which makes the render-path knobs (size/opacity)
+   * FRAME-live: a `setParam` during a `timeScale = 0` hit-stop or a paused preview
+   * is visible on the very next `computeRenderState`, no step needed. Skipped
+   * entirely when the doc declares no params, so every existing document leaves
+   * the sims' mul fields at their null initializers and each application site
+   * takes its untouched v5 path (zero per-particle work, goldens byte-identical).
+   * The mul fields survive `LayerSim.reset()` (which only clears play state), so
+   * `Effect.reset()` needs no re-push — params persist by construction. */
+  private pushParamMuls(): void {
+    if (!this.hasParams) return;
+    for (const ls of this.sims) {
+      ls.speedParamMul = this.paramMul(ls.layer.initial.speedParam);
+      ls.lifeParamMul = this.paramMul(ls.layer.initial.lifeParam);
+      ls.gravityParamMul = this.paramMul(ls.layer.overLifetime.velocity.gravityParam);
+      ls.sizeParamMul = this.paramMul(ls.layer.initial.sizeParam);
+      ls.opacityParamMul = this.paramMul(ls.layer.opacityParam);
+    }
   }
 
   get layers(): readonly LayerSim[] {
@@ -569,7 +676,13 @@ export class Effect {
         if (activeDt > 0) {
           // Clamp negative rate to 0 so a dipping rate curve can't bank spurious
           // spawn credit (floor(-0.5) then acc -= n would *add* a particle). (P2.3)
-          const rate = Math.max(0, evalRate(em.rateOverTime, tNorm));
+          let rate = Math.max(0, evalRate(em.rateOverTime, tNorm));
+          // A9 (schemaVersion 6): scale the EVALUATED rate by the bound param's
+          // current value before it banks spawn credit. Unbound (null) skips the
+          // multiply entirely — the v5 path, byte-identical. At param value 1 the
+          // product is `rate * 1` (IEEE-exact), so a bound-at-1 doc is unchanged.
+          const rateMul = this.paramMul(em.rateOverTimeParam);
+          if (rateMul !== null) rate *= rateMul;
           ls.acc += rate * activeDt;
           let n = Math.floor(ls.acc);
           ls.acc -= n;
@@ -629,7 +742,13 @@ export class Effect {
       // Gate on the emission delay like continuous emission: nothing until the
       // effect clock reaches the layer's delay.
       if (tStart + dt <= layer.emission.delay) continue;
-      const rate = Math.max(0, evalRate(rod, tNorm)); // particles per pixel
+      let rate = Math.max(0, evalRate(rod, tNorm)); // particles per pixel
+      // A9 (schemaVersion 6): scale the evaluated distance-rate by the bound
+      // param; unbound (null) takes the untouched v5 path. Same-mechanism sibling
+      // of rateOverTime (D4) — a "rate" param that silently skipped trail density
+      // would surprise.
+      const rodMul = this.paramMul(layer.emission.rateOverDistanceParam);
+      if (rodMul !== null) rate *= rodMul;
       ls.accDist += rate * dist;
       let m = Math.floor(ls.accDist);
       ls.accDist -= m;

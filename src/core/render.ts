@@ -130,13 +130,26 @@ export function computeRenderState(ls: LayerSim, buf: LayerRenderBuffers): void 
   // Scratch for the by-speed color gradient (avoids a per-particle allocation).
   const bsRGBA: RGBA = { r: 0, g: 0, b: 0, a: 0 };
 
+  // A9 host-parameter render multipliers (schemaVersion 6), hoisted ONCE per call
+  // (the Effect resolves and pushes them at construction and on every setParam —
+  // FRAME-live, no step needed; a doc with no params leaves them null). `size` scales the per-particle SPAWN size before the over-life
+  // curve — folded into `sizeInit` so it exactly matches an edited doc that
+  // pre-multiplies `initial.size` (the knob the binding sits on), keeping the
+  // constant-mode equivalence BITWISE, and letting bySpeed's size multiply stack
+  // on top unchanged (it runs later). `opacity` is the FINAL alpha multiply
+  // (alpha has no document knob — implicit base 1). Null = unbound ⇒ the
+  // per-particle writes stay v5-instruction-identical.
+  const sizeParamMul = ls.sizeParamMul;
+  const opacityParamMul = ls.opacityParamMul;
+
   for (let i = 0; i < p.count; i++) {
     const lifetime = p.lifetime[i]!;
     const age = p.age[i]!;
     const t = lifetime > 0 ? Math.min(1, age / lifetime) : 1;
 
     const sizeMul = sizeTrack ? evalScalarTrack(sizeTrack, t, p.rand0[i]!) : 1;
-    buf.size[i] = p.sizeInit[i]! * sizeMul;
+    const sizeInit = sizeParamMul !== null ? p.sizeInit[i]! * sizeParamMul : p.sizeInit[i]!;
+    buf.size[i] = sizeInit * sizeMul;
 
     evalGradient(ol.color, t, rgba);
     if (hueJitter) {
@@ -181,6 +194,12 @@ export function computeRenderState(ls: LayerSim, buf: LayerRenderBuffers): void 
         buf.a[i] = buf.a[i]! * bsRGBA.a;
       }
     }
+
+    // A9 opacity (schemaVersion 6): the LAST alpha multiply — after the over-life
+    // gradient, startColor tint, and bySpeed color — because alpha has no document
+    // knob (implicit base 1, A9 opacity caveat). Live (render-path). Null (unbound)
+    // leaves buf.a exactly as the color chain produced it (v5-instruction-identical).
+    if (opacityParamMul !== null) buf.a[i] = buf.a[i]! * opacityParamMul;
 
     buf.frame[i] = flipbookFrame(frames, age, t, p.frameRand[i]!);
   }

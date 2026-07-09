@@ -43,6 +43,23 @@ export class LayerSim {
   private spawnTNorm = 0;
   /** True if a spawn was dropped since the flag was last reset (E7). */
   capped = false;
+  /** A9 host-parameter multipliers (schemaVersion 6), OWNED by the Effect, which
+   * resolves them from its param store and pushes them EVENT-DRIVEN — at
+   * construction (before prewarm, so authored defaults are in force from the
+   * first frame) and on every effective `setParam` (so the render-path knobs are
+   * frame-live even while paused). `null` = the knob is unbound OR names an
+   * undeclared param ⇒ the untouched v5 code path. `speed`/`life` scale the drawn
+   * init value at spawn (FUTURE SPAWNS only — baked into pool state); `gravity`
+   * scales the hoisted gx/gy in `update()` (LIVE); `size`/`opacity` are read by
+   * `render.ts` (LIVE, per-call). A doc with no params never sets these, so every
+   * existing layer keeps them null and its hot loops stay instruction-identical.
+   * Plain scalars, not pool columns — they never touch the statehash; params
+   * persist, so `reset()` deliberately leaves them in place. */
+  speedParamMul: number | null = null;
+  lifeParamMul: number | null = null;
+  gravityParamMul: number | null = null;
+  sizeParamMul: number | null = null;
+  opacityParamMul: number | null = null;
   /** Continuous-emission fractional accumulator (§2.8), owned by Effect. */
   acc = 0;
   /** Rate-over-distance fractional accumulator (schemaVersion 2), owned by Effect. */
@@ -309,11 +326,19 @@ export class LayerSim {
     const uPos2 = rng();
     const uDir = rng();
     // 3) life, speed, size, rotation, angularVelocity (1 draw each, always)
-    const life = drawScalarInit(init.life, rng);
-    const speed = drawScalarInit(init.speed, rng);
+    let life = drawScalarInit(init.life, rng);
+    let speed = drawScalarInit(init.speed, rng);
     const size = drawScalarInit(init.size, rng);
     const rot = drawScalarInit(init.rotation, rng);
     const angVel = drawScalarInit(init.angularVelocity, rng);
+    // A9 host params (schemaVersion 6): scale the DRAWN life/speed by their bound
+    // param AFTER the draw — the PRNG stream is untouched (zero new draws), so a
+    // bound-at-1 doc is byte-identical to an unbound one. Future spawns only: the
+    // scaled value bakes into `p.lifetime` / the `vx,vy` launch below and never
+    // retroactively changes an already-alive particle. Null (unbound) leaves the
+    // spawn path v5-instruction-identical.
+    if (this.lifeParamMul !== null) life *= this.lifeParamMul;
+    if (this.speedParamMul !== null) speed *= this.speedParamMul;
     // 4) over-lifetime range uniforms rand0..3, then 5) flipbook frameRand
     const r0 = rng();
     const r1 = rng();
@@ -480,8 +505,16 @@ export class LayerSim {
   update(dt: number): void {
     const p = this.pool;
     const ol = this.layer.overLifetime;
-    const gx = ol.velocity.gravity.x;
-    const gy = ol.velocity.gravity.y;
+    let gx = ol.velocity.gravity.x;
+    let gy = ol.velocity.gravity.y;
+    // A9 host params (schemaVersion 6): scale the hoisted gravity vector ONCE per
+    // step (LIVE — every particle integrates the scaled gx/gy this step). Null
+    // (unbound) leaves gx/gy exactly as authored ⇒ v5-instruction-identical; the
+    // per-particle motion block below is untouched.
+    if (this.gravityParamMul !== null) {
+      gx *= this.gravityParamMul;
+      gy *= this.gravityParamMul;
+    }
     const drag = ol.velocity.drag;
     const speedMul = ol.velocity.speedMultiplier;
     const rotTrack = ol.rotation;

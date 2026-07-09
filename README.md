@@ -91,6 +91,8 @@ class Effect {
   teleportEmitter(x: number, y: number): void;    // jump with no velocity/interpolation (respawns, screen wraps)
   setAttractor(x: number, y: number, strength: number, radius: number): void; // host-driven attractor (schemaVersion 4); radius <= 0 clears
   clearAttractor(): void;                          // remove the host attractor
+  setParam(name: string, value: number): void; // drive an exposed parameter (schemaVersion 6); clamps to [min,max]; unknown name / non-finite value = no-op
+  getParam(name: string): number;              // current param value (authored default until first set); unknown name ⇒ NaN
   timeScale: number;           // host playback rate; 1 = real time, 0 = frozen (hit-stop), <1 slow-mo; non-finite/≤0 ⇒ 0
   onDone: (() => void) | null; // fired once when a non-looping effect finishes (isDone); re-armed by reset()
   readonly emitterX: number;
@@ -243,6 +245,59 @@ fx.onDone = () => {
 app.ticker.add((t) => { fx.step(t.deltaMS / 1000); fx.view.sync(); });
 ```
 
+#### Exposed parameters (schemaVersion 6, A9)
+
+**One `boom.prt`, N weapons.** A document may declare named scalar parameters,
+and any of seven well-known knobs may **bind** to one. The host drives them per
+instance with `setParam` / `getParam` — no document mutation — so a pistol muzzle
+flash and a rocket blast are the **same** `.prt` at `intensity = 0.3` and
+`intensity = 1.0`.
+
+```ts
+// pistol / rifle / rocket from one document
+const fx = new Effect(boomDoc, { seed });
+fx.setParam("intensity", tier);   // 0.3 … 1.0
+fx.getParam("intensity");         // read back the current (clamped) value
+```
+
+- **Author surface.** `doc.params: { name, default, min, max }[]`. Each bindable
+  knob carries an optional sibling reference field (`…Param: string | null`);
+  `null`/absent = unbound. The multiply is **multiply-only** and applies to the
+  knob's *evaluated* value — never its stored track keys — so a bound knob at
+  param value `1` is an IEEE-exact no-op (a `params`-carrying document renders
+  byte-identically to one with `params: []`). The **authoring identity is the
+  value `1`** ("default 1 = as authored"); the editor seeds a new param as
+  `{ default: 1, min: 0, max: 2 }`.
+- **Setter behavior.** `setParam` clamps `value` into the param's authored
+  `[min, max]`; a non-finite `value` is ignored (no-op) and an unknown `name` is a
+  silent no-op — house tolerance, no throws (cf. `timeScale` normalizes,
+  `setAttractor` clears). `getParam` returns the authored `default` until the first
+  `setParam`, and `NaN` for an unknown name. For sim-consumed knobs
+  (rate/speed/life/gravity) the **last call before a `step()` wins**; the
+  render-path knobs (`size`/`opacity`) are **frame-live** — a `setParam` shows in
+  the very next render even while paused (`timeScale = 0` hit-stop, a paused
+  preview), no step needed. Param values **persist across `reset()`** (like
+  `timeScale`) — so "scrub with `intensity = 0.7`" replays exactly.
+
+The seven bindable knobs, and whether a mid-flight change is **live** (already-alive
+particles respond next step/render) or **future-spawn** (baked at spawn):
+
+| Binding field | Knob | Mid-flight |
+|---|---|---|
+| `emission.rateOverTimeParam` | continuous emission rate | emission timing (future) |
+| `emission.rateOverDistanceParam` | rate-over-distance (world trails) | emission timing (future) |
+| `initial.speedParam` | launch speed | **future spawns only** |
+| `initial.lifeParam` | particle lifetime | **future spawns only** |
+| `initial.sizeParam` | particle size (render multiply) | **live** |
+| `overLifetime.velocity.gravityParam` | gravity vector | **live** |
+| `opacityParam` (layer-level) | particle alpha | **live** |
+
+`speed`/`life` are baked into pool state at spawn, so changing them never rescales
+particles already on screen; `size`/`gravity`/`opacity` are re-evaluated every
+step/frame, so they retune the whole live population for free. Params **join the
+determinism tuple** (below): the vector of current `setParam` values in force at
+each `step()` is a per-step host input, exactly like `dt` and `timeScale`.
+
 #### Schema v4 — dissolve / alpha erosion
 
 schemaVersion 4 adds a per-layer `dissolve` (`null` = off):
@@ -349,9 +404,10 @@ concern; a document embedding many large textures is out of scope for v1).
 ## Determinism contract
 
 Given identical `(document, seed, sequence of (dt, emitter-position,
-host-attractor state, timeScale) tuples)`, output is bit-identical — the emitter
-position (`setEmitterPosition`), the host attractor (`setAttractor` parameters),
-and `timeScale` are per-step host inputs exactly like `dt` (schemaVersion 4 +
+host-attractor state, timeScale, param-values) tuples)`, output is bit-identical —
+the emitter position (`setEmitterPosition`), the host attractor (`setAttractor`
+parameters), `timeScale`, and the exposed-parameter values (`setParam`,
+schemaVersion 6) are per-step host inputs exactly like `dt` (schemaVersion 4 +
 host-API amendments). The runtime
 never reads wall-clock time, `Math.random`, or any global — the only randomness
 is a seeded mulberry32 PRNG, one stream per layer. This is what makes seek/scrub
