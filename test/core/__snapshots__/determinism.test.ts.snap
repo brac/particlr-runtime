@@ -88,6 +88,8 @@ exports[`preset snapshots (Gate 1) > teleport-flash.prt state @60 steps is stabl
 
 exports[`preset snapshots (Gate 1) > torch-flame.prt state @60 steps is stable 1`] = `"0258c41e"`;
 
+exports[`preset snapshots (Gate 1) > varied-embers.prt state @60 steps is stable 1`] = `"4ad57057"`;
+
 exports[`preset snapshots (Gate 1) > vortex.prt state @60 steps is stable 1`] = `"0f4095ea"`;
 
 exports[`preset snapshots (Gate 1) > waterfall-mist.prt state @60 steps is stable 1`] = `"ad713072"`;
