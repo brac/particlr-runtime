@@ -185,6 +185,9 @@ function cLayer(v: unknown): unknown {
       "bySpeed",
       "startColor",
       "randomFlip",
+      // schemaVersion 8 (COLOR_PARAM_PLAN C2): layer-level tint binding, directly
+      // before opacity (the normative render-chain order: tint then opacity).
+      "tintParam",
       // A9 (schemaVersion 6): layer-level opacity binding, beside the render block.
       "opacityParam",
       "render",
@@ -276,9 +279,18 @@ function canonicalize(doc: ParticleDoc): Obj {
     "layers",
   ]);
   d.meta = map(d.meta, (m) => orderKeys(m, ["name", "createdWith", "notes"]));
-  // A9 (schemaVersion 6): each param object orders name, default, min, max.
+  // Each param object orders kind, name, default, min, max (schemaVersion 8;
+  // min/max are simply absent on a color entry). A color `default` is an RGBA
+  // object ordered r, g, b, a (match the gradient-key channel order); a scalar
+  // `default` is a plain number, left untouched.
   if (Array.isArray(d.params))
-    d.params = d.params.map((p) => map(p, (o) => orderKeys(o, ["name", "default", "min", "max"])));
+    d.params = d.params.map((p) =>
+      map(p, (o) => {
+        const po = orderKeys(o, ["kind", "name", "default", "min", "max"]);
+        if (po.kind === "color") po.default = map(po.default, (c) => orderKeys(c, ["r", "g", "b", "a"]));
+        return po;
+      }),
+    );
   // `textures` is a dynamic name->dataURL map: leave its key order untouched.
   if (Array.isArray(d.layers)) d.layers = d.layers.map(cLayer);
   return d;

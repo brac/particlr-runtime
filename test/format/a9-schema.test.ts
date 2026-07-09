@@ -90,7 +90,7 @@ describe("v5 -> v6 migration (A9)", () => {
     expect(m.ok).toBe(true);
     if (!m.ok) return;
     const doc = m.doc as ParticleDoc;
-    expect(doc.schemaVersion).toBe(7);
+    expect(doc.schemaVersion).toBe(8);
     expect(doc.params).toEqual([]);
     const l = doc.layers[0]!;
     expect(l.emission.rateOverTimeParam).toBe(null);
@@ -104,15 +104,15 @@ describe("v5 -> v6 migration (A9)", () => {
 
   it("never clobbers a present params array (defaults spread first)", () => {
     const v5 = toV5(makeDoc());
-    v5.params = [{ name: "intensity", default: 1, min: 0, max: 2 }];
+    v5.params = [{ kind: "scalar", name: "intensity", default: 1, min: 0, max: 2 }];
     const m = migrateToCurrent(v5);
     expect(m.ok).toBe(true);
-    if (m.ok) expect((m.doc as ParticleDoc).params).toEqual([{ name: "intensity", default: 1, min: 0, max: 2 }]);
+    if (m.ok) expect((m.doc as ParticleDoc).params).toEqual([{ kind: "scalar", name: "intensity", default: 1, min: 0, max: 2 }]);
   });
 
   it("never clobbers a present binding field (spread-after)", () => {
     const v5 = toV5(makeDoc());
-    v5.params = [{ name: "intensity", default: 1, min: 0, max: 2 }];
+    v5.params = [{ kind: "scalar", name: "intensity", default: 1, min: 0, max: 2 }];
     v5.layers[0].initial.speedParam = "intensity";
     v5.layers[0].opacityParam = "intensity";
     const m = migrateToCurrent(v5);
@@ -169,7 +169,7 @@ describe("v5 -> v6 migration (A9)", () => {
     expect(m.ok).toBe(true);
     if (!m.ok) return;
     const doc = m.doc as ParticleDoc;
-    expect(doc.schemaVersion).toBe(7);
+    expect(doc.schemaVersion).toBe(8);
     expect(doc.params).toEqual([]);
     expect(doc.layers[0]!.space).toBe("local"); // v1->v2 still applied
     expect(doc.layers[0]!.limitVelocity).toBe(null); // v4->v5 still applied
@@ -192,7 +192,7 @@ describe("v5 -> v6 migration (A9)", () => {
 // ---------------------------------------------------------------------------
 describe("validator — E31 params array", () => {
   it("accepts a valid params array", () => {
-    expect(validateParticle(makeDoc({ params: [{ name: "intensity", default: 1, min: 0, max: 2 }] })).ok).toBe(true);
+    expect(validateParticle(makeDoc({ params: [{ kind: "scalar", name: "intensity", default: 1, min: 0, max: 2 }] })).ok).toBe(true);
   });
 
   it("tolerates a document with no params field at all", () => {
@@ -210,15 +210,15 @@ describe("validator — E31 params array", () => {
   });
 
   it("rejects a name that is not a non-empty string", () => {
-    expect(validateParticle(makeDoc({ params: [{ name: "", default: 1, min: 0, max: 2 }] })).ok).toBe(false);
+    expect(validateParticle(makeDoc({ params: [{ kind: "scalar", name: "", default: 1, min: 0, max: 2 }] })).ok).toBe(false);
     expect(validateParticle(makeDoc({ params: [{ name: 5 as unknown as string, default: 1, min: 0, max: 2 }] })).ok).toBe(false);
   });
 
   it("rejects duplicate names", () => {
     const r = validateParticle(makeDoc({
       params: [
-        { name: "a", default: 1, min: 0, max: 2 },
-        { name: "a", default: 1, min: 0, max: 2 },
+        { kind: "scalar", name: "a", default: 1, min: 0, max: 2 },
+        { kind: "scalar", name: "a", default: 1, min: 0, max: 2 },
       ],
     }));
     expect(r.ok).toBe(false);
@@ -226,31 +226,31 @@ describe("validator — E31 params array", () => {
   });
 
   it("rejects non-finite default/min/max", () => {
-    expect(validateParticle(makeDoc({ params: [{ name: "a", default: NaN, min: 0, max: 2 }] })).ok).toBe(false);
-    expect(validateParticle(makeDoc({ params: [{ name: "a", default: 1, min: Infinity, max: 2 }] })).ok).toBe(false);
-    expect(validateParticle(makeDoc({ params: [{ name: "a", default: 1, min: 0, max: "x" as unknown as number }] })).ok).toBe(false);
+    expect(validateParticle(makeDoc({ params: [{ kind: "scalar", name: "a", default: NaN, min: 0, max: 2 }] })).ok).toBe(false);
+    expect(validateParticle(makeDoc({ params: [{ kind: "scalar", name: "a", default: 1, min: Infinity, max: 2 }] })).ok).toBe(false);
+    expect(validateParticle(makeDoc({ params: [{ kind: "scalar", name: "a", default: 1, min: 0, max: "x" as unknown as number }] })).ok).toBe(false);
   });
 
   it("rejects min > max", () => {
-    const r = validateParticle(makeDoc({ params: [{ name: "a", default: 1, min: 3, max: 2 }] }));
+    const r = validateParticle(makeDoc({ params: [{ kind: "scalar", name: "a", default: 1, min: 3, max: 2 }] }));
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.errors.some((e) => e.path === "params[0]")).toBe(true);
   });
 
   it("rejects a default outside [min, max]", () => {
-    expect(validateParticle(makeDoc({ params: [{ name: "a", default: 5, min: 0, max: 2 }] })).ok).toBe(false);
-    expect(validateParticle(makeDoc({ params: [{ name: "a", default: -1, min: 0, max: 2 }] })).ok).toBe(false);
+    expect(validateParticle(makeDoc({ params: [{ kind: "scalar", name: "a", default: 5, min: 0, max: 2 }] })).ok).toBe(false);
+    expect(validateParticle(makeDoc({ params: [{ kind: "scalar", name: "a", default: -1, min: 0, max: 2 }] })).ok).toBe(false);
   });
 
   it("accepts default exactly at the bounds", () => {
-    expect(validateParticle(makeDoc({ params: [{ name: "lo", default: 0, min: 0, max: 2 }] })).ok).toBe(true);
-    expect(validateParticle(makeDoc({ params: [{ name: "hi", default: 2, min: 0, max: 2 }] })).ok).toBe(true);
+    expect(validateParticle(makeDoc({ params: [{ kind: "scalar", name: "lo", default: 0, min: 0, max: 2 }] })).ok).toBe(true);
+    expect(validateParticle(makeDoc({ params: [{ kind: "scalar", name: "hi", default: 2, min: 0, max: 2 }] })).ok).toBe(true);
   });
 });
 
 // ---------------------------------------------------------------------------
 describe("validator — E32 dangling / malformed bindings", () => {
-  const params: ParamDef[] = [{ name: "intensity", default: 1, min: 0, max: 2 }];
+  const params: ParamDef[] = [{ kind: "scalar", name: "intensity", default: 1, min: 0, max: 2 }];
 
   it("passes when every binding is null (the unbound v5 path)", () => {
     expect(okWith([], () => {})).toBe(true);
@@ -298,8 +298,8 @@ describe("round-trip — params + all seven bindings populated", () => {
     l.opacityParam = "opacity";
     return makeDoc({
       params: [
-        { name: "intensity", default: 1, min: 0, max: 2 },
-        { name: "opacity", default: 1, min: 0, max: 1 },
+        { kind: "scalar", name: "intensity", default: 1, min: 0, max: 2 },
+        { kind: "scalar", name: "opacity", default: 1, min: 0, max: 1 },
       ],
       layers: [l],
     });

@@ -97,7 +97,33 @@ export const MIGRATIONS: Record<number, (doc: any) => any> = {
   // only; nothing in the sim reads it), pinned by the migration-identity test.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   6: (doc: any) => ({ ...doc, schemaVersion: 7 }),
+
+  // v7 -> v8: the `color` param kind + layer-level `tintParam` (COLOR_PARAM_PLAN
+  // C5). Two inert walks: every `params` entry gains `kind: "scalar"` (the v7
+  // shape was implicitly scalar) and every layer gains `tintParam: null`
+  // (unbound). Spread the original AFTER the default in each so a present `kind`
+  // or a present `tintParam` is never clobbered (mirror the `5:` entry). A scalar
+  // param at default and an unbound tint are both no-ops, so a migrated v7 document
+  // is bit-identical (PRNG stream, pool state, stateHash, golden frames) — pinned
+  // by the migration-inertness test.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  7: (doc: any) => ({
+    ...doc,
+    schemaVersion: 8,
+    params: Array.isArray(doc.params)
+      ? doc.params.map((p: any) => (p && typeof p === "object" ? { kind: "scalar", ...p } : p))
+      : doc.params,
+    layers: Array.isArray(doc.layers) ? doc.layers.map(migrateLayer7to8) : doc.layers,
+  }),
 };
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function migrateLayer7to8(l: any): any {
+  if (l === null || typeof l !== "object") return l;
+  // tintParam is a NEW layer-level color binding (implicit base white); spread-
+  // first so a present binding survives.
+  return { tintParam: null, ...l };
+}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function migrateLayer5to6(l: any): any {

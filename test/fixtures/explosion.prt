@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 7,
+  "schemaVersion": 8,
   "meta": {
     "name": "Explosion",
     "createdWith": "particlr@0.x",
@@ -126,6 +126,7 @@
       "bySpeed": null,
       "startColor": null,
       "randomFlip": null,
+      "tintParam": null,
       "opacityParam": null,
       "render": null,
       "dissolve": null,
@@ -269,6 +270,7 @@
       "bySpeed": null,
       "startColor": null,
       "randomFlip": null,
+      "tintParam": null,
       "opacityParam": null,
       "render": null,
       "dissolve": null,
@@ -404,6 +406,7 @@
       "bySpeed": null,
       "startColor": null,
       "randomFlip": null,
+      "tintParam": null,
       "opacityParam": null,
       "render": null,
       "dissolve": null,

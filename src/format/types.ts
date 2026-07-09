@@ -384,6 +384,16 @@ export interface Layer {
   startColor: StartColor | null;
   /** Per-particle random flip (schemaVersion 3); null = off. */
   randomFlip: RandomFlip | null;
+  /** Host COLOR-parameter binding for a layer-level tint (schemaVersion 8,
+   * COLOR_PARAM_PLAN C2). Like `opacityParam`, this is a NEW layer-level knob with
+   * no existing document field behind it and an implicit base of white
+   * `{1,1,1,1}`: when bound it multiplies each particle's finished RGBA
+   * (gradient × startColor × bySpeed × **tint** × opacityParam) — the LAST color
+   * multiply BEFORE `opacityParam` (normative order; both multiplies commute).
+   * LIVE and frame-live for all particles, exactly like opacity. Names a
+   * `kind: "color"` entry in `ParticleDoc.params`. `null`/absent = unbound = the
+   * untouched pre-v8 render path (never a multiply-by-white). */
+  tintParam: string | null;
   /** Host-parameter binding for particle opacity (schemaVersion 6, A9). Alpha has
    * no existing document knob (the over-lifetime gradient owns it), so this is a
    * NEW layer-level field with an implicit base of `1`: when bound it scales
@@ -411,13 +421,15 @@ export interface ParticleMeta {
   notes: string;
 }
 
-/** A host-exposed scalar parameter (schemaVersion 6, A9). A game names the param
- * and drives it live via `Effect.setParam(name, value)`; each binding field
- * (`…Param`) references one by `name`. The runtime multiplies a knob's evaluated
- * value by the param's current value (multiply-only; default `1` = "as authored"
- * by convention, A9_PLAN §0.1 D1/D3). `default`/`min`/`max` are the authored
- * range; `setParam` clamps into `[min, max]` (A9_PLAN §0.3). */
-export interface ParamDef {
+/** A host-exposed SCALAR parameter (schemaVersion 6, A9; gained the explicit
+ * `kind` discriminant in schemaVersion 8, COLOR_PARAM_PLAN C1). A game names the
+ * param and drives it live via `Effect.setParam(name, value)`; each scalar binding
+ * field (`…Param`) references one by `name`. The runtime multiplies a knob's
+ * evaluated value by the param's current value (multiply-only; default `1` = "as
+ * authored" by convention, A9_PLAN §0.1 D1/D3). `default`/`min`/`max` are the
+ * authored range; `setParam` clamps into `[min, max]` (A9_PLAN §0.3). */
+export interface ScalarParamDef {
+  kind: "scalar";
   name: string;
   /** Authored value in force until the host first calls `setParam` (A9_PLAN §0.3).
    * Named `default` deliberately — the authoring identity is the value `1`. */
@@ -426,8 +438,25 @@ export interface ParamDef {
   max: number;
 }
 
+/** A host-exposed COLOR parameter (schemaVersion 8, COLOR_PARAM_PLAN C1). A game
+ * names the param and drives it live via `Effect.setColorParam(name, r, g, b, a)`;
+ * the `tintParam` layer binding references one by `name`. Channels are inherently
+ * [0,1]-clamped, so a color param carries NO `min`/`max` (unlike a scalar). The
+ * authored `default` is the RGBA in force until the host first calls
+ * `setColorParam`; the authoring identity is white `{1,1,1,1}` by convention
+ * (an identity tint ⇒ byte-identical render, COLOR_PARAM_PLAN C4). */
+export interface ColorParamDef {
+  kind: "color";
+  name: string;
+  default: RGBAColor;
+}
+
+/** A host-exposed parameter: a `kind`-discriminated union of scalar and color
+ * (schemaVersion 8, COLOR_PARAM_PLAN C1). */
+export type ParamDef = ScalarParamDef | ColorParamDef;
+
 export interface ParticleDoc {
-  schemaVersion: 7;
+  schemaVersion: 8;
   meta: ParticleMeta;
   duration: number;
   looping: boolean;
@@ -462,4 +491,4 @@ export const SUB_TRIGGERS: readonly SubTrigger[] = ["birth", "death", "collision
 export const ATTRACTOR_FALLOFFS: readonly AttractorFalloff[] = ["none", "linear", "smooth"];
 
 /** Current schema version this build understands. */
-export const CURRENT_SCHEMA_VERSION = 7;
+export const CURRENT_SCHEMA_VERSION = 8;

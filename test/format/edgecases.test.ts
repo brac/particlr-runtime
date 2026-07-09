@@ -32,7 +32,7 @@ describe("FORMAT_SPEC edge cases — locked outcomes", () => {
   });
 
   it("E11: a newer schemaVersion is refused (never best-effort parsed)", () => {
-    const r = parseParticle({ ...makeDoc(), schemaVersion: 8 });
+    const r = parseParticle({ ...makeDoc(), schemaVersion: 9 });
     expect(r.ok).toBe(false);
     expect(r.errors[0]?.code).toBe("newer-version");
   });

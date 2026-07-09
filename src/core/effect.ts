@@ -2,7 +2,7 @@
 // drives emission timing (§2.8), motion integration (via LayerSim.update), the
 // effect clock, prewarm (E5), dt clamping (E1/E2), and isDone (E6). This is the
 // same code path the editor preview and the shipped runtime both use (L4).
-import type { Layer, ScalarTrack, ParticleDoc, Shape, SubEmitterRef, ParamDef } from "../format/types.js";
+import type { Layer, ScalarTrack, ParticleDoc, Shape, SubEmitterRef, ScalarParamDef } from "../format/types.js";
 import { deriveLayerSeed, mulberry32 } from "./prng.js";
 import { evalCurve } from "./tracks.js";
 import { LayerSim } from "./layerSim.js";
@@ -128,7 +128,12 @@ export class Effect {
   // (pushParamMuls — construction + every setParam) so a doc that declares no
   // params keeps the v5 hot path instruction-identical (the sim/render sites
   // read null and take their untouched code path).
-  private readonly paramDefs: Map<string, ParamDef>;
+  // schemaVersion 8: `params` is now a scalar|color union. This milestone (M0)
+  // owns ZERO runtime behavior for color params — the store below indexes ONLY
+  // scalar entries; a `kind: "color"` param exists in the doc but the runtime
+  // ignores it entirely until M1 (which adds the typed color store + tint render
+  // site). The scalar hot path is therefore instruction-identical to v7.
+  private readonly paramDefs: Map<string, ScalarParamDef>;
   private readonly paramValues: Map<string, number>;
   private readonly hasParams: boolean;
 
@@ -157,6 +162,7 @@ export class Effect {
     this.paramDefs = new Map();
     this.paramValues = new Map();
     for (const def of params) {
+      if (def.kind === "color") continue; // M0: color params are inert (M1 owns them)
       this.paramDefs.set(def.name, def);
       this.paramValues.set(def.name, def.default);
     }

@@ -39,7 +39,7 @@ describe("v6 -> v7 migration (B8) is an identity restamp", () => {
     expect(m.ok).toBe(true);
     if (!m.ok) return;
     const migrated = m.doc as ParticleDoc;
-    expect(migrated.schemaVersion).toBe(7);
+    expect(migrated.schemaVersion).toBe(8);
     // Deep-equal everything except the version stamp.
     expect({ ...migrated, schemaVersion: 6 }).toEqual(v6);
   });
@@ -76,16 +76,16 @@ describe("v6 -> v7 migration (B8) is an identity restamp", () => {
     expect(m.ok).toBe(true);
     if (!m.ok) return;
     const doc = m.doc as ParticleDoc;
-    expect(doc.schemaVersion).toBe(7);
+    expect(doc.schemaVersion).toBe(8);
     expect(doc.layers[0]!.space).toBe("local"); // v1->v2
     expect(doc.layers[0]!.limitVelocity).toBe(null); // v4->v5
     expect(doc.params).toEqual([]); // v5->v6
     expect(parseParticle(doc).ok).toBe(true);
   });
 
-  it("refuses a v8 document (E11 — newer than supported)", () => {
-    expect(migrateToCurrent({ schemaVersion: 8 }).ok).toBe(false);
-    const r = parseParticle({ ...makeDoc(), schemaVersion: 8 });
+  it("refuses a v9 document (E11 — newer than supported)", () => {
+    expect(migrateToCurrent({ schemaVersion: 9 }).ok).toBe(false);
+    const r = parseParticle({ ...makeDoc(), schemaVersion: 9 });
     expect(r.ok).toBe(false);
     expect(r.errors[0]?.code).toBe("newer-version");
   });

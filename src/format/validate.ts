@@ -42,6 +42,10 @@ interface Ctx {
   // Declared `params` names (schemaVersion 6, A9), collected before layers so the
   // per-knob binding checks (E32) can resolve `…Param` references.
   paramNames: Set<string>;
+  // Declared `params` kinds by name (schemaVersion 8, COLOR_PARAM_PLAN C6), so the
+  // binding checks can assert kind agreement (E34): scalar `…Param` bindings must
+  // name a scalar param; `tintParam` must name a color param.
+  paramKinds: Map<string, "scalar" | "color">;
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
@@ -462,9 +466,9 @@ function checkEmission(ctx: Ctx, v: unknown, path: string): void {
   if (!isBool(v.prewarm)) err(ctx, `${path}.prewarm`, "prewarm must be a boolean");
   if (!isInt(v.maxParticles) || (v.maxParticles as number) < 1 || (v.maxParticles as number) > 10000)
     err(ctx, `${path}.maxParticles`, "maxParticles must be an integer in [1,10000]");
-  // A9 bindings (schemaVersion 6): rate-over-time / rate-over-distance (E32).
-  checkParamBinding(ctx, v.rateOverTimeParam, `${path}.rateOverTimeParam`);
-  checkParamBinding(ctx, v.rateOverDistanceParam, `${path}.rateOverDistanceParam`);
+  // A9 bindings (schemaVersion 6): rate-over-time / rate-over-distance (E32/E34).
+  checkParamBinding(ctx, v.rateOverTimeParam, `${path}.rateOverTimeParam`, "scalar");
+  checkParamBinding(ctx, v.rateOverDistanceParam, `${path}.rateOverDistanceParam`, "scalar");
 }
 
 function checkInitial(ctx: Ctx, v: unknown, path: string): void {
@@ -475,17 +479,20 @@ function checkInitial(ctx: Ctx, v: unknown, path: string): void {
   for (const key of ["life", "speed", "size", "rotation", "angularVelocity"] as const) {
     checkScalarInit(ctx, v[key], `${path}.${key}`);
   }
-  // A9 bindings (schemaVersion 6): initial speed/life/size may name a param (E32).
-  checkParamBinding(ctx, v.speedParam, `${path}.speedParam`);
-  checkParamBinding(ctx, v.lifeParam, `${path}.lifeParam`);
-  checkParamBinding(ctx, v.sizeParam, `${path}.sizeParam`);
+  // A9 bindings (schemaVersion 6): initial speed/life/size may name a param (E32/E34).
+  checkParamBinding(ctx, v.speedParam, `${path}.speedParam`, "scalar");
+  checkParamBinding(ctx, v.lifeParam, `${path}.lifeParam`, "scalar");
+  checkParamBinding(ctx, v.sizeParam, `${path}.sizeParam`, "scalar");
 }
 
-// A9 host-parameter binding (schemaVersion 6, E32): a `…Param` field is either
-// `null`/absent (unbound = v5 behavior) or a non-empty string naming a declared
-// `params` entry. A non-null value that is not a non-empty string, or that names a
-// param absent from `params`, is an error (A9_PLAN §0.4).
-function checkParamBinding(ctx: Ctx, v: unknown, path: string): void {
+// Host-parameter binding (schemaVersion 6 E32; schemaVersion 8 E34): a `…Param`
+// field is either `null`/absent (unbound = pre-binding behavior) or a non-empty
+// string naming a declared `params` entry. A non-null value that is not a
+// non-empty string, or that names a param absent from `params`, is an E32 error
+// (A9_PLAN §0.4). `requiredKind` (schemaVersion 8, COLOR_PARAM_PLAN C6): the named
+// param must be of that kind — a scalar `…Param` naming a color param, or
+// `tintParam` naming a scalar param, is an E34 error.
+function checkParamBinding(ctx: Ctx, v: unknown, path: string, requiredKind: "scalar" | "color"): void {
   if (v === null || v === undefined) return;
   if (!isStr(v) || v.length === 0) {
     err(ctx, path, "param binding must be a non-empty string or null (E32)");
@@ -493,6 +500,11 @@ function checkParamBinding(ctx: Ctx, v: unknown, path: string): void {
   }
   if (!ctx.paramNames.has(v)) {
     err(ctx, path, `param binding names unknown param "${v}" (E32)`);
+    return;
+  }
+  const actualKind = ctx.paramKinds.get(v);
+  if (actualKind !== undefined && actualKind !== requiredKind) {
+    err(ctx, path, `param binding requires a ${requiredKind} param but "${v}" is a ${actualKind} param (E34)`);
   }
 }
 
@@ -520,8 +532,8 @@ function checkOverLifetime(ctx: Ctx, v: unknown, path: string): void {
     err(ctx, `${path}.velocity`, "must be a Velocity object");
   } else {
     checkVec2(ctx, v.velocity.gravity, `${path}.velocity.gravity`);
-    // A9 binding (schemaVersion 6): gravity may name a param (E32).
-    checkParamBinding(ctx, v.velocity.gravityParam, `${path}.velocity.gravityParam`);
+    // A9 binding (schemaVersion 6): gravity may name a param (E32/E34).
+    checkParamBinding(ctx, v.velocity.gravityParam, `${path}.velocity.gravityParam`, "scalar");
     checkScalarTrackOrNull(ctx, v.velocity.drag, `${path}.velocity.drag`, true);
     checkScalarTrackOrNull(ctx, v.velocity.speedMultiplier, `${path}.velocity.speedMultiplier`, true);
     // Velocity over lifetime (schemaVersion 3): four optional additive tracks.
@@ -755,8 +767,10 @@ function checkLayer(ctx: Ctx, v: unknown, path: string): void {
   checkShape(ctx, v.shape, `${path}.shape`);
   checkInitial(ctx, v.initial, `${path}.initial`);
   checkOverLifetime(ctx, v.overLifetime, `${path}.overLifetime`);
-  // A9 binding (schemaVersion 6): layer-level opacity may name a param (E32).
-  checkParamBinding(ctx, v.opacityParam, `${path}.opacityParam`);
+  // A9 binding (schemaVersion 6): layer-level opacity may name a scalar param (E32/E34).
+  checkParamBinding(ctx, v.opacityParam, `${path}.opacityParam`, "scalar");
+  // Color binding (schemaVersion 8, COLOR_PARAM_PLAN C6): tint must name a COLOR param.
+  checkParamBinding(ctx, v.tintParam, `${path}.tintParam`, "color");
 
   // A4 limit-velocity (schemaVersion 5); null = off. A deterministic constant/curve
   // track (no range/randomBetweenCurves — checkScalarTrackNoRange, E27). Behaves as
@@ -903,6 +917,7 @@ export function validateParticle(input: unknown): ValidationResult {
     layerSubEmittersNull: new Map(),
     layerContinuous: new Map(),
     paramNames: new Set(),
+    paramKinds: new Map(),
   };
 
   if (!isObject(input)) {
@@ -956,12 +971,17 @@ export function validateParticle(input: unknown): ValidationResult {
     }
   }
 
-  // params (schemaVersion 6, A9). Optional at the wire level (migration injects
-  // `[]`; hand-built/pre-migration docs may omit it — tolerated like other new
-  // fields). When present it must be an array of `{ name, default, min, max }`.
-  // E31: name not a non-empty string; duplicate names; non-finite default/min/max;
-  // min > max; default outside [min, max]. Names are collected into ctx.paramNames
-  // BEFORE layers so the per-knob binding checks (E32) can resolve them.
+  // params (schemaVersion 6, A9; kind-discriminated in schemaVersion 8). Optional at
+  // the wire level (migration injects `[]`; hand-built/pre-migration docs may omit
+  // it — tolerated like other new fields). When present it must be an array of
+  // `{ kind, name, ... }`. Names + kinds are collected into ctx BEFORE layers so
+  // the per-knob binding checks (E32/E34) can resolve them.
+  // E33 (schemaVersion 8, COLOR_PARAM_PLAN C6): `kind` present and ∈ {"scalar",
+  //   "color"}. A scalar entry keeps the E31 numeric rules (finite default/min/max,
+  //   min <= max, default in [min,max]). A color entry needs `default` an RGBA
+  //   object with finite channels in [0,1] and must NOT carry min/max.
+  // E31: name not a non-empty string; duplicate names; (scalar) non-finite
+  //   default/min/max, min > max, default outside [min, max].
   if (input.params !== undefined) {
     if (!Array.isArray(input.params)) {
       err(ctx, "params", "params must be an array");
@@ -978,17 +998,38 @@ export function validateParticle(input: unknown): ValidationResult {
           err(ctx, `${pp}.name`, `duplicate param name "${p.name}" (E31)`);
         } else {
           ctx.paramNames.add(p.name);
+          if (p.kind === "scalar" || p.kind === "color") ctx.paramKinds.set(p.name, p.kind);
         }
-        const okDef = isNum(p.default);
-        const okMin = isNum(p.min);
-        const okMax = isNum(p.max);
-        if (!okDef) err(ctx, `${pp}.default`, "param default must be a finite number (E31)");
-        if (!okMin) err(ctx, `${pp}.min`, "param min must be a finite number (E31)");
-        if (!okMax) err(ctx, `${pp}.max`, "param max must be a finite number (E31)");
-        if (okMin && okMax && (p.min as number) > (p.max as number))
-          err(ctx, pp, "param min must be <= max (E31)");
-        if (okDef && okMin && okMax && ((p.default as number) < (p.min as number) || (p.default as number) > (p.max as number)))
-          err(ctx, `${pp}.default`, "param default must be within [min, max] (E31)");
+        // E33: kind discriminant.
+        if (p.kind !== "scalar" && p.kind !== "color") {
+          err(ctx, `${pp}.kind`, 'param kind must be "scalar" or "color" (E33)');
+          return; // no sound way to check the value shape without a kind
+        }
+        if (p.kind === "color") {
+          // Color: default an RGBA object with finite channels in [0,1]; no min/max.
+          if (!isObject(p.default)) {
+            err(ctx, `${pp}.default`, "color param default must be an {r,g,b,a} object (E33)");
+          } else {
+            for (const ch of ["r", "g", "b", "a"] as const) {
+              if (checkNumber(ctx, p.default[ch], `${pp}.default.${ch}`) && ((p.default[ch] as number) < 0 || (p.default[ch] as number) > 1))
+                err(ctx, `${pp}.default.${ch}`, `${ch} must be in [0,1] (E33)`);
+            }
+          }
+          if (p.min !== undefined) err(ctx, `${pp}.min`, "color param must not carry min (channels are [0,1]) (E33)");
+          if (p.max !== undefined) err(ctx, `${pp}.max`, "color param must not carry max (channels are [0,1]) (E33)");
+        } else {
+          // Scalar: the E31 numeric rules.
+          const okDef = isNum(p.default);
+          const okMin = isNum(p.min);
+          const okMax = isNum(p.max);
+          if (!okDef) err(ctx, `${pp}.default`, "param default must be a finite number (E31)");
+          if (!okMin) err(ctx, `${pp}.min`, "param min must be a finite number (E31)");
+          if (!okMax) err(ctx, `${pp}.max`, "param max must be a finite number (E31)");
+          if (okMin && okMax && (p.min as number) > (p.max as number))
+            err(ctx, pp, "param min must be <= max (E31)");
+          if (okDef && okMin && okMax && ((p.default as number) < (p.min as number) || (p.default as number) > (p.max as number)))
+            err(ctx, `${pp}.default`, "param default must be within [min, max] (E31)");
+        }
       });
     }
   }
