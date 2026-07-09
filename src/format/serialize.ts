@@ -40,6 +40,14 @@ function cTrack(v: unknown): unknown {
       if (Array.isArray(t.keys)) t.keys = t.keys.map((k) => map(k, (kk) => orderKeys(kk, ["t", "v", "ease"])));
       return t;
     }
+    // randomBetweenCurves (schemaVersion 5): two curve-key arrays a/b.
+    if (o.mode === "randomBetweenCurves") {
+      const t = orderKeys(o, ["mode", "a", "b"]);
+      for (const key of ["a", "b"] as const) {
+        if (Array.isArray(t[key])) t[key] = (t[key] as unknown[]).map((k) => map(k, (kk) => orderKeys(kk, ["t", "v", "ease"])));
+      }
+      return t;
+    }
     return orderKeys(o, ["mode", "value"]);
   });
 }
@@ -98,6 +106,8 @@ const cStartColor = (v: unknown): unknown =>
           if (Array.isArray(s.colors)) s.colors = s.colors.map((c) => map(c, (cc) => orderKeys(cc, ["r", "g", "b", "a"])));
           return s;
         }
+        // hueJitter (schemaVersion 5): a scalar degrees field, no nested objects.
+        if (o.mode === "hueJitter") return orderKeys(o, ["mode", "degrees"]);
         const s = orderKeys(o, ["mode", "a", "b"]);
         s.a = cGradient(s.a);
         s.b = cGradient(s.b);
@@ -170,6 +180,7 @@ function cLayer(v: unknown): unknown {
       "attractorInfluence",
       "initial",
       "overLifetime",
+      "limitVelocity",
       "noise",
       "bySpeed",
       "startColor",
@@ -183,7 +194,13 @@ function cLayer(v: unknown): unknown {
     ]);
     l.texture = map(l.texture, (t) => {
       const tx = orderKeys(t, ["ref", "frames"]);
-      tx.frames = map(tx.frames, (f) => orderKeys(f, ["cols", "rows", "fps", "mode"]));
+      // schemaVersion 5: randomStartFrame + frameOverLife after mode; frameOverLife
+      // is a nullable ScalarTrack.
+      tx.frames = map(tx.frames, (f) => {
+        const fb = orderKeys(f, ["cols", "rows", "fps", "mode", "randomStartFrame", "frameOverLife"]);
+        if ("frameOverLife" in fb) fb.frameOverLife = cTrackOrNull(fb.frameOverLife);
+        return fb;
+      });
       return tx;
     });
     l.emission = map(l.emission, (e) => {
@@ -224,6 +241,8 @@ function cLayer(v: unknown): unknown {
       });
       return olo;
     });
+    // schemaVersion 5: A4 limit-velocity (nullable ScalarTrack), after overLifetime.
+    l.limitVelocity = cTrackOrNull(l.limitVelocity);
     // schemaVersion 3 feature modules (each null = off).
     l.noise = cNoise(l.noise);
     l.bySpeed = cBySpeed(l.bySpeed);

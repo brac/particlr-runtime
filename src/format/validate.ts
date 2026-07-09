@@ -121,7 +121,10 @@ function checkCurveKeys(ctx: Ctx, keys: unknown, path: string): void {
   });
 }
 
-function checkScalarTrack(ctx: Ctx, v: unknown, path: string): void {
+// `perParticle` (schemaVersion 5): only the eight per-particle over-lifetime
+// tracks that own a reserved PRNG uniform (§0.2) may use the `randomBetweenCurves`
+// mode; emitter-level tracks (emission.rateOverTime) reject it (E28).
+function checkScalarTrack(ctx: Ctx, v: unknown, path: string, perParticle = false): void {
   if (!isObject(v)) {
     err(ctx, path, "must be a ScalarTrack object");
     return;
@@ -136,22 +139,39 @@ function checkScalarTrack(ctx: Ctx, v: unknown, path: string): void {
     }
   } else if (v.mode === "curve") {
     checkCurveKeys(ctx, v.keys, `${path}.keys`);
+  } else if (v.mode === "randomBetweenCurves") {
+    // A5 (E28): valid ONLY on the eight per-particle over-lifetime tracks. Its
+    // `a`/`b` are validated exactly like `curve` keys.
+    if (!perParticle) {
+      err(ctx, `${path}.mode`, "randomBetweenCurves is per-particle only; it is not valid on this emitter-level track (E28)");
+      return;
+    }
+    checkCurveKeys(ctx, v.a, `${path}.a`);
+    checkCurveKeys(ctx, v.b, `${path}.b`);
   } else {
-    err(ctx, `${path}.mode`, 'must be "constant", "range", or "curve"');
+    err(
+      ctx,
+      `${path}.mode`,
+      perParticle
+        ? 'must be "constant", "range", "curve", or "randomBetweenCurves"'
+        : 'must be "constant", "range", or "curve"',
+    );
   }
 }
 
-function checkScalarTrackOrNull(ctx: Ctx, v: unknown, path: string): void {
+function checkScalarTrackOrNull(ctx: Ctx, v: unknown, path: string, perParticle = false): void {
   if (v === null) return;
-  checkScalarTrack(ctx, v, path);
+  checkScalarTrack(ctx, v, path, perParticle);
 }
 
 // A ScalarTrack that forbids per-particle "range" mode: some schemaVersion-3
 // modules (noise.strength, bySpeed.*, trail.width) reserve no per-particle PRNG
-// draw, so only constant/curve are expressible (TIER1_PLAN §0.4).
+// draw, so only constant/curve are expressible (TIER1_PLAN §0.4). schemaVersion 5
+// extends the ban to `randomBetweenCurves` (also per-particle only) so A4's
+// limitVelocity and every deterministic track stay constant/curve (E28).
 function checkScalarTrackNoRange(ctx: Ctx, v: unknown, path: string): void {
-  if (isObject(v) && v.mode === "range") {
-    err(ctx, `${path}.mode`, "range mode is not supported here; use constant or curve");
+  if (isObject(v) && (v.mode === "range" || v.mode === "randomBetweenCurves")) {
+    err(ctx, `${path}.mode`, `${v.mode} mode is not supported here; use constant or curve`);
     return;
   }
   checkScalarTrack(ctx, v, path);
@@ -338,6 +358,16 @@ function checkFlipbook(ctx: Ctx, v: unknown, path: string): void {
     err(ctx, `${path}.rows`, "rows must be an integer in [1,64]");
   if (!isNum(v.fps) || (v.fps as number) <= 0) err(ctx, `${path}.fps`, "fps must be a number > 0");
   checkEnum(ctx, v.mode, FLIPBOOK_MODES, `${path}.mode`);
+  // A7 (schemaVersion 5): randomStartFrame (bool, required) + frameOverLife
+  // (null or a deterministic constant/curve track — no range/randomBetweenCurves).
+  if (!isBool(v.randomStartFrame)) err(ctx, `${path}.randomStartFrame`, "randomStartFrame must be a boolean");
+  if (v.frameOverLife !== null && v.frameOverLife !== undefined)
+    checkScalarTrackNoRange(ctx, v.frameOverLife, `${path}.frameOverLife`);
+  // Temporary M0 notice: the A7 flipbook upgrades land in M4 (render-only). Any
+  // non-inert use (randomStartFrame on, or a frameOverLife curve) is accepted but
+  // inert until then.
+  if (v.randomStartFrame === true || (v.frameOverLife !== null && v.frameOverLife !== undefined))
+    warn(ctx, path, "flipbook randomStartFrame / frameOverLife is not yet implemented by this build", "unimplemented");
 }
 
 function checkTexture(ctx: Ctx, v: unknown, path: string): void {
@@ -457,19 +487,22 @@ function checkOverLifetime(ctx: Ctx, v: unknown, path: string): void {
     err(ctx, path, "must be an OverLifetime object");
     return;
   }
-  checkScalarTrackOrNull(ctx, v.size, `${path}.size`);
+  // The eight per-particle over-lifetime tracks (§0.2) accept randomBetweenCurves
+  // (schemaVersion 5): each owns a reserved spawn uniform, so the mode adds no new
+  // draw. `perParticle = true` unlocks it here (and only here).
+  checkScalarTrackOrNull(ctx, v.size, `${path}.size`, true);
   checkGradient(ctx, v.color, `${path}.color`);
-  checkScalarTrackOrNull(ctx, v.rotation, `${path}.rotation`);
+  checkScalarTrackOrNull(ctx, v.rotation, `${path}.rotation`, true);
   if (!isObject(v.velocity)) {
     err(ctx, `${path}.velocity`, "must be a Velocity object");
   } else {
     checkVec2(ctx, v.velocity.gravity, `${path}.velocity.gravity`);
-    checkScalarTrackOrNull(ctx, v.velocity.drag, `${path}.velocity.drag`);
-    checkScalarTrackOrNull(ctx, v.velocity.speedMultiplier, `${path}.velocity.speedMultiplier`);
+    checkScalarTrackOrNull(ctx, v.velocity.drag, `${path}.velocity.drag`, true);
+    checkScalarTrackOrNull(ctx, v.velocity.speedMultiplier, `${path}.velocity.speedMultiplier`, true);
     // Velocity over lifetime (schemaVersion 3): four optional additive tracks.
     for (const key of ["x", "y", "orbital", "radial"] as const) {
       if (v.velocity[key] !== undefined)
-        checkScalarTrackOrNull(ctx, v.velocity[key], `${path}.velocity.${key}`);
+        checkScalarTrackOrNull(ctx, v.velocity[key], `${path}.velocity.${key}`, true);
     }
   }
 }
@@ -547,8 +580,14 @@ function checkStartColor(ctx: Ctx, v: unknown, path: string): void {
         }
       });
     }
+  } else if (v.mode === "hueJitter") {
+    // A6 (schemaVersion 5): degrees finite ∈ [0, 180]. Mutually exclusive with
+    // gradients/palette (a distinct mode arm). The renderer hue-rotate lands in M3.
+    if (checkNumber(ctx, v.degrees, `${path}.degrees`) && ((v.degrees as number) < 0 || (v.degrees as number) > 180))
+      err(ctx, `${path}.degrees`, "degrees must be in [0, 180]");
+    warn(ctx, `${path}.mode`, "startColor hueJitter mode is not yet implemented by this build", "unimplemented");
   } else {
-    err(ctx, `${path}.mode`, 'must be "gradients" or "palette"');
+    err(ctx, `${path}.mode`, 'must be "gradients", "palette", or "hueJitter"');
   }
 }
 
@@ -691,6 +730,14 @@ function checkLayer(ctx: Ctx, v: unknown, path: string): void {
   checkShape(ctx, v.shape, `${path}.shape`);
   checkInitial(ctx, v.initial, `${path}.initial`);
   checkOverLifetime(ctx, v.overLifetime, `${path}.overLifetime`);
+
+  // A4 limit-velocity (schemaVersion 5); null = off. A deterministic constant/curve
+  // track (no range/randomBetweenCurves — checkScalarTrackNoRange, E27). The sim
+  // clamp lands in M1, so a non-null track is accepted but inert until then.
+  if (v.limitVelocity !== null && v.limitVelocity !== undefined) {
+    checkScalarTrackNoRange(ctx, v.limitVelocity, `${path}.limitVelocity`);
+    warn(ctx, `${path}.limitVelocity`, "limitVelocity is not yet implemented by this build", "unimplemented");
+  }
 
   // Simulation space + inherited velocity (schemaVersion 2).
   const spaceOk = checkEnum(ctx, v.space, SIM_SPACES, `${path}.space`);

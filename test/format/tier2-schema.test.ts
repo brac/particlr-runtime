@@ -73,7 +73,7 @@ describe("v3 -> v4 migration", () => {
     expect(m.ok).toBe(true);
     if (!m.ok) return;
     const doc = m.doc as ParticleDoc;
-    expect(doc.schemaVersion).toBe(4);
+    expect(doc.schemaVersion).toBe(5);
     expect(doc.layers[0]!.attractor).toBe(null);
     expect(doc.layers[0]!.dissolve).toBe(null);
     expect(doc.layers[0]!.attractorInfluence).toBe(0);
@@ -90,21 +90,21 @@ describe("v3 -> v4 migration", () => {
     if (m.ok) expect((m.doc as ParticleDoc).layers[0]!.attractorInfluence).toBe(1.5);
   });
 
-  it("is idempotent on an already-current v4 document", () => {
+  it("is idempotent on an already-current v5 document", () => {
     const doc = makeDoc();
     const m = migrateToCurrent(doc);
     expect(m.ok).toBe(true);
     if (m.ok) expect(m.doc).toBe(doc); // current version passes through by reference
   });
 
-  it("refuses a v5 document (E11)", () => {
-    expect(migrateToCurrent({ schemaVersion: 5 }).ok).toBe(false);
-    const r = parseParticle({ ...makeDoc(), schemaVersion: 5 });
+  it("refuses a v6 document (E11)", () => {
+    expect(migrateToCurrent({ schemaVersion: 6 }).ok).toBe(false);
+    const r = parseParticle({ ...makeDoc(), schemaVersion: 6 });
     expect(r.ok).toBe(false);
     expect(r.errors[0]?.code).toBe("newer-version");
   });
 
-  it("chains a v1 document all the way to v4", () => {
+  it("chains a v1 document all the way to v5", () => {
     const v1 = {
       ...makeDoc(),
       schemaVersion: 1,
@@ -130,7 +130,7 @@ describe("v3 -> v4 migration", () => {
     expect(m.ok).toBe(true);
     if (!m.ok) return;
     const doc = m.doc as ParticleDoc;
-    expect(doc.schemaVersion).toBe(4);
+    expect(doc.schemaVersion).toBe(5);
     expect(doc.layers[0]!.space).toBe("local"); // v1->v2
     expect(doc.layers[0]!.noise).toBe(null); // v2->v3
     expect(doc.layers[0]!.attractor).toBe(null); // v3->v4
@@ -138,7 +138,7 @@ describe("v3 -> v4 migration", () => {
     expect(parseParticle(doc).ok).toBe(true);
   });
 
-  it("chains a v2 document to v4", () => {
+  it("chains a v2 document to v5", () => {
     const v2 = {
       ...makeDoc(),
       schemaVersion: 2,
@@ -157,7 +157,7 @@ describe("v3 -> v4 migration", () => {
     expect(m.ok).toBe(true);
     if (!m.ok) return;
     const doc = m.doc as ParticleDoc;
-    expect(doc.schemaVersion).toBe(4);
+    expect(doc.schemaVersion).toBe(5);
     expect(doc.layers[0]!.dissolve).toBe(null);
     expect(doc.layers[0]!.attractorInfluence).toBe(0);
   });

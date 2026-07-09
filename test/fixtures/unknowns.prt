@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 4,
+  "schemaVersion": 5,
   "meta": {
     "name": "Unknowns",
     "createdWith": "particlr@0.x",
@@ -94,6 +94,7 @@
           "radial": null
         }
       },
+      "limitVelocity": null,
       "noise": null,
       "bySpeed": null,
       "startColor": null,

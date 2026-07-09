@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 4,
+  "schemaVersion": 5,
   "meta": {
     "name": "Explosion",
     "createdWith": "particlr@0.x",
@@ -114,6 +114,7 @@
           "radial": null
         }
       },
+      "limitVelocity": null,
       "noise": null,
       "bySpeed": null,
       "startColor": null,
@@ -249,6 +250,7 @@
           "radial": null
         }
       },
+      "limitVelocity": null,
       "noise": null,
       "bySpeed": null,
       "startColor": null,
@@ -376,6 +378,7 @@
           "radial": null
         }
       },
+      "limitVelocity": null,
       "noise": null,
       "bySpeed": null,
       "startColor": null,

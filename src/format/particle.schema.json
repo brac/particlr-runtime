@@ -7,7 +7,7 @@
       "properties": {
         "schemaVersion": {
           "type": "number",
-          "const": 4
+          "const": 5
         },
         "meta": {
           "$ref": "#/definitions/ParticleMeta"
@@ -104,6 +104,17 @@
         },
         "overLifetime": {
           "$ref": "#/definitions/OverLifetime"
+        },
+        "limitVelocity": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ScalarTrack"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Speed clamp over the particle's ageNorm (schemaVersion 5); null = off. A range-forbidding track (constant/curve only — evaluated like `noise.strength`, ZERO PRNG draws). When non-null the sim caps stored velocity to `max(0, evalScalarTrack(limitVelocity, ageNorm, 0))` after drag, before the position write (a physical, persistent cap); `cap = 0` freezes particles in place (valid, E27)."
         },
         "noise": {
           "anyOf": [
@@ -232,6 +243,7 @@
         "attractorInfluence",
         "initial",
         "overLifetime",
+        "limitVelocity",
         "noise",
         "bySpeed",
         "startColor",
@@ -294,22 +306,12 @@
             "once",
             "random"
           ]
-        }
-      },
-      "required": [
-        "cols",
-        "rows",
-        "fps",
-        "mode"
-      ]
-    },
-    "Emission": {
-      "type": "object",
-      "properties": {
-        "rateOverTime": {
-          "$ref": "#/definitions/ScalarTrack"
         },
-        "rateOverDistance": {
+        "randomStartFrame": {
+          "type": "boolean",
+          "description": "Per-particle random frame offset for `loop`/`once` modes (schemaVersion 5). Reuses draw 13 (`frameRand`, already drawn unconditionally) — ZERO new draws. Ignored by `mode: \"random\"` (already per-particle random). Render-only; does not touch the statehash (E30)."
+        },
+        "frameOverLife": {
           "anyOf": [
             {
               "$ref": "#/definitions/ScalarTrack"
@@ -318,31 +320,16 @@
               "type": "null"
             }
           ],
-          "description": "Particles per pixel the emitter travels (schemaVersion 2). World-space only — keeps trail density uniform regardless of emitter speed. Null = disabled (v1 behavior). Same rate ceiling as rateOverTime."
-        },
-        "bursts": {
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/Burst"
-          }
-        },
-        "delay": {
-          "type": "number"
-        },
-        "prewarm": {
-          "type": "boolean"
-        },
-        "maxParticles": {
-          "type": "number"
+          "description": "Deterministic frame index over the particle's ageNorm (schemaVersion 5); null = off. When non-null it OVERRIDES `mode` entirely: the frame is `clamp(⌊evalScalarTrack(frameOverLife, ageNorm, 0)·total⌋, 0, total−1)`. A range-forbidding track (constant/curve only), so ZERO draws. Render-only (E30)."
         }
       },
       "required": [
-        "rateOverTime",
-        "rateOverDistance",
-        "bursts",
-        "delay",
-        "prewarm",
-        "maxParticles"
+        "cols",
+        "rows",
+        "fps",
+        "mode",
+        "randomStartFrame",
+        "frameOverLife"
       ]
     },
     "ScalarTrack": {
@@ -401,6 +388,32 @@
             "mode",
             "keys"
           ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "mode": {
+              "type": "string",
+              "const": "randomBetweenCurves"
+            },
+            "a": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/CurveKey"
+              }
+            },
+            "b": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/CurveKey"
+              }
+            }
+          },
+          "required": [
+            "mode",
+            "a",
+            "b"
+          ]
         }
       ]
     },
@@ -430,6 +443,48 @@
         "easeOut",
         "easeInOut",
         "step"
+      ]
+    },
+    "Emission": {
+      "type": "object",
+      "properties": {
+        "rateOverTime": {
+          "$ref": "#/definitions/ScalarTrack"
+        },
+        "rateOverDistance": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ScalarTrack"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Particles per pixel the emitter travels (schemaVersion 2). World-space only — keeps trail density uniform regardless of emitter speed. Null = disabled (v1 behavior). Same rate ceiling as rateOverTime."
+        },
+        "bursts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Burst"
+          }
+        },
+        "delay": {
+          "type": "number"
+        },
+        "prewarm": {
+          "type": "boolean"
+        },
+        "maxParticles": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "rateOverTime",
+        "rateOverDistance",
+        "bursts",
+        "delay",
+        "prewarm",
+        "maxParticles"
       ]
     },
     "Burst": {
@@ -1046,6 +1101,22 @@
           "required": [
             "mode",
             "colors"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "mode": {
+              "type": "string",
+              "const": "hueJitter"
+            },
+            "degrees": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "mode",
+            "degrees"
           ]
         }
       ],

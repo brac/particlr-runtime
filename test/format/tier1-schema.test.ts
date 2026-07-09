@@ -10,7 +10,7 @@ function maximalDoc(): ParticleDoc {
   const grad = { keys: [{ t: 0, r: 1, g: 0.5, b: 0.2, a: 1 }, { t: 1, r: 0, g: 0, b: 0, a: 0 }] };
   const curve = { mode: "curve" as const, keys: [{ t: 0, v: 1, ease: "easeOut" as const }, { t: 1, v: 0 }] };
   return {
-    schemaVersion: 4,
+    schemaVersion: 5,
     meta: { name: "Maximal", createdWith: "particlr@0.x", notes: "" },
     duration: 2,
     looping: true,
@@ -55,6 +55,7 @@ function maximalDoc(): ParticleDoc {
             radial: { mode: "constant", value: 20 },
           },
         },
+        limitVelocity: null,
         noise: { strength: curve, frequency: 0.02, scrollSpeed: 0.5, octaves: 2 },
         bySpeed: { range: { min: 0, max: 200 }, size: curve, color: grad, rotation: null },
         startColor: { mode: "palette", colors: [{ r: 1, g: 0, b: 0, a: 1 }, { r: 0, g: 1, b: 0, a: 1 }] },
@@ -97,6 +98,7 @@ function maximalDoc(): ParticleDoc {
           rotation: null,
           velocity: { gravity: { x: 0, y: 100 }, drag: null, speedMultiplier: null, x: null, y: null, orbital: null, radial: null },
         },
+        limitVelocity: null,
         noise: null,
         bySpeed: null,
         startColor: { mode: "gradients", a: grad, b: { keys: [{ t: 0, r: 0.2, g: 0.4, b: 1, a: 1 }] } },

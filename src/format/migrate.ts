@@ -58,12 +58,42 @@ export const MIGRATIONS: Record<number, (doc: any) => any> = {
     schemaVersion: 4,
     layers: Array.isArray(doc.layers) ? doc.layers.map(migrateLayer3to4) : doc.layers,
   }),
+
+  // v4 -> v5: cheap-win companions (CHEAP_WINS_PLAN §0.1). Inject the ONE inert
+  // structural default `limitVelocity: null` (A4) per layer, and — only for a
+  // flipbook layer (`texture.frames !== null`) — the two new Flipbook fields
+  // `randomStartFrame: false, frameOverLife: null` (A7) via a nested walk (mirror
+  // migrateEmission2to3). A5 (new ScalarTrack mode) and A6 (new startColor mode)
+  // are new enum values on existing nullable fields — no migration. Every default
+  // is inert, so a migrated v4 document is bit-identical (PRNG stream, pool state,
+  // stateHash, golden frames). Spread the originals AFTER the defaults so a present
+  // value is never clobbered and unknown fields survive.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  4: (doc: any) => ({
+    ...doc,
+    schemaVersion: 5,
+    layers: Array.isArray(doc.layers) ? doc.layers.map(migrateLayer4to5) : doc.layers,
+  }),
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function migrateLayer3to4(l: any): any {
   if (l === null || typeof l !== "object") return l;
   return { attractor: null, dissolve: null, attractorInfluence: 0, ...l };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function migrateLayer4to5(l: any): any {
+  if (l === null || typeof l !== "object") return l;
+  return { limitVelocity: null, ...l, texture: migrateTexture4to5(l.texture) };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function migrateTexture4to5(t: any): any {
+  if (t === null || typeof t !== "object") return t;
+  const f = t.frames;
+  if (f === null || f === undefined || typeof f !== "object") return t;
+  return { ...t, frames: { randomStartFrame: false, frameOverLife: null, ...f } };
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

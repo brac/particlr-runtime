@@ -47,6 +47,7 @@ export function makeLayer(overrides: Partial<Layer> = {}): Layer {
         radial: null,
       },
     },
+    limitVelocity: null,
     noise: null,
     bySpeed: null,
     startColor: null,
@@ -63,7 +64,7 @@ export function makeLayer(overrides: Partial<Layer> = {}): Layer {
 
 export function makeDoc(overrides: Partial<ParticleDoc> = {}): ParticleDoc {
   return {
-    schemaVersion: 4,
+    schemaVersion: 5,
     meta: { name: "Test", createdWith: "particlr@0.x", notes: "" },
     duration: 1.2,
     looping: true,

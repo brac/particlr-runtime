@@ -353,7 +353,7 @@ export class LayerSim {
         tintG = col.g;
         tintB = col.b;
         tintA = col.a;
-      } else {
+      } else if (startColor.mode === "gradients") {
         const a = evalGradient(startColor.a, this.spawnTNorm, SC_A);
         const b = evalGradient(startColor.b, this.spawnTNorm, SC_B);
         tintR = a.r + (b.r - a.r) * u;

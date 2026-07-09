@@ -70,6 +70,16 @@ export function evalScalarTrack(track: ScalarTrack, t: number, particleRand: num
       return track.min + (track.max - track.min) * particleRand;
     case "curve":
       return evalCurve(track.keys, t);
+    case "randomBetweenCurves": {
+      // §0.3b. Blend two curves by the track's OWN reserved per-particle uniform
+      // — the same `particleRand` slot `range` consumes, so this adds ZERO new
+      // PRNG draws. The evaluator lands here in M0 (schema milestone) both to keep
+      // the switch exhaustive and because it is the correct final impl (like TIER2
+      // M0's texture-shape stub); M2 adds only editor authoring + preset + tests.
+      const a = evalCurve(track.a, t);
+      const b = evalCurve(track.b, t);
+      return a + (b - a) * particleRand;
+    }
   }
 }
 

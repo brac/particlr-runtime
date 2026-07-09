@@ -19,7 +19,17 @@ export type ScalarInit =
 export type ScalarTrack =
   | { mode: "constant"; value: number }
   | { mode: "range"; min: number; max: number }
-  | { mode: "curve"; keys: CurveKey[] };
+  | { mode: "curve"; keys: CurveKey[] }
+  /** Per-particle blend between two curves (schemaVersion 5). At time `t` the
+   * value is `lerp(evalCurve(a, t), evalCurve(b, t), particleRand)`, where
+   * `particleRand` is the track's OWN already-reserved per-particle uniform
+   * (§0.2) — the same slot `range` consumes — so a `randomBetweenCurves` track
+   * adds ZERO new PRNG draws. Valid ONLY on the eight per-particle over-lifetime
+   * tracks that own such a uniform (`overLifetime.size`, `.rotation`,
+   * `.velocity.{drag, speedMultiplier, x, y, orbital, radial}`); the validator
+   * rejects it on `emission.rateOverTime` and every constant/curve-only track
+   * (E28). `a`/`b` are validated exactly like `curve` keys. */
+  | { mode: "randomBetweenCurves"; a: CurveKey[]; b: CurveKey[] };
 
 export interface CurveKey {
   t: number;
@@ -124,6 +134,17 @@ export interface Flipbook {
   rows: number;
   fps: number;
   mode: "loop" | "once" | "random";
+  /** Per-particle random frame offset for `loop`/`once` modes (schemaVersion 5).
+   * Reuses draw 13 (`frameRand`, already drawn unconditionally) — ZERO new draws.
+   * Ignored by `mode: "random"` (already per-particle random). Render-only; does
+   * not touch the statehash (E30). */
+  randomStartFrame: boolean;
+  /** Deterministic frame index over the particle's ageNorm (schemaVersion 5);
+   * null = off. When non-null it OVERRIDES `mode` entirely: the frame is
+   * `clamp(⌊evalScalarTrack(frameOverLife, ageNorm, 0)·total⌋, 0, total−1)`.
+   * A range-forbidding track (constant/curve only), so ZERO draws. Render-only
+   * (E30). */
+  frameOverLife: ScalarTrack | null;
 }
 export interface TextureRef {
   ref: string;
@@ -210,7 +231,14 @@ export interface BySpeedConfig {
  * `palette`: pick one of 1..16 fixed colors per particle. */
 export type StartColor =
   | { mode: "gradients"; a: GradientTrack; b: GradientTrack }
-  | { mode: "palette"; colors: RGBAColor[] };
+  | { mode: "palette"; colors: RGBAColor[] }
+  /** Per-particle hue jitter (schemaVersion 5), mutually exclusive with
+   * `gradients`/`palette`. At spawn it draws the existing startColor uniform
+   * `u` (draw 19) and stores a per-particle hue offset `(u − 0.5)·2·degrees` ∈
+   * [−degrees, +degrees] into the already-allocated tint columns — ZERO new
+   * draws, ZERO new pool columns. At render it hue-rotates the over-lifetime
+   * gradient color by that offset (E29). `degrees ∈ [0, 180]`. */
+  | { mode: "hueJitter"; degrees: number };
 
 /** Per-particle random mirroring (schemaVersion 3). `x`/`y` are the
  * probabilities in [0,1] of flipping that axis (negative sprite scale). */
@@ -312,6 +340,13 @@ export interface Layer {
   attractorInfluence: number;
   initial: InitialProps;
   overLifetime: OverLifetime;
+  /** Speed clamp over the particle's ageNorm (schemaVersion 5); null = off. A
+   * range-forbidding track (constant/curve only — evaluated like `noise.strength`,
+   * ZERO PRNG draws). When non-null the sim caps stored velocity to
+   * `max(0, evalScalarTrack(limitVelocity, ageNorm, 0))` after drag, before the
+   * position write (a physical, persistent cap); `cap = 0` freezes particles in
+   * place (valid, E27). */
+  limitVelocity: ScalarTrack | null;
   /** Turbulence field (schemaVersion 3); null = off. */
   noise: NoiseConfig | null;
   /** Speed-driven size/color/rotation remaps (schemaVersion 3); null = off. */
@@ -341,7 +376,7 @@ export interface ParticleMeta {
 }
 
 export interface ParticleDoc {
-  schemaVersion: 4;
+  schemaVersion: 5;
   meta: ParticleMeta;
   duration: number;
   looping: boolean;
@@ -373,4 +408,4 @@ export const SUB_TRIGGERS: readonly SubTrigger[] = ["birth", "death", "collision
 export const ATTRACTOR_FALLOFFS: readonly AttractorFalloff[] = ["none", "linear", "smooth"];
 
 /** Current schema version this build understands. */
-export const CURRENT_SCHEMA_VERSION = 4;
+export const CURRENT_SCHEMA_VERSION = 5;

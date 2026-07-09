@@ -47,6 +47,11 @@ function evalRate(track: ScalarTrack, tNorm: number): number {
     // midpoint (documented ruling — the editor exposes only constant/curve).
     case "range":
       return (track.min + track.max) / 2;
+    // randomBetweenCurves is per-particle only; the validator rejects it on an
+    // emitter-level rate (E28). If one somehow reaches here, fall back to the
+    // deterministic 0.5 blend (the same midpoint ruling as `range`).
+    case "randomBetweenCurves":
+      return (evalCurve(track.a, tNorm) + evalCurve(track.b, tNorm)) / 2;
   }
 }
 
