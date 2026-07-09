@@ -74,7 +74,55 @@ export const MIGRATIONS: Record<number, (doc: any) => any> = {
     schemaVersion: 5,
     layers: Array.isArray(doc.layers) ? doc.layers.map(migrateLayer4to5) : doc.layers,
   }),
+
+  // v5 -> v6: exposed runtime parameters (A9_PLAN §0.4, §0.3). Inject the inert
+  // doc-root default `params: []` and the seven `…Param` binding fields as `null`
+  // (unbound) — no params and no bindings ⇒ a migrated v5 document is bit-identical
+  // (nothing reads these fields until M1). Spread the doc-root default FIRST so a
+  // present `params` survives; per-layer/nested defaults spread-first inside their
+  // walkers (mirror migrateLayer2to3 / migrateOverLifetime2to3). Pinned by the
+  // migration-inertness test.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  5: (doc: any) => ({
+    params: [],
+    ...doc,
+    schemaVersion: 6,
+    layers: Array.isArray(doc.layers) ? doc.layers.map(migrateLayer5to6) : doc.layers,
+  }),
 };
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function migrateLayer5to6(l: any): any {
+  if (l === null || typeof l !== "object") return l;
+  return {
+    // opacityParam is a NEW layer-level binding (alpha has no existing knob).
+    opacityParam: null,
+    ...l,
+    emission: migrateEmission5to6(l.emission),
+    initial: migrateInitial5to6(l.initial),
+    overLifetime: migrateOverLifetime5to6(l.overLifetime),
+  };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function migrateEmission5to6(e: any): any {
+  if (e === null || typeof e !== "object") return e;
+  return { rateOverTimeParam: null, rateOverDistanceParam: null, ...e };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function migrateInitial5to6(init: any): any {
+  if (init === null || typeof init !== "object") return init;
+  return { lifeParam: null, speedParam: null, sizeParam: null, ...init };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function migrateOverLifetime5to6(ol: any): any {
+  if (ol === null || typeof ol !== "object") return ol;
+  const vel = ol.velocity;
+  if (vel === null || typeof vel !== "object") return ol;
+  return { ...ol, velocity: { gravityParam: null, ...vel } };
+}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function migrateLayer3to4(l: any): any {

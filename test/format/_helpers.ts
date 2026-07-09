@@ -11,7 +11,9 @@ export function makeLayer(overrides: Partial<Layer> = {}): Layer {
     texture: { ref: "circle-soft", frames: null },
     emission: {
       rateOverTime: { mode: "constant", value: 20 },
+      rateOverTimeParam: null,
       rateOverDistance: null,
+      rateOverDistanceParam: null,
       bursts: [{ time: 0, count: 12, spread: 0, cycles: 1, interval: 0, probability: 1 }],
       delay: 0,
       prewarm: false,
@@ -23,8 +25,11 @@ export function makeLayer(overrides: Partial<Layer> = {}): Layer {
     attractorInfluence: 0,
     initial: {
       life: { mode: "range", min: 0.5, max: 1 },
+      lifeParam: null,
       speed: { mode: "range", min: 40, max: 80 },
+      speedParam: null,
       size: { mode: "constant", value: 8 },
+      sizeParam: null,
       rotation: { mode: "constant", value: 0 },
       angularVelocity: { mode: "constant", value: 0 },
     },
@@ -39,6 +44,7 @@ export function makeLayer(overrides: Partial<Layer> = {}): Layer {
       rotation: null,
       velocity: {
         gravity: { x: 0, y: 30 },
+        gravityParam: null,
         drag: null,
         speedMultiplier: null,
         x: null,
@@ -52,6 +58,7 @@ export function makeLayer(overrides: Partial<Layer> = {}): Layer {
     bySpeed: null,
     startColor: null,
     randomFlip: null,
+    opacityParam: null,
     render: null,
     dissolve: null,
     collision: null,
@@ -64,11 +71,12 @@ export function makeLayer(overrides: Partial<Layer> = {}): Layer {
 
 export function makeDoc(overrides: Partial<ParticleDoc> = {}): ParticleDoc {
   return {
-    schemaVersion: 5,
+    schemaVersion: 6,
     meta: { name: "Test", createdWith: "particlr@0.x", notes: "" },
     duration: 1.2,
     looping: true,
     seed: 1337,
+    params: [],
     layers: [makeLayer()],
     ...overrides,
   };

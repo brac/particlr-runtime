@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 5,
+  "schemaVersion": 6,
   "meta": {
     "name": "Unknowns",
     "createdWith": "particlr@0.x",
@@ -9,6 +9,7 @@
   "duration": 1,
   "looping": false,
   "seed": 1,
+  "params": [],
   "layers": [
     {
       "id": "l1",
@@ -26,7 +27,9 @@
           "value": 5,
           "trackExtra": true
         },
+        "rateOverTimeParam": null,
         "rateOverDistance": null,
+        "rateOverDistanceParam": null,
         "bursts": [],
         "delay": 0,
         "prewarm": false,
@@ -49,14 +52,17 @@
           "mode": "constant",
           "value": 1
         },
+        "lifeParam": null,
         "speed": {
           "mode": "constant",
           "value": 0
         },
+        "speedParam": null,
         "size": {
           "mode": "constant",
           "value": 10
         },
+        "sizeParam": null,
         "rotation": {
           "mode": "constant",
           "value": 0
@@ -86,6 +92,7 @@
             "x": 0,
             "y": 0
           },
+          "gravityParam": null,
           "drag": null,
           "speedMultiplier": null,
           "x": null,
@@ -99,6 +106,7 @@
       "bySpeed": null,
       "startColor": null,
       "randomFlip": null,
+      "opacityParam": null,
       "render": null,
       "dissolve": null,
       "collision": null,

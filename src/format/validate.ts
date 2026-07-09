@@ -39,6 +39,9 @@ interface Ctx {
   layerIds: Set<string>;
   layerSubEmittersNull: Map<string, boolean>; // id -> subEmitters === null
   layerContinuous: Map<string, boolean>; // id -> emits continuously (rate not constant-0)
+  // Declared `params` names (schemaVersion 6, A9), collected before layers so the
+  // per-knob binding checks (E32) can resolve `…Param` references.
+  paramNames: Set<string>;
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
@@ -459,6 +462,9 @@ function checkEmission(ctx: Ctx, v: unknown, path: string): void {
   if (!isBool(v.prewarm)) err(ctx, `${path}.prewarm`, "prewarm must be a boolean");
   if (!isInt(v.maxParticles) || (v.maxParticles as number) < 1 || (v.maxParticles as number) > 10000)
     err(ctx, `${path}.maxParticles`, "maxParticles must be an integer in [1,10000]");
+  // A9 bindings (schemaVersion 6): rate-over-time / rate-over-distance (E32).
+  checkParamBinding(ctx, v.rateOverTimeParam, `${path}.rateOverTimeParam`);
+  checkParamBinding(ctx, v.rateOverDistanceParam, `${path}.rateOverDistanceParam`);
 }
 
 function checkInitial(ctx: Ctx, v: unknown, path: string): void {
@@ -468,6 +474,25 @@ function checkInitial(ctx: Ctx, v: unknown, path: string): void {
   }
   for (const key of ["life", "speed", "size", "rotation", "angularVelocity"] as const) {
     checkScalarInit(ctx, v[key], `${path}.${key}`);
+  }
+  // A9 bindings (schemaVersion 6): initial speed/life/size may name a param (E32).
+  checkParamBinding(ctx, v.speedParam, `${path}.speedParam`);
+  checkParamBinding(ctx, v.lifeParam, `${path}.lifeParam`);
+  checkParamBinding(ctx, v.sizeParam, `${path}.sizeParam`);
+}
+
+// A9 host-parameter binding (schemaVersion 6, E32): a `…Param` field is either
+// `null`/absent (unbound = v5 behavior) or a non-empty string naming a declared
+// `params` entry. A non-null value that is not a non-empty string, or that names a
+// param absent from `params`, is an error (A9_PLAN §0.4).
+function checkParamBinding(ctx: Ctx, v: unknown, path: string): void {
+  if (v === null || v === undefined) return;
+  if (!isStr(v) || v.length === 0) {
+    err(ctx, path, "param binding must be a non-empty string or null (E32)");
+    return;
+  }
+  if (!ctx.paramNames.has(v)) {
+    err(ctx, path, `param binding names unknown param "${v}" (E32)`);
   }
 }
 
@@ -495,6 +520,8 @@ function checkOverLifetime(ctx: Ctx, v: unknown, path: string): void {
     err(ctx, `${path}.velocity`, "must be a Velocity object");
   } else {
     checkVec2(ctx, v.velocity.gravity, `${path}.velocity.gravity`);
+    // A9 binding (schemaVersion 6): gravity may name a param (E32).
+    checkParamBinding(ctx, v.velocity.gravityParam, `${path}.velocity.gravityParam`);
     checkScalarTrackOrNull(ctx, v.velocity.drag, `${path}.velocity.drag`, true);
     checkScalarTrackOrNull(ctx, v.velocity.speedMultiplier, `${path}.velocity.speedMultiplier`, true);
     // Velocity over lifetime (schemaVersion 3): four optional additive tracks.
@@ -728,6 +755,8 @@ function checkLayer(ctx: Ctx, v: unknown, path: string): void {
   checkShape(ctx, v.shape, `${path}.shape`);
   checkInitial(ctx, v.initial, `${path}.initial`);
   checkOverLifetime(ctx, v.overLifetime, `${path}.overLifetime`);
+  // A9 binding (schemaVersion 6): layer-level opacity may name a param (E32).
+  checkParamBinding(ctx, v.opacityParam, `${path}.opacityParam`);
 
   // A4 limit-velocity (schemaVersion 5); null = off. A deterministic constant/curve
   // track (no range/randomBetweenCurves — checkScalarTrackNoRange, E27). Behaves as
@@ -873,6 +902,7 @@ export function validateParticle(input: unknown): ValidationResult {
     layerIds: new Set(),
     layerSubEmittersNull: new Map(),
     layerContinuous: new Map(),
+    paramNames: new Set(),
   };
 
   if (!isObject(input)) {
@@ -923,6 +953,43 @@ export function validateParticle(input: unknown): ValidationResult {
         ctx.textureNames.add(name);
         if (!isStr(url)) err(ctx, `textures.${name}`, "texture data must be a string");
       }
+    }
+  }
+
+  // params (schemaVersion 6, A9). Optional at the wire level (migration injects
+  // `[]`; hand-built/pre-migration docs may omit it — tolerated like other new
+  // fields). When present it must be an array of `{ name, default, min, max }`.
+  // E31: name not a non-empty string; duplicate names; non-finite default/min/max;
+  // min > max; default outside [min, max]. Names are collected into ctx.paramNames
+  // BEFORE layers so the per-knob binding checks (E32) can resolve them.
+  if (input.params !== undefined) {
+    if (!Array.isArray(input.params)) {
+      err(ctx, "params", "params must be an array");
+    } else {
+      input.params.forEach((p, i) => {
+        const pp = `params[${i}]`;
+        if (!isObject(p)) {
+          err(ctx, pp, "param must be an object");
+          return;
+        }
+        if (!isStr(p.name) || p.name.length === 0) {
+          err(ctx, `${pp}.name`, "param name must be a non-empty string (E31)");
+        } else if (ctx.paramNames.has(p.name)) {
+          err(ctx, `${pp}.name`, `duplicate param name "${p.name}" (E31)`);
+        } else {
+          ctx.paramNames.add(p.name);
+        }
+        const okDef = isNum(p.default);
+        const okMin = isNum(p.min);
+        const okMax = isNum(p.max);
+        if (!okDef) err(ctx, `${pp}.default`, "param default must be a finite number (E31)");
+        if (!okMin) err(ctx, `${pp}.min`, "param min must be a finite number (E31)");
+        if (!okMax) err(ctx, `${pp}.max`, "param max must be a finite number (E31)");
+        if (okMin && okMax && (p.min as number) > (p.max as number))
+          err(ctx, pp, "param min must be <= max (E31)");
+        if (okDef && okMin && okMax && ((p.default as number) < (p.min as number) || (p.default as number) > (p.max as number)))
+          err(ctx, `${pp}.default`, "param default must be within [min, max] (E31)");
+      });
     }
   }
 

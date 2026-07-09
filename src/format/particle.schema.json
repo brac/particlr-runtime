@@ -7,7 +7,7 @@
       "properties": {
         "schemaVersion": {
           "type": "number",
-          "const": 5
+          "const": 6
         },
         "meta": {
           "$ref": "#/definitions/ParticleMeta"
@@ -20,6 +20,13 @@
         },
         "seed": {
           "type": "number"
+        },
+        "params": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ParamDef"
+          },
+          "description": "Host-exposed scalar parameters (schemaVersion 6, A9). Empty = none (the inert migration default; a v5 doc migrates to `params: []`)."
         },
         "textures": {
           "type": "object",
@@ -41,6 +48,7 @@
         "duration",
         "looping",
         "seed",
+        "params",
         "layers"
       ]
     },
@@ -62,6 +70,31 @@
         "createdWith",
         "notes"
       ]
+    },
+    "ParamDef": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "default": {
+          "type": "number",
+          "description": "Authored value in force until the host first calls `setParam` (A9_PLAN §0.3). Named `default` deliberately — the authoring identity is the value `1`."
+        },
+        "min": {
+          "type": "number"
+        },
+        "max": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "name",
+        "default",
+        "min",
+        "max"
+      ],
+      "description": "A host-exposed scalar parameter (schemaVersion 6, A9). A game names the param and drives it live via `Effect.setParam(name, value)`; each binding field (`…Param`) references one by `name`. The runtime multiplies a knob's evaluated value by the param's current value (multiply-only; default `1` = \"as authored\" by convention, A9_PLAN §0.1 D1/D3). `default`/`min`/`max` are the authored range; `setParam` clamps into `[min, max]` (A9_PLAN §0.3)."
     },
     "Layer": {
       "type": "object",
@@ -160,6 +193,13 @@
           ],
           "description": "Per-particle random flip (schemaVersion 3); null = off."
         },
+        "opacityParam": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Host-parameter binding for particle opacity (schemaVersion 6, A9). Alpha has no existing document knob (the over-lifetime gradient owns it), so this is a NEW layer-level field with an implicit base of `1`: when bound it scales `buf.a` as the LAST color multiply (A9_PLAN §0.3 sites table & opacity caveat; A9_PARAMS_RESEARCH Q6 opacity caveat). Live for all particles; `null`/absent = unbound = the untouched v5 render path."
+        },
         "render": {
           "anyOf": [
             {
@@ -248,6 +288,7 @@
         "bySpeed",
         "startColor",
         "randomFlip",
+        "opacityParam",
         "render",
         "dissolve",
         "collision",
@@ -451,6 +492,13 @@
         "rateOverTime": {
           "$ref": "#/definitions/ScalarTrack"
         },
+        "rateOverTimeParam": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Host-parameter binding for `rateOverTime` (schemaVersion 6, A9). Names a `ParticleDoc.params` entry whose current value scales the evaluated rate (A9_PLAN §0.3 sites table; A9_PARAMS_RESEARCH Q6 Shape A). `null`/absent = unbound = the untouched v5 code path."
+        },
         "rateOverDistance": {
           "anyOf": [
             {
@@ -461,6 +509,13 @@
             }
           ],
           "description": "Particles per pixel the emitter travels (schemaVersion 2). World-space only — keeps trail density uniform regardless of emitter speed. Null = disabled (v1 behavior). Same rate ceiling as rateOverTime."
+        },
+        "rateOverDistanceParam": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Host-parameter binding for `rateOverDistance` (schemaVersion 6, A9). Scales the evaluated distance-rate; `null`/absent = unbound (A9_PLAN §0.3, D4)."
         },
         "bursts": {
           "type": "array",
@@ -480,7 +535,9 @@
       },
       "required": [
         "rateOverTime",
+        "rateOverTimeParam",
         "rateOverDistance",
+        "rateOverDistanceParam",
         "bursts",
         "delay",
         "prewarm",
@@ -749,11 +806,32 @@
         "life": {
           "$ref": "#/definitions/ScalarInit"
         },
+        "lifeParam": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Host-parameter binding for initial `life` (schemaVersion 6, A9). Scales the per-spawn drawn life; future spawns only (A9_PLAN §0.3 sites table, D4). `null`/absent = unbound = the untouched v5 code path."
+        },
         "speed": {
           "$ref": "#/definitions/ScalarInit"
         },
+        "speedParam": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Host-parameter binding for initial `speed` (schemaVersion 6, A9). Scales the per-spawn drawn speed before it becomes vx/vy; future spawns only (A9_PLAN §0.3 sites table, D4). `null`/absent = unbound."
+        },
         "size": {
           "$ref": "#/definitions/ScalarInit"
+        },
+        "sizeParam": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Host-parameter binding for `size` (schemaVersion 6, A9). A live render-path multiply on each particle's size (docs/UI say \"Size\"; A9_PLAN §0.3 sites table marks it live). `null`/absent = unbound."
         },
         "rotation": {
           "$ref": "#/definitions/ScalarInit"
@@ -764,8 +842,11 @@
       },
       "required": [
         "life",
+        "lifeParam",
         "speed",
+        "speedParam",
         "size",
+        "sizeParam",
         "rotation",
         "angularVelocity"
       ]
@@ -894,6 +975,13 @@
         "gravity": {
           "$ref": "#/definitions/Vec2"
         },
+        "gravityParam": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Host-parameter binding for `gravity` (schemaVersion 6, A9). Scales the hoisted gravity vector once per step; live for all particles (A9_PLAN §0.3 sites table, D4). `null`/absent = unbound."
+        },
         "drag": {
           "anyOf": [
             {
@@ -958,6 +1046,7 @@
       },
       "required": [
         "gravity",
+        "gravityParam",
         "drag",
         "speedMultiplier",
         "x",

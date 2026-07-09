@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 5,
+  "schemaVersion": 6,
   "meta": {
     "name": "Explosion",
     "createdWith": "particlr@0.x",
@@ -8,6 +8,7 @@
   "duration": 1.2,
   "looping": true,
   "seed": 1337,
+  "params": [],
   "layers": [
     {
       "id": "flash",
@@ -23,7 +24,9 @@
           "mode": "constant",
           "value": 0
         },
+        "rateOverTimeParam": null,
         "rateOverDistance": null,
+        "rateOverDistanceParam": null,
         "bursts": [
           {
             "time": 0,
@@ -50,14 +53,17 @@
           "mode": "constant",
           "value": 0.15
         },
+        "lifeParam": null,
         "speed": {
           "mode": "constant",
           "value": 0
         },
+        "speedParam": null,
         "size": {
           "mode": "constant",
           "value": 140
         },
+        "sizeParam": null,
         "rotation": {
           "mode": "constant",
           "value": 0
@@ -106,6 +112,7 @@
             "x": 0,
             "y": 0
           },
+          "gravityParam": null,
           "drag": null,
           "speedMultiplier": null,
           "x": null,
@@ -119,6 +126,7 @@
       "bySpeed": null,
       "startColor": null,
       "randomFlip": null,
+      "opacityParam": null,
       "render": null,
       "dissolve": null,
       "collision": null,
@@ -140,7 +148,9 @@
           "mode": "constant",
           "value": 0
         },
+        "rateOverTimeParam": null,
         "rateOverDistance": null,
+        "rateOverDistanceParam": null,
         "bursts": [
           {
             "time": 0,
@@ -173,16 +183,19 @@
           "min": 0.4,
           "max": 0.7
         },
+        "lifeParam": null,
         "speed": {
           "mode": "range",
           "min": 60,
           "max": 160
         },
+        "speedParam": null,
         "size": {
           "mode": "range",
           "min": 18,
           "max": 34
         },
+        "sizeParam": null,
         "rotation": {
           "mode": "range",
           "min": 0,
@@ -239,6 +252,7 @@
             "x": 0,
             "y": 40
           },
+          "gravityParam": null,
           "drag": {
             "mode": "constant",
             "value": 2.5
@@ -255,6 +269,7 @@
       "bySpeed": null,
       "startColor": null,
       "randomFlip": null,
+      "opacityParam": null,
       "render": null,
       "dissolve": null,
       "collision": null,
@@ -276,7 +291,9 @@
           "mode": "constant",
           "value": 20
         },
+        "rateOverTimeParam": null,
         "rateOverDistance": null,
+        "rateOverDistanceParam": null,
         "bursts": [],
         "delay": 0.05,
         "prewarm": false,
@@ -300,16 +317,19 @@
           "min": 0.8,
           "max": 1.4
         },
+        "lifeParam": null,
         "speed": {
           "mode": "range",
           "min": 10,
           "max": 40
         },
+        "speedParam": null,
         "size": {
           "mode": "range",
           "min": 30,
           "max": 60
         },
+        "sizeParam": null,
         "rotation": {
           "mode": "range",
           "min": 0,
@@ -367,6 +387,7 @@
             "x": 0,
             "y": -20
           },
+          "gravityParam": null,
           "drag": {
             "mode": "constant",
             "value": 1.5
@@ -383,6 +404,7 @@
       "bySpeed": null,
       "startColor": null,
       "randomFlip": null,
+      "opacityParam": null,
       "render": null,
       "dissolve": null,
       "collision": null,

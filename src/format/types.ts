@@ -119,10 +119,18 @@ export interface Burst {
 
 export interface Emission {
   rateOverTime: ScalarTrack;
+  /** Host-parameter binding for `rateOverTime` (schemaVersion 6, A9). Names a
+   * `ParticleDoc.params` entry whose current value scales the evaluated rate
+   * (A9_PLAN §0.3 sites table; A9_PARAMS_RESEARCH Q6 Shape A). `null`/absent =
+   * unbound = the untouched v5 code path. */
+  rateOverTimeParam: string | null;
   /** Particles per pixel the emitter travels (schemaVersion 2). World-space
    * only — keeps trail density uniform regardless of emitter speed. Null =
    * disabled (v1 behavior). Same rate ceiling as rateOverTime. */
   rateOverDistance: ScalarTrack | null;
+  /** Host-parameter binding for `rateOverDistance` (schemaVersion 6, A9). Scales
+   * the evaluated distance-rate; `null`/absent = unbound (A9_PLAN §0.3, D4). */
+  rateOverDistanceParam: string | null;
   bursts: Burst[];
   delay: number;
   prewarm: boolean;
@@ -153,8 +161,20 @@ export interface TextureRef {
 
 export interface InitialProps {
   life: ScalarInit;
+  /** Host-parameter binding for initial `life` (schemaVersion 6, A9). Scales the
+   * per-spawn drawn life; future spawns only (A9_PLAN §0.3 sites table, D4).
+   * `null`/absent = unbound = the untouched v5 code path. */
+  lifeParam: string | null;
   speed: ScalarInit;
+  /** Host-parameter binding for initial `speed` (schemaVersion 6, A9). Scales the
+   * per-spawn drawn speed before it becomes vx/vy; future spawns only
+   * (A9_PLAN §0.3 sites table, D4). `null`/absent = unbound. */
+  speedParam: string | null;
   size: ScalarInit;
+  /** Host-parameter binding for `size` (schemaVersion 6, A9). A live render-path
+   * multiply on each particle's size (docs/UI say "Size"; A9_PLAN §0.3 sites
+   * table marks it live). `null`/absent = unbound. */
+  sizeParam: string | null;
   rotation: ScalarInit;
   angularVelocity: ScalarInit;
 }
@@ -166,6 +186,10 @@ export interface Vec2 {
 
 export interface Velocity {
   gravity: Vec2;
+  /** Host-parameter binding for `gravity` (schemaVersion 6, A9). Scales the
+   * hoisted gravity vector once per step; live for all particles
+   * (A9_PLAN §0.3 sites table, D4). `null`/absent = unbound. */
+  gravityParam: string | null;
   drag: ScalarTrack | null;
   speedMultiplier: ScalarTrack | null;
   /** Velocity over lifetime (schemaVersion 3), all additive px/s at ageNorm
@@ -355,6 +379,13 @@ export interface Layer {
   startColor: StartColor | null;
   /** Per-particle random flip (schemaVersion 3); null = off. */
   randomFlip: RandomFlip | null;
+  /** Host-parameter binding for particle opacity (schemaVersion 6, A9). Alpha has
+   * no existing document knob (the over-lifetime gradient owns it), so this is a
+   * NEW layer-level field with an implicit base of `1`: when bound it scales
+   * `buf.a` as the LAST color multiply (A9_PLAN §0.3 sites table & opacity caveat;
+   * A9_PARAMS_RESEARCH Q6 opacity caveat). Live for all particles; `null`/absent
+   * = unbound = the untouched v5 render path. */
+  opacityParam: string | null;
   /** Velocity-aligned / stretched rendering (schemaVersion 3); null = off. */
   render: RenderConfig | null;
   /** Alpha-erosion dissolve (schemaVersion 4); null = off. */
@@ -375,12 +406,30 @@ export interface ParticleMeta {
   notes: string;
 }
 
+/** A host-exposed scalar parameter (schemaVersion 6, A9). A game names the param
+ * and drives it live via `Effect.setParam(name, value)`; each binding field
+ * (`…Param`) references one by `name`. The runtime multiplies a knob's evaluated
+ * value by the param's current value (multiply-only; default `1` = "as authored"
+ * by convention, A9_PLAN §0.1 D1/D3). `default`/`min`/`max` are the authored
+ * range; `setParam` clamps into `[min, max]` (A9_PLAN §0.3). */
+export interface ParamDef {
+  name: string;
+  /** Authored value in force until the host first calls `setParam` (A9_PLAN §0.3).
+   * Named `default` deliberately — the authoring identity is the value `1`. */
+  default: number;
+  min: number;
+  max: number;
+}
+
 export interface ParticleDoc {
-  schemaVersion: 5;
+  schemaVersion: 6;
   meta: ParticleMeta;
   duration: number;
   looping: boolean;
   seed: number;
+  /** Host-exposed scalar parameters (schemaVersion 6, A9). Empty = none (the
+   * inert migration default; a v5 doc migrates to `params: []`). */
+  params: ParamDef[];
   /** "user:<name>" data URLs, keyed by <name> (plan §2.11). */
   textures?: Record<string, string>;
   layers: Layer[];
@@ -408,4 +457,4 @@ export const SUB_TRIGGERS: readonly SubTrigger[] = ["birth", "death", "collision
 export const ATTRACTOR_FALLOFFS: readonly AttractorFalloff[] = ["none", "linear", "smooth"];
 
 /** Current schema version this build understands. */
-export const CURRENT_SCHEMA_VERSION = 5;
+export const CURRENT_SCHEMA_VERSION = 6;

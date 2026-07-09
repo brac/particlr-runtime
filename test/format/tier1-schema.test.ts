@@ -10,11 +10,14 @@ function maximalDoc(): ParticleDoc {
   const grad = { keys: [{ t: 0, r: 1, g: 0.5, b: 0.2, a: 1 }, { t: 1, r: 0, g: 0, b: 0, a: 0 }] };
   const curve = { mode: "curve" as const, keys: [{ t: 0, v: 1, ease: "easeOut" as const }, { t: 1, v: 0 }] };
   return {
-    schemaVersion: 5,
+    schemaVersion: 6,
     meta: { name: "Maximal", createdWith: "particlr@0.x", notes: "" },
     duration: 2,
     looping: true,
     seed: 4242,
+    // A9 (schemaVersion 6): no params/bindings declared — unbound is the v5 path,
+    // and an already-current doc round-trips without the migration injecting them.
+    params: [],
     layers: [
       {
         id: "parent",

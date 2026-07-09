@@ -185,6 +185,8 @@ function cLayer(v: unknown): unknown {
       "bySpeed",
       "startColor",
       "randomFlip",
+      // A9 (schemaVersion 6): layer-level opacity binding, beside the render block.
+      "opacityParam",
       "render",
       "dissolve",
       "collision",
@@ -204,7 +206,8 @@ function cLayer(v: unknown): unknown {
       return tx;
     });
     l.emission = map(l.emission, (e) => {
-      const em = orderKeys(e, ["rateOverTime", "rateOverDistance", "bursts", "delay", "prewarm", "maxParticles"]);
+      // A9 (schemaVersion 6): each rate binding sits directly after its knob.
+      const em = orderKeys(e, ["rateOverTime", "rateOverTimeParam", "rateOverDistance", "rateOverDistanceParam", "bursts", "delay", "prewarm", "maxParticles"]);
       em.rateOverTime = cTrack(em.rateOverTime);
       em.rateOverDistance = cTrackOrNull(em.rateOverDistance);
       if (Array.isArray(em.bursts))
@@ -218,7 +221,8 @@ function cLayer(v: unknown): unknown {
       return so;
     });
     l.initial = map(l.initial, (init) => {
-      const io = orderKeys(init, ["life", "speed", "size", "rotation", "angularVelocity"]);
+      // A9 (schemaVersion 6): life/speed/size bindings sit directly after their knob.
+      const io = orderKeys(init, ["life", "lifeParam", "speed", "speedParam", "size", "sizeParam", "rotation", "angularVelocity"]);
       for (const key of ["life", "speed", "size", "rotation", "angularVelocity"]) {
         if (key in io) io[key] = cInit(io[key]);
       }
@@ -230,7 +234,8 @@ function cLayer(v: unknown): unknown {
       olo.color = cGradient(olo.color);
       olo.rotation = cTrackOrNull(olo.rotation);
       olo.velocity = map(olo.velocity, (vel) => {
-        const vo = orderKeys(vel, ["gravity", "drag", "speedMultiplier", "x", "y", "orbital", "radial"]);
+        // A9 (schemaVersion 6): gravity binding sits directly after gravity.
+        const vo = orderKeys(vel, ["gravity", "gravityParam", "drag", "speedMultiplier", "x", "y", "orbital", "radial"]);
         vo.gravity = map(vo.gravity, (g) => orderKeys(g, ["x", "y"]));
         vo.drag = cTrackOrNull(vo.drag);
         vo.speedMultiplier = cTrackOrNull(vo.speedMultiplier);
@@ -265,10 +270,15 @@ function canonicalize(doc: ParticleDoc): Obj {
     "duration",
     "looping",
     "seed",
+    // A9 (schemaVersion 6): effect-scoped params, after seed (like duration/seed).
+    "params",
     "textures",
     "layers",
   ]);
   d.meta = map(d.meta, (m) => orderKeys(m, ["name", "createdWith", "notes"]));
+  // A9 (schemaVersion 6): each param object orders name, default, min, max.
+  if (Array.isArray(d.params))
+    d.params = d.params.map((p) => map(p, (o) => orderKeys(o, ["name", "default", "min", "max"])));
   // `textures` is a dynamic name->dataURL map: leave its key order untouched.
   if (Array.isArray(d.layers)) d.layers = d.layers.map(cLayer);
   return d;
