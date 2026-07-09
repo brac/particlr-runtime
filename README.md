@@ -91,6 +91,8 @@ class Effect {
   teleportEmitter(x: number, y: number): void;    // jump with no velocity/interpolation (respawns, screen wraps)
   setAttractor(x: number, y: number, strength: number, radius: number): void; // host-driven attractor (schemaVersion 4); radius <= 0 clears
   clearAttractor(): void;                          // remove the host attractor
+  timeScale: number;           // host playback rate; 1 = real time, 0 = frozen (hit-stop), <1 slow-mo; non-finite/≤0 ⇒ 0
+  onDone: (() => void) | null; // fired once when a non-looping effect finishes (isDone); re-armed by reset()
   readonly emitterX: number;
   readonly emitterY: number;
   readonly time: number;       // effect-local seconds
@@ -192,6 +194,55 @@ fx.setAttractor(pointerX, pointerY, 800, 240); // suck particles toward the curs
 fx.clearAttractor();                            // release them
 ```
 
+#### Playback control & completion (host API)
+
+Two host-only handles on `Effect` — no document surface, no schema change.
+
+**`effect.timeScale`** multiplies the `dt` you pass to `step()`. It is applied as
+the very first thing `step()` does, so it composes with the existing guards:
+
+```ts
+fx.timeScale = 0.25;  // slow-motion
+fx.timeScale = 3;     // fast-forward (each step still clamps to MAX_DT, so a
+                      // fast-forward can never explode emitters)
+fx.timeScale = 0;     // hit-stop: freeze the effect in place. `timeScale = 0` is
+                      // exactly `step(0)` every frame — the clock and every
+                      // particle hold, and a pending setEmitterPosition target
+                      // stays queued for the next un-paused step.
+```
+
+The setter normalizes: any non-finite, negative, or zero value stores `0`
+(paused) — it never throws. `timeScale` is sugar over the `dt` you already
+control: `timeScale = s; step(dt)` is bitwise-identical to
+`timeScale = 1; step(dt·s)`. One consequence worth knowing: under slow-motion the
+emitter still traverses its full pending segment within the (smaller) scaled step,
+so its implied velocity `(target − start) / scaledDt` **rises** — a host that
+moves the emitter in real time correctly reads as fast in particle-time
+(`inheritVelocity`, world trails). That is authentic game slow-mo, not a bug.
+`timeScale` persists across `step()` and `reset()` until reassigned.
+
+**`effect.onDone`** is a single completion callback (assign a function or `null`;
+a host wanting fan-out wraps it). It fires **synchronously at the end of the
+`step()`** on which the effect first reads `isDone` (a non-looping effect past its
+duration with zero live particles) — after all state is committed, so inside the
+callback `isDone === true` and `particleCount === 0`. It fires **at most once**
+until `reset()`, which re-arms it (the `onDone` property itself survives `reset()`,
+like `timeScale`). Attaching a callback *after* the effect has already finished
+still fires it on the next `step()` (latch-on-fire, not on transition — friendlier
+to hosts that attach late). A paused step (`dt ≤ 0`, including `timeScale = 0`)
+runs no completion check. **Looping effects never fire** (`isDone` is always
+false), and prewarm never fires. Calling ordinary API from inside the callback —
+including `reset()` — is legal and safe; the callback runs after the step body, so
+it can never affect the state that step produced.
+
+```ts
+fx.onDone = () => {
+  view.destroy();          // tear down the renderer
+  removeFromActiveList(fx);
+};
+app.ticker.add((t) => { fx.step(t.deltaMS / 1000); fx.view.sync(); });
+```
+
 #### Schema v4 — dissolve / alpha erosion
 
 schemaVersion 4 adds a per-layer `dissolve` (`null` = off):
@@ -257,9 +308,10 @@ concern; a document embedding many large textures is out of scope for v1).
 ## Determinism contract
 
 Given identical `(document, seed, sequence of (dt, emitter-position,
-host-attractor state) tuples)`, output is bit-identical — the emitter position
-(`setEmitterPosition`) and the host attractor (`setAttractor` parameters) are
-per-step host inputs exactly like `dt` (schemaVersion 4 amendment). The runtime
+host-attractor state, timeScale) tuples)`, output is bit-identical — the emitter
+position (`setEmitterPosition`), the host attractor (`setAttractor` parameters),
+and `timeScale` are per-step host inputs exactly like `dt` (schemaVersion 4 +
+host-API amendments). The runtime
 never reads wall-clock time, `Math.random`, or any global — the only randomness
 is a seeded mulberry32 PRNG, one stream per layer. This is what makes seek/scrub
 exact and enables golden-frame testing.

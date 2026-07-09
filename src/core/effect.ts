@@ -87,6 +87,30 @@ export class Effect {
   private attStrength = 0;
   private attRadius: number | null = null;
 
+  // Host playback rate (this plan). Multiplies the incoming `dt` as the FIRST
+  // statement of step(), before the E2 dt<=0 guard and the E1 MAX_DT clamp — so
+  // timeScale 0 freezes the clock exactly like step(0), a fast-forward still
+  // can't defeat the anti-explosion clamp, and `timeScale = s; step(dt)` is
+  // bitwise-identical to `timeScale = 1; step(dt*s)` (the equivalence law). It is
+  // a per-step host input like emitter position (the determinism-tuple amendment)
+  // and PERSISTS across step() and reset() until reassigned. Default 1 is an
+  // IEEE-exact identity, so a host that never touches it gets a byte-identical
+  // simulation. See the setter for the locked normalization.
+  private _timeScale = 1;
+
+  // Completion callback (this plan). Fired synchronously at the very END of a
+  // step() — after all state is committed — on the first step that ends with
+  // isDone true (E6) while a callback is attached, at most once until reset().
+  // `doneFired` latches the fire; reset() clears it (re-arms) but leaves onDone
+  // itself in place. A late attach still fires on the next step (latch-on-fire,
+  // not on transition); looping effects never fire (isDone is constant false);
+  // prewarm cannot fire (runPrewarm calls advance(), never step()). Calling
+  // ordinary API — including reset() — from inside the callback is legal and
+  // safe: it runs after the step body, so it can't alter the state that step
+  // produced (a non-mutating callback leaves the stateHash unchanged).
+  onDone: (() => void) | null = null;
+  private doneFired = false;
+
   // Sub-emitter plan (schemaVersion 3, M8), built once at construction. `parents`
   // lists (in layer index order) every layer that spawns children, with its
   // resolved entries. `wantBirth/Death/Collision` are per-sim-index recorder
@@ -154,6 +178,17 @@ export class Effect {
   }
   get seed(): number {
     return this.effectSeed;
+  }
+  /** Host playback rate (this plan). `1` = real time. `>1` fast-forwards (still
+   * subject to the E1 MAX_DT clamp per step); `0` freezes the effect (hit-stop:
+   * `fx.timeScale = 0` is exactly `step(0)` every frame); `0<v<1` slow-motion.
+   * Persists across `step()` and `reset()` until reassigned. */
+  get timeScale(): number {
+    return this._timeScale;
+  }
+  /** Any non-finite, negative, or zero value stores `0` (paused); no throw. */
+  set timeScale(v: number) {
+    this._timeScale = Number.isFinite(v) && v > 0 ? v : 0;
   }
   /** Current emitter position (schemaVersion 2). */
   get emitterX(): number {
@@ -240,12 +275,15 @@ export class Effect {
     this.stepStartX = this.stepEndX = this.ex;
     this.stepStartY = this.stepEndY = this.ey;
     this.sims.forEach((ls, i) => ls.reset(deriveLayerSeed(this.effectSeed, i)));
+    // Re-arm the completion callback (this plan); onDone and _timeScale persist.
+    this.doneFired = false;
     this.runPrewarm();
   }
 
   step(dt: number): void {
-    if (dt <= 0) return; // E2
-    if (dt > MAX_DT) dt = MAX_DT; // E1
+    dt *= this._timeScale; // host playback rate (this plan) — before E2/E1
+    if (dt <= 0) return; // E2 — timeScale 0 ⇒ hit-stop: clock frozen
+    if (dt > MAX_DT) dt = MAX_DT; // E1 — clamp the SCALED dt (fast-forward can't defeat it)
     // Resolve the emitter's motion segment for this step (schemaVersion 2).
     const sx = this.ex;
     const sy = this.ey;
@@ -265,6 +303,13 @@ export class Effect {
     this.pendingY = null;
     this.evx = 0;
     this.evy = 0;
+    // Completion callback (this plan): fired once, after all state is committed,
+    // on the first step that ends done (E6) with a callback attached. Latches so
+    // it never re-fires until reset(); a late attach still fires next step.
+    if (!this.doneFired && this.onDone !== null && this.isDone) {
+      this.doneFired = true;
+      this.onDone();
+    }
   }
 
   // --- internals -----------------------------------------------------------
