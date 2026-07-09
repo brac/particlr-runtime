@@ -91,8 +91,10 @@ class Effect {
   teleportEmitter(x: number, y: number): void;    // jump with no velocity/interpolation (respawns, screen wraps)
   setAttractor(x: number, y: number, strength: number, radius: number): void; // host-driven attractor (schemaVersion 4); radius <= 0 clears
   clearAttractor(): void;                          // remove the host attractor
-  setParam(name: string, value: number): void; // drive an exposed parameter (schemaVersion 6); clamps to [min,max]; unknown name / non-finite value = no-op
-  getParam(name: string): number;              // current param value (authored default until first set); unknown name ⇒ NaN
+  setParam(name: string, value: number): void; // drive an exposed SCALAR parameter (schemaVersion 6); clamps to [min,max]; unknown name / non-finite value = no-op
+  getParam(name: string): number;              // current scalar param value (authored default until first set); unknown / color-kind name ⇒ NaN
+  setColorParam(name: string, r: number, g: number, b: number, a: number): void; // drive an exposed COLOR parameter (schemaVersion 8); clamps each channel to [0,1]; unknown / scalar-kind name or any non-finite channel = no-op
+  getColorParam(name: string): RGBAColor | null;  // current color param RGBA (a copy; authored default until first set); unknown / scalar-kind name ⇒ null
   timeScale: number;           // host playback rate; 1 = real time, 0 = frozen (hit-stop), <1 slow-mo; non-finite/≤0 ⇒ 0
   onDone: (() => void) | null; // fired once when a non-looping effect finishes (isDone); re-armed by reset()
   readonly emitterX: number;
@@ -247,11 +249,22 @@ app.ticker.add((t) => { fx.step(t.deltaMS / 1000); fx.view.sync(); });
 
 #### Exposed parameters (schemaVersion 6, A9)
 
-**One `boom.prt`, N weapons.** A document may declare named scalar parameters,
-and any of seven well-known knobs may **bind** to one. The host drives them per
-instance with `setParam` / `getParam` — no document mutation — so a pistol muzzle
-flash and a rocket blast are the **same** `.prt` at `intensity = 0.3` and
-`intensity = 1.0`.
+**One `boom.prt`, N weapons.** A document may declare named parameters, and
+well-known knobs may **bind** to one. The host drives them per instance — no
+document mutation — so a pistol muzzle flash and a rocket blast are the **same**
+`.prt` at `intensity = 0.3` and `intensity = 1.0`. Parameters come in two
+**kinds**, each with its own typed accessor pair (mirroring VFX Graph's
+SetFloat/SetVector4 split):
+
+- **scalar** (`{ kind: "scalar", name, default, min, max }`) — driven by
+  `setParam(name, value)` / `getParam(name)`; multiplies one of seven scalar
+  knobs.
+- **color** (`{ kind: "color", name, default: RGBAColor }`, schemaVersion 8) —
+  driven by `setColorParam(name, r, g, b, a)` / `getColorParam(name)`; drives the
+  layer-level **tint** knob (`layer.tintParam`). Channels are inherently
+  `[0,1]`-clamped, so a color param has no `min`/`max`. **One spell document, N
+  element colors:** a single color param bound to `tintParam` on several layers
+  recolors the whole effect (fire → frost → poison) from one `setColorParam`.
 
 ```ts
 // pistol / rifle / rocket from one document
@@ -272,31 +285,44 @@ fx.getParam("intensity");         // read back the current (clamped) value
   `[min, max]`; a non-finite `value` is ignored (no-op) and an unknown `name` is a
   silent no-op — house tolerance, no throws (cf. `timeScale` normalizes,
   `setAttractor` clears). `getParam` returns the authored `default` until the first
-  `setParam`, and `NaN` for an unknown name. For sim-consumed knobs
+  `setParam`, and `NaN` for an unknown name. `setColorParam` is the color sibling:
+  it clamps **each channel** to `[0,1]`, and **any non-finite channel rejects the
+  whole call** (no partial write); an unknown name OR a scalar-kind name is a
+  silent no-op. `getColorParam` returns a **copy** of the current RGBA (the
+  authored `default` until the first `setColorParam`), or `null` for an unknown /
+  scalar-kind name. The scalar and color namespaces are **independent** — the
+  typed accessors never cross (a `getParam` on a color name is `NaN`, a
+  `getColorParam` on a scalar name is `null`). For sim-consumed knobs
   (rate/speed/life/gravity) the **last call before a `step()` wins**; the
-  render-path knobs (`size`/`opacity`) are **frame-live** — a `setParam` shows in
+  render-path knobs (`size`/`opacity`/`tint`) are **frame-live** — a set shows in
   the very next render even while paused (`timeScale = 0` hit-stop, a paused
-  preview), no step needed. Param values **persist across `reset()`** (like
-  `timeScale`) — so "scrub with `intensity = 0.7`" replays exactly.
+  preview), no step needed. Param values (scalar **and** color) **persist across
+  `reset()`** (like `timeScale`) — so "scrub with `intensity = 0.7`" replays
+  exactly.
 
-The seven bindable knobs, and whether a mid-flight change is **live** (already-alive
+The bindable knobs, and whether a mid-flight change is **live** (already-alive
 particles respond next step/render) or **future-spawn** (baked at spawn):
 
-| Binding field | Knob | Mid-flight |
-|---|---|---|
-| `emission.rateOverTimeParam` | continuous emission rate | emission timing (future) |
-| `emission.rateOverDistanceParam` | rate-over-distance (world trails) | emission timing (future) |
-| `initial.speedParam` | launch speed | **future spawns only** |
-| `initial.lifeParam` | particle lifetime | **future spawns only** |
-| `initial.sizeParam` | particle size (render multiply) | **live** |
-| `overLifetime.velocity.gravityParam` | gravity vector | **live** |
-| `opacityParam` (layer-level) | particle alpha | **live** |
+| Binding field | Knob | Kind | Mid-flight |
+|---|---|---|---|
+| `emission.rateOverTimeParam` | continuous emission rate | scalar | emission timing (future) |
+| `emission.rateOverDistanceParam` | rate-over-distance (world trails) | scalar | emission timing (future) |
+| `initial.speedParam` | launch speed | scalar | **future spawns only** |
+| `initial.lifeParam` | particle lifetime | scalar | **future spawns only** |
+| `initial.sizeParam` | particle size (render multiply) | scalar | **live** |
+| `overLifetime.velocity.gravityParam` | gravity vector | scalar | **live** |
+| `opacityParam` (layer-level) | particle alpha | scalar | **live** |
+| `tintParam` (layer-level) | RGBA tint on the finished color chain | **color** | **live** |
 
 `speed`/`life` are baked into pool state at spawn, so changing them never rescales
-particles already on screen; `size`/`gravity`/`opacity` are re-evaluated every
-step/frame, so they retune the whole live population for free. Params **join the
-determinism tuple** (below): the vector of current `setParam` values in force at
-each `step()` is a per-step host input, exactly like `dt` and `timeScale`.
+particles already on screen; `size`/`gravity`/`opacity`/`tint` are re-evaluated
+every step/frame, so they retune the whole live population for free. The **tint**
+multiplies each particle's finished RGBA (gradient × startColor × bySpeed × **tint**
+× opacity — tint before opacity; both commute) with an implicit base of white
+`{1,1,1,1}`, so an unbound tint is the untouched render path and a tint at white is
+byte-identical. Params **join the determinism tuple** (below): the vector of
+current scalar and color param values in force at each `step()` is a per-step host
+input, exactly like `dt` and `timeScale`.
 
 #### Schema v4 — dissolve / alpha erosion
 
@@ -406,9 +432,9 @@ concern; a document embedding many large textures is out of scope for v1).
 Given identical `(document, seed, sequence of (dt, emitter-position,
 host-attractor state, timeScale, param-values) tuples)`, output is bit-identical —
 the emitter position (`setEmitterPosition`), the host attractor (`setAttractor`
-parameters), `timeScale`, and the exposed-parameter values (`setParam`,
-schemaVersion 6) are per-step host inputs exactly like `dt` (schemaVersion 4 +
-host-API amendments). The runtime
+parameters), `timeScale`, and the exposed-parameter values (scalar `setParam`,
+schemaVersion 6, and color `setColorParam`, schemaVersion 8) are per-step host
+inputs exactly like `dt` (schemaVersion 4 + host-API amendments). The runtime
 never reads wall-clock time, `Math.random`, or any global — the only randomness
 is a seeded mulberry32 PRNG, one stream per layer. This is what makes seek/scrub
 exact and enables golden-frame testing.

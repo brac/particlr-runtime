@@ -2,7 +2,7 @@
 // integration of motion (§2.4), rotation (§2.5), ageing, and death. Emission
 // *timing* (when to call spawn) lives in Effect (§2.8); this class only knows
 // how to make one particle and how to advance the ones it has.
-import type { Layer } from "../format/types.js";
+import type { Layer, RGBAColor } from "../format/types.js";
 import { mulberry32, type Rng } from "./prng.js";
 import { drawScalarInit, evalScalarTrack, evalGradient, type RGBA } from "./tracks.js";
 import { ParticlePool } from "./pool.js";
@@ -60,6 +60,16 @@ export class LayerSim {
   gravityParamMul: number | null = null;
   sizeParamMul: number | null = null;
   opacityParamMul: number | null = null;
+  /** schemaVersion 8 color-tint multiplier (COLOR_PARAM_PLAN C2), OWNED by the
+   * Effect exactly like the five scalar muls above: resolved from the color-param
+   * store and pushed EVENT-DRIVEN (construction + every effective setColorParam).
+   * `null` = the layer's `tintParam` is unbound OR names a non-color param ⇒
+   * render.ts takes the untouched pre-v8 path (never a multiply-by-white). When
+   * non-null it is the STORED RGBA reference (runtime-owned, mutated in place), so
+   * render multiplies each finished-chain channel by it. Not a pool column — it
+   * never touches the statehash (tint is render-only, C4); params persist, so
+   * reset() deliberately leaves it in place. */
+  tintParamMul: RGBAColor | null = null;
   /** Continuous-emission fractional accumulator (§2.8), owned by Effect. */
   acc = 0;
   /** Rate-over-distance fractional accumulator (schemaVersion 2), owned by Effect. */

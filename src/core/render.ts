@@ -141,6 +141,13 @@ export function computeRenderState(ls: LayerSim, buf: LayerRenderBuffers): void 
   // per-particle writes stay v5-instruction-identical.
   const sizeParamMul = ls.sizeParamMul;
   const opacityParamMul = ls.opacityParamMul;
+  // schemaVersion 8 color tint (COLOR_PARAM_PLAN C2): a layer-level RGBA multiply
+  // on the finished color chain, the tint slot in gradient × startColor × bySpeed ×
+  // TINT × opacity. Hoisted once (the Effect pushes it at construction and on every
+  // setColorParam — FRAME-live, no step). Null = unbound ⇒ the per-particle writes
+  // stay pre-v8-instruction-identical (never a multiply-by-white); a tint at
+  // {1,1,1,1} multiplies by IEEE-exact 1.0 ⇒ byte-identical (C4).
+  const tintParamMul = ls.tintParamMul;
 
   for (let i = 0; i < p.count; i++) {
     const lifetime = p.lifetime[i]!;
@@ -195,10 +202,21 @@ export function computeRenderState(ls: LayerSim, buf: LayerRenderBuffers): void 
       }
     }
 
+    // Color tint (schemaVersion 8, C2): the layer-level RGBA multiply on the
+    // finished color chain — after gradient × startColor × bySpeed and immediately
+    // BEFORE opacity (normative order; both multiplies commute). Null (unbound)
+    // leaves all four channels untouched (pre-v8-instruction-identical).
+    if (tintParamMul !== null) {
+      buf.r[i] = buf.r[i]! * tintParamMul.r;
+      buf.g[i] = buf.g[i]! * tintParamMul.g;
+      buf.b[i] = buf.b[i]! * tintParamMul.b;
+      buf.a[i] = buf.a[i]! * tintParamMul.a;
+    }
     // A9 opacity (schemaVersion 6): the LAST alpha multiply — after the over-life
-    // gradient, startColor tint, and bySpeed color — because alpha has no document
-    // knob (implicit base 1, A9 opacity caveat). Live (render-path). Null (unbound)
-    // leaves buf.a exactly as the color chain produced it (v5-instruction-identical).
+    // gradient, startColor tint, bySpeed color, and the schemaVersion-8 tint —
+    // because alpha has no document knob (implicit base 1, A9 opacity caveat). Live
+    // (render-path). Null (unbound) leaves buf.a exactly as the color chain
+    // produced it (v5-instruction-identical).
     if (opacityParamMul !== null) buf.a[i] = buf.a[i]! * opacityParamMul;
 
     buf.frame[i] = flipbookFrame(frames, age, t, p.frameRand[i]!);

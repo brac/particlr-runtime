@@ -2,7 +2,7 @@
 // drives emission timing (§2.8), motion integration (via LayerSim.update), the
 // effect clock, prewarm (E5), dt clamping (E1/E2), and isDone (E6). This is the
 // same code path the editor preview and the shipped runtime both use (L4).
-import type { Layer, ScalarTrack, ParticleDoc, Shape, SubEmitterRef, ScalarParamDef } from "../format/types.js";
+import type { Layer, ScalarTrack, ParticleDoc, Shape, SubEmitterRef, ScalarParamDef, ColorParamDef, RGBAColor } from "../format/types.js";
 import { deriveLayerSeed, mulberry32 } from "./prng.js";
 import { evalCurve } from "./tracks.js";
 import { LayerSim } from "./layerSim.js";
@@ -128,13 +128,25 @@ export class Effect {
   // (pushParamMuls — construction + every setParam) so a doc that declares no
   // params keeps the v5 hot path instruction-identical (the sim/render sites
   // read null and take their untouched code path).
-  // schemaVersion 8: `params` is now a scalar|color union. This milestone (M0)
-  // owns ZERO runtime behavior for color params — the store below indexes ONLY
-  // scalar entries; a `kind: "color"` param exists in the doc but the runtime
-  // ignores it entirely until M1 (which adds the typed color store + tint render
-  // site). The scalar hot path is therefore instruction-identical to v7.
+  // schemaVersion 8 (COLOR_PARAM_PLAN): `params` is a scalar|color union, split
+  // here into TWO parallel stores by kind. The scalar pair (paramDefs/paramValues)
+  // is unchanged from A9. The color pair mirrors it: `colorDefs` is the authored
+  // {default} lookup, `colorValues` holds each color param's CURRENT RGBA, each
+  // initialized to a COPY of its authored default (never aliasing the doc object —
+  // setColorParam mutates the stored copy in place, C3). Both kinds PERSIST across
+  // reset() and both join the determinism tuple (C3). `hasParams` is true when
+  // EITHER store is non-empty; it gates the event-driven push (pushParamMuls —
+  // construction + every effective setter) so a doc that declares no params keeps
+  // the pre-v8 hot path instruction-identical (every sim/render site reads null and
+  // takes its untouched code path). The scalar and color namespaces are
+  // INDEPENDENT: a name may exist in both kinds (the validator rejects this via
+  // E33/E34, but the runtime tolerates it), and each typed accessor resolves its
+  // own store — setParam/getParam the scalar one, setColorParam/getColorParam and
+  // the tintParam binding the color one — so neither kind shadows the other.
   private readonly paramDefs: Map<string, ScalarParamDef>;
   private readonly paramValues: Map<string, number>;
+  private readonly colorDefs: Map<string, ColorParamDef>;
+  private readonly colorValues: Map<string, RGBAColor>;
   private readonly hasParams: boolean;
 
   // Sub-emitter plan (schemaVersion 3, M8), built once at construction. `parents`
@@ -161,12 +173,20 @@ export class Effect {
     const params = doc.params ?? [];
     this.paramDefs = new Map();
     this.paramValues = new Map();
+    this.colorDefs = new Map();
+    this.colorValues = new Map();
     for (const def of params) {
-      if (def.kind === "color") continue; // M0: color params are inert (M1 owns them)
-      this.paramDefs.set(def.name, def);
-      this.paramValues.set(def.name, def.default);
+      if (def.kind === "color") {
+        this.colorDefs.set(def.name, def);
+        // Current value is a COPY of the authored default — never alias the doc
+        // object (setColorParam mutates the stored copy in place, C3).
+        this.colorValues.set(def.name, { r: def.default.r, g: def.default.g, b: def.default.b, a: def.default.a });
+      } else {
+        this.paramDefs.set(def.name, def);
+        this.paramValues.set(def.name, def.default);
+      }
     }
-    this.hasParams = this.paramDefs.size > 0;
+    this.hasParams = this.paramDefs.size > 0 || this.colorDefs.size > 0;
     this.effectSeed = (opts?.seed ?? doc.seed) >>> 0;
     this.ex = this.stepStartX = this.stepEndX = opts?.x ?? 0;
     this.ey = this.stepStartY = this.stepEndY = opts?.y ?? 0;
@@ -329,6 +349,47 @@ export class Effect {
     return v === undefined ? NaN : v;
   }
 
+  /**
+   * Drive a host-exposed COLOR parameter (schemaVersion 8, COLOR_PARAM_PLAN C3) —
+   * the typed sibling of `setParam`, mirroring VFX Graph's SetFloat/SetVector4
+   * split. Sets the current RGBA of the color param named `name`; the runtime then
+   * multiplies every layer whose `tintParam` binds it by this value on the finished
+   * color chain at render (gradient × startColor × bySpeed × TINT × opacityParam —
+   * the tint slot, C2). One color param can drive N layers ("one spell document, N
+   * element colors"). Semantics match `setParam`: an unknown `name` OR a name that
+   * belongs to a SCALAR param is a silent no-op (kind-mismatch tolerance = the
+   * unknown-name house rule); ANY non-finite channel rejects the WHOLE call (no
+   * partial write, mirroring the `setParam` non-finite no-op); otherwise each
+   * channel is clamped to [0,1] and written into the STORED RGBA in place (zero
+   * allocation). Tint is a render-path knob, so a set is FRAME-live — visible in
+   * the very next `computeRenderState` even while paused (`timeScale = 0`), no step
+   * needed. The value PERSISTS across `step()` and `reset()` (like scalar params /
+   * `_timeScale`) and joins the determinism tuple. See `getColorParam` to read it.
+   */
+  setColorParam(name: string, r: number, g: number, b: number, a: number): void {
+    const cur = this.colorValues.get(name);
+    if (cur === undefined) return; // unknown name OR a scalar-kind param — silent no-op
+    if (!Number.isFinite(r) || !Number.isFinite(g) || !Number.isFinite(b) || !Number.isFinite(a)) return; // any non-finite channel ⇒ whole call no-op
+    cur.r = clamp01(r);
+    cur.g = clamp01(g);
+    cur.b = clamp01(b);
+    cur.a = clamp01(a);
+    this.pushParamMuls(); // event-driven: re-resolves tintParam bindings; frame-live render
+  }
+
+  /**
+   * Current RGBA of the host color param `name` (schemaVersion 8, COLOR_PARAM_PLAN
+   * C3): the authored `default` until the host first calls `setColorParam`,
+   * thereafter the last clamped value. Returns a fresh COPY (mutating it never
+   * affects the effect — the store is mutated only through `setColorParam`).
+   * `null` for an unknown name or a SCALAR-kind param (kind-mismatch tolerance —
+   * the color sibling of `getParam`'s `NaN`). Persists across `reset()`.
+   */
+  getColorParam(name: string): RGBAColor | null {
+    const v = this.colorValues.get(name);
+    return v === undefined ? null : { r: v.r, g: v.g, b: v.b, a: v.a };
+  }
+
   /** Resolve a knob's `…Param` binding to its CURRENT multiplier, or `null` when
    * the knob is unbound OR names a param not declared in `params` (a dangling
    * binding the validator rejects via E32, tolerated at runtime by taking the
@@ -338,6 +399,21 @@ export class Effect {
   private paramMul(binding: string | null): number | null {
     if (binding === null) return null;
     const v = this.paramValues.get(binding);
+    return v === undefined ? null : v;
+  }
+
+  /** Resolve a layer's `tintParam` binding to its CURRENT RGBA multiplier, or
+   * `null` when the layer is unbound OR names a param that is not a declared COLOR
+   * param (unknown, or a scalar-kind name — a kind-mismatch the validator rejects
+   * via E34, tolerated at runtime by taking the untouched pre-v8 render path). The
+   * returned object is the STORED RGBA reference (runtime-owned, mutated in place
+   * by setColorParam), deliberately SHARED with the sim: a setColorParam is visible
+   * to render without a re-push. `null` is the "no multiply" signal render.ts
+   * gates on — never a multiply-by-white — so an unbound tint stays instruction-
+   * identical to pre-v8. */
+  private colorMul(binding: string | null): RGBAColor | null {
+    if (binding === null) return null;
+    const v = this.colorValues.get(binding);
     return v === undefined ? null : v;
   }
 
@@ -363,6 +439,12 @@ export class Effect {
       ls.gravityParamMul = this.paramMul(ls.layer.overLifetime.velocity.gravityParam);
       ls.sizeParamMul = this.paramMul(ls.layer.initial.sizeParam);
       ls.opacityParamMul = this.paramMul(ls.layer.opacityParam);
+      // schemaVersion 8: resolve the layer-level color tint. Shares the stored
+      // RGBA reference (mutated in place by setColorParam, so a set is visible to
+      // render without a re-push); STILL re-resolved here so an unbind/rebind and
+      // a kind-mismatch are handled uniformly, and the null-gated render path is
+      // restored when a binding dangles. Null ⇒ render.ts takes the pre-v8 path.
+      ls.tintParamMul = this.colorMul(ls.layer.tintParam);
     }
   }
 
