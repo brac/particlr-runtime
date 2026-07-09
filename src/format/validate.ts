@@ -732,11 +732,10 @@ function checkLayer(ctx: Ctx, v: unknown, path: string): void {
   checkOverLifetime(ctx, v.overLifetime, `${path}.overLifetime`);
 
   // A4 limit-velocity (schemaVersion 5); null = off. A deterministic constant/curve
-  // track (no range/randomBetweenCurves — checkScalarTrackNoRange, E27). The sim
-  // clamp lands in M1, so a non-null track is accepted but inert until then.
+  // track (no range/randomBetweenCurves — checkScalarTrackNoRange, E27). Behaves as
+  // of M1 (the sim velocity clamp), so it no longer draws an "unimplemented" warning.
   if (v.limitVelocity !== null && v.limitVelocity !== undefined) {
     checkScalarTrackNoRange(ctx, v.limitVelocity, `${path}.limitVelocity`);
-    warn(ctx, `${path}.limitVelocity`, "limitVelocity is not yet implemented by this build", "unimplemented");
   }
 
   // Simulation space + inherited velocity (schemaVersion 2).

@@ -474,6 +474,11 @@ export class LayerSim {
     const drag = ol.velocity.drag;
     const speedMul = ol.velocity.speedMultiplier;
     const rotTrack = ol.rotation;
+    // Limit velocity (schemaVersion 5, §0.3a / E27); null = off. A speed cap over
+    // ageNorm, applied to the stored velocity after drag. Hoisted like drag; the
+    // per-particle clamp below is gated on `limitVel !== null` so the null path is
+    // instruction-identical to before this milestone. Zero PRNG draws.
+    const limitVel = this.layer.limitVelocity;
 
     // Noise / turbulence (schemaVersion 3, §0.3). All config is hoisted out of
     // the loop; when the layer has no noise module the per-particle branch below
@@ -643,6 +648,25 @@ export class LayerSim {
         const f = Math.max(0, 1 - d * dt);
         vx *= f;
         vy *= f;
+      }
+      // Limit velocity (§0.3a, E27): a physical, persistent speed cap on the
+      // stored velocity, applied AFTER the drag block and BEFORE the
+      // speedMultiplier eval / position write — the normative order is
+      // gravity → attractor → drag → limitVelocity → speedMultiplier/position. It
+      // scales the SAME vx/vy locals that p.velX/velY are committed from below, so
+      // (like drag) the cap persists into the next step. `evalScalarTrack` takes
+      // the literal `0` uniform — limitVelocity is a range-forbidding track, so
+      // this draws no PRNG. `cap = 0` clamps speed to 0 (particles settle in place,
+      // valid per E27). Gated on `limitVel !== null` so the null path is
+      // instruction-identical.
+      if (limitVel !== null) {
+        const cap = Math.max(0, evalScalarTrack(limitVel, ageNorm, 0));
+        const speed = Math.sqrt(vx * vx + vy * vy);
+        if (speed > cap && speed > 1e-6) {
+          const s = cap / speed;
+          vx *= s;
+          vy *= s;
+        }
       }
       const sm = speedMul ? evalScalarTrack(speedMul, ageNorm, p.rand3[i]!) : 1;
       p.x[i] = p.x[i]! + vx * sm * dt;

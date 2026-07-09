@@ -6,6 +6,8 @@ exports[`preset snapshots (Gate 1) > blizzard.prt state @60 steps is stable 1`] 
 
 exports[`preset snapshots (Gate 1) > bubbles.prt state @60 steps is stable 1`] = `"d46dec4d"`;
 
+exports[`preset snapshots (Gate 1) > cinder-fall.prt state @60 steps is stable 1`] = `"73876d1b"`;
+
 exports[`preset snapshots (Gate 1) > coin-fountain.prt state @60 steps is stable 1`] = `"bc60a4ee"`;
 
 exports[`preset snapshots (Gate 1) > comet.prt state @60 steps is stable 1`] = `"126d090f"`;

@@ -255,9 +255,9 @@ describe("validator — A7 flipbook fields", () => {
   });
 });
 
-describe("validator — M0 unimplemented warnings fire for A4/A6/A7, NOT A5", () => {
-  it("A4 limitVelocity (non-null) warns unimplemented", () => {
-    expect(hasUnimpl((l) => (l.limitVelocity = { mode: "constant", value: 300 }), "layers[0].limitVelocity")).toBe(true);
+describe("validator — unimplemented warnings fire for A6/A7, NOT A4/A5", () => {
+  it("A4 limitVelocity (non-null) does NOT warn unimplemented (implemented in M1)", () => {
+    expect(hasUnimpl((l) => (l.limitVelocity = { mode: "constant", value: 300 }), "layers[0].limitVelocity")).toBe(false);
   });
   it("A6 hueJitter warns unimplemented", () => {
     expect(hasUnimpl((l) => (l.startColor = { mode: "hueJitter", degrees: 30 }), "layers[0].startColor.mode")).toBe(true);
@@ -385,7 +385,13 @@ describe("migrated-preset stateHash pin (v4 -> v5 is bit-inert)", () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const v4 = clone(v5) as any;
       v4.schemaVersion = 4;
-      for (const l of v4.layers) delete l.limitVelocity;
+      // Reconstruct the pre-bump v4 shape: strip only the INERT migration default
+      // (limitVelocity === null). A preset that intentionally uses A4's limitVelocity
+      // (a v5-native feature) keeps it — the migration spreads defaults-first and
+      // never clobbers a present value, so the migrated hash still matches the
+      // committed v5 (the pin proves migration adds inert defaults, not that it
+      // erases authored v5 features).
+      for (const l of v4.layers) if (l.limitVelocity === null) delete l.limitVelocity;
       const m = migrateToCurrent(v4);
       expect(m.ok).toBe(true);
       if (!m.ok) return;
