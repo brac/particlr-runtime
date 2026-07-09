@@ -268,6 +268,45 @@ byte-exact parity (the editor preview, the golden harness, and the
 (E25) — a trail on the same layer renders un-eroded through its separate mesh
 shader.
 
+#### Schema v5 — cheap wins (limit-velocity · random-between-curves · hue jitter · flipbook upgrades)
+
+schemaVersion 5 adds four companion features. Every one **reuses an
+already-drawn per-particle uniform**, so the batch adds **zero new PRNG draws and
+zero pool columns** — a v4 document migrates forward bit-identically
+(`limitVelocity` defaults `null`; a flipbook gains `randomStartFrame: false`,
+`frameOverLife: null`; the new track/startColor modes are opt-in enum values).
+
+- **`limitVelocity: ScalarTrack | null`** (per layer; constant/curve only — no
+  range/`randomBetweenCurves`, zero draws). A speed cap over particle ageNorm,
+  applied to **stored velocity** right after drag and before the position write,
+  so it persists and composes like drag: `speed = √(velX²+velY²)`; when
+  `speed > cap` the velocity is scaled down to `cap`. `cap = 0` freezes particles
+  in place (E27).
+- **`randomBetweenCurves` `ScalarTrack` mode** — `{ mode, a: CurveKey[], b:
+  CurveKey[] }`. Each particle draws a stable blend factor `r` for life and
+  evaluates `lerp(evalCurve(a, t), evalCurve(b, t), r)`, so the population reads as
+  a mix of two shapes. Valid **only** on the eight per-particle over-lifetime
+  tracks that own a reserved spawn uniform — `overLifetime.size`,
+  `overLifetime.rotation`, and `overLifetime.velocity.{drag, speedMultiplier, x, y,
+  orbital, radial}` — consuming the SAME uniform `range` does (hence no new draw).
+  The validator rejects it on `emission.rateOverTime` and every constant/curve-only
+  track.
+- **`hueJitter` `startColor` mode** — `{ mode, degrees }` (`degrees ∈ [0, 180]`),
+  mutually exclusive with the two-gradient/`palette` startColor modes. At spawn it
+  reuses the existing startColor uniform (draw 19) to store a per-particle hue
+  offset `∈ [−degrees, +degrees]`; at render it **hue-rotates** the over-lifetime
+  gradient colour per particle (alpha untouched) instead of multiplying a tint —
+  so a warm base reads as a natural spread of hues.
+- **Flipbook `randomStartFrame: boolean` + `frameOverLife: ScalarTrack | null`**
+  (both render-only, deterministic, NOT folded into the statehash). Frame-index
+  precedence (E30): `frameOverLife` — a deterministic 0..1 position across the
+  sheet evaluated over ageNorm — **overrides the mode entirely**; else
+  `mode: "random"` keeps its stable per-particle frame (`randomStartFrame`
+  ignored); else `loop`/`once` with `randomStartFrame` adds a per-particle start
+  offset (reusing the draw-13 frame uniform), then wraps (`loop`) or clamps
+  (`once`). With `randomStartFrame: false` and `frameOverLife: null` the frame is
+  exactly `⌊age·fps⌋`, byte-identical to v4.
+
 ### Behavioral guarantees (edge cases)
 
 | # | Case | Behavior |
@@ -281,6 +320,8 @@ shader.
 | E9 | serializing while playing | `serializeParticle` uses the authored document; playback state never serializes |
 | E15 | `teleportEmitter` (respawn/wrap) | jump with no velocity and no spawn interpolation across the gap; resets the distance accumulator |
 | E16 | prewarm on a world-space layer | prewarm runs at the initial emitter position with zero velocity; particles pile there |
+| E27 | `limitVelocity` `cap = 0` | clamps stored velocity to zero — particles settle in place (valid, not an error) |
+| E30 | flipbook frame precedence | `frameOverLife` (deterministic) > `mode:"random"` > `loop`/`once` + `randomStartFrame` |
 
 ## Pixi adapter (`@particlr/runtime/pixi`)
 

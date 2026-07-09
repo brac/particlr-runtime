@@ -363,11 +363,9 @@ function checkFlipbook(ctx: Ctx, v: unknown, path: string): void {
   if (!isBool(v.randomStartFrame)) err(ctx, `${path}.randomStartFrame`, "randomStartFrame must be a boolean");
   if (v.frameOverLife !== null && v.frameOverLife !== undefined)
     checkScalarTrackNoRange(ctx, v.frameOverLife, `${path}.frameOverLife`);
-  // Temporary M0 notice: the A7 flipbook upgrades land in M4 (render-only). Any
-  // non-inert use (randomStartFrame on, or a frameOverLife curve) is accepted but
-  // inert until then.
-  if (v.randomStartFrame === true || (v.frameOverLife !== null && v.frameOverLife !== undefined))
-    warn(ctx, path, "flipbook randomStartFrame / frameOverLife is not yet implemented by this build", "unimplemented");
+  // A7 flipbook upgrades behave as of M4 (render.ts flipbookFrame, E30
+  // precedence), so randomStartFrame / frameOverLife no longer draw the temporary
+  // "unimplemented" warning.
 }
 
 function checkTexture(ctx: Ctx, v: unknown, path: string): void {

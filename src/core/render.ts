@@ -54,15 +54,36 @@ export function makeRenderBuffers(capacity: number): LayerRenderBuffers {
   };
 }
 
-/** Flipbook frame index at a given particle age (plan §2.11). */
-export function flipbookFrame(fb: Flipbook | null, age: number, frameRand: number): number {
+/** Flipbook frame index at a given particle age (plan §2.11; A7 upgrades
+ * schemaVersion 5 §0.3d / E30). Deterministic and render-only: no PRNG draw
+ * (`frameRand` is the already-drawn draw-13 uniform; `frameOverLife` reuses no
+ * uniform) and no statehash contribution. Precedence (locked, E30):
+ *   1. `frameOverLife !== null` — deterministic position over life, OVERRIDES
+ *      the mode entirely (track value is a normalized 0..1 position across the
+ *      sheet).
+ *   2. `mode === "random"` — stable per-particle random frame; `randomStartFrame`
+ *      is ignored (already per-particle random).
+ *   3. `loop`/`once` + `randomStartFrame` — a per-particle start offset from
+ *      `frameRand`. With `randomStartFrame === false` the base is exactly
+ *      ⌊age·fps⌋ — bitwise-identical to the pre-A7 function (the whole plan's
+ *      null-pin invariant). */
+export function flipbookFrame(fb: Flipbook | null, age: number, ageNorm: number, frameRand: number): number {
   if (!fb) return 0;
   const total = fb.cols * fb.rows;
   if (total <= 1) return 0;
+  // (1) frameOverLife: clamp(⌊v·total⌋, 0, total−1) where v is the track value
+  // at ageNorm (evaluated with a literal 0 uniform — deterministic, zero draws).
+  if (fb.frameOverLife !== null) {
+    const frame = Math.floor(evalScalarTrack(fb.frameOverLife, ageNorm, 0) * total);
+    return Math.min(total - 1, Math.max(0, frame));
+  }
+  // (2) random: unchanged stable frame from the draw-13 uniform.
   if (fb.mode === "random") return Math.min(total - 1, Math.floor(frameRand * total));
-  const idx = Math.floor(age * fb.fps);
-  if (fb.mode === "once") return Math.min(idx, total - 1);
-  return ((idx % total) + total) % total; // loop
+  // (3) loop/once. The `false` branch is the exact pre-A7 expression (no float
+  // re-ordering); the `true` branch adds a per-particle ⌊frameRand·total⌋ offset.
+  const base = fb.randomStartFrame ? Math.floor(age * fb.fps) + Math.floor(frameRand * total) : Math.floor(age * fb.fps);
+  if (fb.mode === "once") return Math.min(base, total - 1);
+  return ((base % total) + total) % total; // loop
 }
 
 export function computeRenderState(ls: LayerSim, buf: LayerRenderBuffers): void {
@@ -161,7 +182,7 @@ export function computeRenderState(ls: LayerSim, buf: LayerRenderBuffers): void 
       }
     }
 
-    buf.frame[i] = flipbookFrame(frames, age, p.frameRand[i]!);
+    buf.frame[i] = flipbookFrame(frames, age, t, p.frameRand[i]!);
   }
 
   // Velocity-aligned rendering + speed stretch (schemaVersion 3). Written in a

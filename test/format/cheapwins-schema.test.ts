@@ -255,21 +255,32 @@ describe("validator — A7 flipbook fields", () => {
   });
 });
 
-describe("validator — unimplemented warnings fire for A7, NOT A4/A5/A6", () => {
-  it("A4 limitVelocity (non-null) does NOT warn unimplemented (implemented in M1)", () => {
+describe("no unimplemented warnings remain (A4/A5/A6/A7 all live)", () => {
+  // The entire v5 batch has landed (A4 M1, A5 M0 evaluator + M2 authoring, A6 M3,
+  // A7 M4 render). No feature in the plan draws an "unimplemented" warning anymore.
+  it("A4 limitVelocity (non-null) does NOT warn unimplemented (M1)", () => {
     expect(hasUnimpl((l) => (l.limitVelocity = { mode: "constant", value: 300 }), "layers[0].limitVelocity")).toBe(false);
   });
-  it("A6 hueJitter does NOT warn unimplemented (implemented in M3)", () => {
+  it("A6 hueJitter does NOT warn unimplemented (M3)", () => {
     expect(hasUnimpl((l) => (l.startColor = { mode: "hueJitter", degrees: 30 }), "layers[0].startColor.mode")).toBe(false);
   });
-  it("A7 flipbook randomStartFrame:true warns unimplemented", () => {
-    expect(hasUnimpl((l) => (l.texture = { ref: "spark", frames: { cols: 2, rows: 2, fps: 12, mode: "loop", randomStartFrame: true, frameOverLife: null } }), "layers[0].texture.frames")).toBe(true);
+  it("A7 flipbook randomStartFrame:true does NOT warn unimplemented (M4)", () => {
+    expect(hasUnimpl((l) => (l.texture = { ref: "spark", frames: { cols: 2, rows: 2, fps: 12, mode: "loop", randomStartFrame: true, frameOverLife: null } }), "layers[0].texture.frames")).toBe(false);
   });
-  it("A7 flipbook frameOverLife (non-null) warns unimplemented", () => {
-    expect(hasUnimpl((l) => (l.texture = { ref: "spark", frames: { cols: 2, rows: 2, fps: 12, mode: "loop", randomStartFrame: false, frameOverLife: { mode: "constant", value: 0.5 } } }), "layers[0].texture.frames")).toBe(true);
+  it("A7 flipbook frameOverLife (non-null) does NOT warn unimplemented (M4)", () => {
+    expect(hasUnimpl((l) => (l.texture = { ref: "spark", frames: { cols: 2, rows: 2, fps: 12, mode: "loop", randomStartFrame: false, frameOverLife: { mode: "constant", value: 0.5 } } }), "layers[0].texture.frames")).toBe(false);
   });
   it("A5 randomBetweenCurves does NOT warn unimplemented", () => {
     expect(warnsWith((l) => (l.overLifetime.size = rbc())).some((w) => w.code === "unimplemented")).toBe(false);
+  });
+  it("a layer touching all four v5 features fires NO unimplemented warning anywhere", () => {
+    const warns = warnsWith((l) => {
+      l.limitVelocity = { mode: "constant", value: 300 };
+      l.overLifetime.size = rbc();
+      l.startColor = { mode: "hueJitter", degrees: 30 };
+      l.texture = { ref: "spark", frames: { cols: 2, rows: 2, fps: 12, mode: "loop", randomStartFrame: true, frameOverLife: { mode: "constant", value: 0.5 } } };
+    });
+    expect(warns.some((w) => w.code === "unimplemented")).toBe(false);
   });
   it("an inert v5 layer (all defaults) fires no unimplemented warnings", () => {
     expect(validateParticle(makeDoc()).ok).toBe(true);

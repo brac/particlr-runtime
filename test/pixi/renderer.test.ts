@@ -200,10 +200,12 @@ const uvsDynamic = (pc: ParticleContainer): boolean =>
 // frame-advance mechanism is texture-agnostic, so a built-in gives us the whole
 // pipeline synchronously (no async decode). Pin circle-soft (64×64) so cells are
 // a clean 32×32 — rain's own `spark` texture is 64×16.
-function flipbookDoc(fb: Flipbook) {
+function flipbookDoc(fb: Partial<Flipbook> & Pick<Flipbook, "cols" | "rows" | "fps" | "mode">) {
   const doc = loadDoc("rain");
   doc.layers[0]!.texture.ref = "circle-soft";
-  doc.layers[0]!.texture.frames = fb;
+  // Inject the A7 v5 defaults (inert null-pin path) unless a caller overrides them,
+  // so these pre-A7 slicing / frame-advance fixtures keep exercising ⌊age·fps⌋.
+  doc.layers[0]!.texture.frames = { randomStartFrame: false, frameOverLife: null, ...fb };
   return doc;
 }
 
@@ -311,7 +313,7 @@ describe("PixiParticleRenderer — flipbook rendering (P4.1)", () => {
     const doc = loadDoc("rain");
     doc.layers[0]!.texture.ref = "user:fb";
     doc.textures = { fb: "data:image/png;base64,PLACEHOLDER-fb" };
-    doc.layers[0]!.texture.frames = { cols: 2, rows: 2, fps: 10, mode: "loop" };
+    doc.layers[0]!.texture.frames = { cols: 2, rows: 2, fps: 10, mode: "loop", randomStartFrame: false, frameOverLife: null };
     const fx = new Effect(doc, { seed: doc.seed });
     const r = new PixiParticleRenderer(fx, { loadTexture: async () => fakeTexture(128) });
 
