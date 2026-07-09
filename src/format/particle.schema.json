@@ -7,7 +7,7 @@
       "properties": {
         "schemaVersion": {
           "type": "number",
-          "const": 6
+          "const": 7
         },
         "meta": {
           "$ref": "#/definitions/ParticleMeta"
@@ -303,8 +303,10 @@
         "normal",
         "add",
         "multiply",
-        "screen"
-      ]
+        "screen",
+        "erase"
+      ],
+      "description": "Per-layer compositing mode. `erase` (schemaVersion 7, B8) is Pixi v8's native `'erase'`: the layer subtracts destination alpha (weighted by its own source alpha) in the target it draws into, cutting negative-space holes in the layers drawn before it (layer order = draw order). Render-pipeline state only — zero sim impact, zero PRNG draws (blend never reaches the core)."
     },
     "TextureRef": {
       "type": "object",

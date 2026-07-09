@@ -2,7 +2,12 @@
 // the JSON Schema (particle.schema.json) is generated from them, and no editor
 // control or runtime behavior may exist unless it is expressible here.
 
-export type BlendMode = "normal" | "add" | "multiply" | "screen";
+/** Per-layer compositing mode. `erase` (schemaVersion 7, B8) is Pixi v8's native
+ * `'erase'`: the layer subtracts destination alpha (weighted by its own source
+ * alpha) in the target it draws into, cutting negative-space holes in the layers
+ * drawn before it (layer order = draw order). Render-pipeline state only — zero
+ * sim impact, zero PRNG draws (blend never reaches the core). */
+export type BlendMode = "normal" | "add" | "multiply" | "screen" | "erase";
 export type EmitFrom = "volume" | "surface";
 export type Ease = "linear" | "easeIn" | "easeOut" | "easeInOut" | "step";
 /** The frame a layer's particles simulate in (schemaVersion 2). `local`:
@@ -422,7 +427,7 @@ export interface ParamDef {
 }
 
 export interface ParticleDoc {
-  schemaVersion: 6;
+  schemaVersion: 7;
   meta: ParticleMeta;
   duration: number;
   looping: boolean;
@@ -446,7 +451,7 @@ export const BUILTIN_TEXTURE_IDS = [
 
 export type BuiltinTextureId = (typeof BUILTIN_TEXTURE_IDS)[number];
 
-export const BLEND_MODES: readonly BlendMode[] = ["normal", "add", "multiply", "screen"];
+export const BLEND_MODES: readonly BlendMode[] = ["normal", "add", "multiply", "screen", "erase"];
 export const EMIT_FROM: readonly EmitFrom[] = ["volume", "surface"];
 export const EASES: readonly Ease[] = ["linear", "easeIn", "easeOut", "easeInOut", "step"];
 export const FLIPBOOK_MODES: readonly Flipbook["mode"][] = ["loop", "once", "random"];
@@ -457,4 +462,4 @@ export const SUB_TRIGGERS: readonly SubTrigger[] = ["birth", "death", "collision
 export const ATTRACTOR_FALLOFFS: readonly AttractorFalloff[] = ["none", "linear", "smooth"];
 
 /** Current schema version this build understands. */
-export const CURRENT_SCHEMA_VERSION = 6;
+export const CURRENT_SCHEMA_VERSION = 7;

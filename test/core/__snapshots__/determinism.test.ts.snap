@@ -38,6 +38,8 @@ exports[`preset snapshots (Gate 1) > fireworks.prt state @60 steps is stable 1`]
 
 exports[`preset snapshots (Gate 1) > fog-bank.prt state @60 steps is stable 1`] = `"8ac13984"`;
 
+exports[`preset snapshots (Gate 1) > fog-reveal.prt state @60 steps is stable 1`] = `"0acb22e3"`;
+
 exports[`preset snapshots (Gate 1) > foliage-drift.prt state @60 steps is stable 1`] = `"e7d4c71b"`;
 
 exports[`preset snapshots (Gate 1) > geyser.prt state @60 steps is stable 1`] = `"a1200769"`;

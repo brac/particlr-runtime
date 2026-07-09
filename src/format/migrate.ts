@@ -89,6 +89,14 @@ export const MIGRATIONS: Record<number, (doc: any) => any> = {
     schemaVersion: 6,
     layers: Array.isArray(doc.layers) ? doc.layers.map(migrateLayer5to6) : doc.layers,
   }),
+
+  // v6 -> v7: the `erase` blend mode (B8_PLAN §0.2). A pure enum extension on the
+  // existing `Layer.blend` field — no new fields, no layer walk. A v6 document
+  // has a valid v7 blend value already, so this is an IDENTITY restamp: spread
+  // the original first, then bump the version. Bit-inert (blend is render-pipeline
+  // only; nothing in the sim reads it), pinned by the migration-identity test.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  6: (doc: any) => ({ ...doc, schemaVersion: 7 }),
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
