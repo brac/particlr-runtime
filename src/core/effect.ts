@@ -190,7 +190,19 @@ export class Effect {
     this.effectSeed = (opts?.seed ?? doc.seed) >>> 0;
     this.ex = this.stepStartX = this.stepEndX = opts?.x ?? 0;
     this.ey = this.stepStartY = this.stepEndY = opts?.y ?? 0;
-    this.sims = doc.layers.map((layer, i) => new LayerSim(layer, deriveLayerSeed(this.effectSeed, i)));
+    // Inherit-color targets (schemaVersion 9, RIBBON_INHERIT_PLAN I3): a child
+    // layer allocates its inherit-RGBA columns iff some sibling ref names it with
+    // `inheritColor`. This is CROSS-layer (a layer's own config never declares it),
+    // so resolve the target set here, before the sims are built. Empty for every doc
+    // with no inheriting ref, so no existing document allocates the columns.
+    const inhColorTargets = new Set<string>();
+    for (const l of doc.layers) {
+      const subs = l.subEmitters;
+      if (subs !== null) for (const s of subs) if (s.inheritColor) inhColorTargets.add(s.layerId);
+    }
+    this.sims = doc.layers.map(
+      (layer, i) => new LayerSim(layer, deriveLayerSeed(this.effectSeed, i), inhColorTargets.has(layer.id)),
+    );
     this.buildSubEmitterPlan();
     // A9: seed the sims' bound-knob multipliers from the authored defaults BEFORE
     // prewarm, so prewarm spawns and a pre-first-step render both honor them.
@@ -230,7 +242,16 @@ export class Effect {
         else this.wantCollision[index] = true;
         entries.push({ entry, child, eventCode });
       }
-      if (entries.length > 0) this.parents.push({ index, sim, entries });
+      if (entries.length > 0) {
+        // I4 capture gate: this parent captures the six inherit floats onto every
+        // event iff ANY of its resolvable refs inherits some property. Computed ONCE
+        // here (constant per layer); a non-inheriting parent keeps its flat M8
+        // scratch. Flags may be undefined on hand-built refs ⇒ falsy ⇒ no capture.
+        sim.captureInherit = entries.some(
+          ({ entry }) => entry.inheritColor === true || entry.inheritSize === true || entry.inheritRotation === true,
+        );
+        this.parents.push({ index, sim, entries });
+      }
     });
   }
 
@@ -567,6 +588,9 @@ export class Effect {
       // reset(seed) is honored (deriveLayerSeed is cheap and pure).
       const parentLayerSeed = deriveLayerSeed(this.effectSeed, parent.index);
       const parentLocal = parent.sim.layer.space === "local";
+      // Event record stride (v9 I4): 11 when this parent captured the six inherit
+      // floats, else the flat M8 quintuple (5). Constant per parent.
+      const stride = parent.sim.captureInherit ? 11 : 5;
       for (const { entry, child, eventCode } of parent.entries) {
         const scratch =
           eventCode === EVENT_BIRTH
@@ -576,7 +600,13 @@ export class Effect {
               : parent.sim.collisionEvents;
         if (scratch === null || scratch.length === 0) continue;
         const childLocal = child.layer.space === "local";
-        for (let e = 0; e + 4 < scratch.length; e += 5) {
+        // Which inherit flags THIS ref applies (I3); undefined ⇒ false. A ref that
+        // inherits nothing on a capturing parent reads identity values below, so a
+        // mixed parent (one inheriting ref, one not) feeds each child per its own ref.
+        const inhSizeF = entry.inheritSize === true;
+        const inhRotF = entry.inheritRotation === true;
+        const inhColF = entry.inheritColor === true;
+        for (let e = 0; e + stride <= scratch.length; e += stride) {
           const ex = scratch[e]!;
           const ey = scratch[e + 1]!;
           const evx = scratch[e + 2]!;
@@ -606,7 +636,27 @@ export class Effect {
           }
           const bvx = entry.inheritVelocity * evx;
           const bvy = entry.inheritVelocity * evy;
-          for (let k = 0; k < entry.count; k++) child.spawnFrom(rng, ox, oy, bvx, bvy);
+          // Inherited-property values for this event (v9 I3), each resolved per the
+          // ref's flag from the captured tail (present iff stride === 11) and left
+          // at its identity (1 / 0) otherwise — so a non-capturing parent or an
+          // opted-out flag bakes nothing and the child is byte-identical.
+          let inhSize = 1;
+          let inhRot = 0;
+          let inhR = 1;
+          let inhG = 1;
+          let inhB = 1;
+          let inhA = 1;
+          if (stride === 11) {
+            if (inhSizeF) inhSize = scratch[e + 5]!;
+            if (inhRotF) inhRot = scratch[e + 6]!;
+            if (inhColF) {
+              inhR = scratch[e + 7]!;
+              inhG = scratch[e + 8]!;
+              inhB = scratch[e + 9]!;
+              inhA = scratch[e + 10]!;
+            }
+          }
+          for (let k = 0; k < entry.count; k++) child.spawnFrom(rng, ox, oy, bvx, bvy, inhSize, inhRot, inhR, inhG, inhB, inhA);
         }
       }
     }

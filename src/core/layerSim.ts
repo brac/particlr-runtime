@@ -4,7 +4,7 @@
 // how to make one particle and how to advance the ones it has.
 import type { Layer, RGBAColor } from "../format/types.js";
 import { mulberry32, type Rng } from "./prng.js";
-import { drawScalarInit, evalScalarTrack, evalGradient, type RGBA } from "./tracks.js";
+import { drawScalarInit, evalScalarTrack, evalGradient, hueRotateRGB, type RGBA } from "./tracks.js";
 import { ParticlePool } from "./pool.js";
 import { sampleShape } from "./shapes.js";
 import { buildMaskSampler, type MaskSampler } from "./maskSampler.js";
@@ -24,6 +24,10 @@ const NOISE_SEED_OFFSET = 0x9e3779b9;
 // module-level temporaries avoids a per-spawn allocation.
 const SC_A: RGBA = { r: 0, g: 0, b: 0, a: 0 };
 const SC_B: RGBA = { r: 0, g: 0, b: 0, a: 0 };
+// Reusable scratch for a sub-emitter inheritance capture (v9 I4): the parent's
+// sim-side color is evaluated into it once per captured event. Synchronous and
+// non-reentrant like the spawn scratches above.
+const IC: RGBA = { r: 0, g: 0, b: 0, a: 0 };
 
 export class LayerSim {
   readonly layer: Layer;
@@ -115,10 +119,22 @@ export class LayerSim {
   recordBirthEvents = false;
   recordDeathEvents = false;
   recordCollisionEvents = false;
+  /** Sub-emitter inheritance capture gate (schemaVersion 9, RIBBON_INHERIT_PLAN
+   * I4). Set ONCE by the Effect (buildSubEmitterPlan) iff this parent layer owns
+   * ≥1 ref with any inherit flag; when true every recorded event carries SIX extra
+   * floats after the quintuple — the captured size FACTOR, rotation deg, and RGBA
+   * (§pushInherit) — so the flat quintuple (stride 5) grows to stride 11. False for
+   * every non-inheriting parent, so its scratch stays flat and capture does no work
+   * (the null-path pattern). Constant per layer, so unlike the record flags the
+   * Effect never toggles it per step. */
+  captureInherit = false;
   /** Per-layer event scratches (schemaVersion 3, M8). Flat quintuples
    * `[x, y, vx, vy, ordinal]`: the event particle's position, stored velocity, and
    * its STABLE monotone ordinal (`pool.ordinal` — not the live index, which
-   * swap-remove can reassign before the Effect reads the scratch). A plain
+   * swap-remove can reassign before the Effect reads the scratch). When
+   * `captureInherit` is set (v9 I4) each record grows to an 11-tuple, appending the
+   * six captured inherit floats (size factor, rotation, r, g, b, a — §pushInherit);
+   * the Effect reads the matching stride. A plain
    * `number[]` (not a typed array) because the per-step event count is unbounded a
    * priori and `length = 0` reuse keeps it allocation-free after warming to the
    * per-step high-water mark. NULL until the first recorded event of that kind, so
@@ -144,7 +160,7 @@ export class LayerSim {
    * carries no per-run state, so reset() does not rebuild it. */
   private readonly maskSampler: MaskSampler | null;
 
-  constructor(layer: Layer, layerSeed: number) {
+  constructor(layer: Layer, layerSeed: number, inheritColorTarget = false) {
     this.layer = layer;
     // Optional pool columns are allocated only for the modules this layer uses
     // (§0.2): a layer with every schemaVersion-3 module null keeps the exact v2
@@ -174,6 +190,10 @@ export class LayerSim {
       // (not `=== "perParticle"`) keeps a legacy trail with an absent mode on the
       // per-particle path.
       trailMaxPoints: layer.trail !== null && layer.trail.mode !== "connect" ? layer.trail.maxPoints : 0,
+      // Inherit-color RGBA columns (v9 I3): allocated iff a sibling layer's
+      // sub-emitter ref names THIS layer with inheritColor (the Effect resolves the
+      // cross-layer target set and passes the flag in). Zero-cost otherwise.
+      inheritColor: inheritColorTarget,
     });
     this.rng = mulberry32(layerSeed);
     this.layerSeed = layerSeed;
@@ -296,7 +316,9 @@ export class LayerSim {
    * and, when `arcT` overrides it, simply discarded (§0.2, M4).
    */
   spawn(f = 1, arcT = -1): boolean {
-    return this.spawnImpl(this.rng, f, arcT, false, 0, 0, 0, 0);
+    // Own spawns pass the identity inherit tuple (size ×1, rotation +0, RGBA 1) so
+    // the pre-v9 spawn body is byte-identical (the multiply/add are gated off).
+    return this.spawnImpl(this.rng, f, arcT, false, 0, 0, 0, 0, 1, 0, 1, 1, 1, 1);
   }
 
   /**
@@ -315,9 +337,30 @@ export class LayerSim {
    * state is itself a deterministic function of the seed and dt sequence, so
    * early-return-before-draws consumes a deterministic number of draws per event.
    * Sub-emitter spawns never fire an arc sweep, so `arcT` is always -1.
+   *
+   * `inhSize`/`inhRot`/`inhR..inhA` carry the inherited-property application (v9
+   * I3): the drawn size is multiplied by `inhSize` and the drawn rotation gets
+   * `inhRot` added (both baked into pool state, both gated off at the identity
+   * values 1 / 0 so a non-inheriting child is byte-identical), and the RGBA is
+   * written into the inherit-color columns when they exist (else discarded). The
+   * caller resolves each per the child ref's flags, defaulting to identity — so
+   * `spawnFrom(rng, ox, oy, bvx, bvy)` is the pre-v9 no-inherit call unchanged.
+   * Applied AFTER every draw, so the PRNG stream is untouched (A9 discipline).
    */
-  spawnFrom(rng: Rng, ox: number, oy: number, bvx: number, bvy: number): boolean {
-    return this.spawnImpl(rng, 1, -1, true, ox, oy, bvx, bvy);
+  spawnFrom(
+    rng: Rng,
+    ox: number,
+    oy: number,
+    bvx: number,
+    bvy: number,
+    inhSize = 1,
+    inhRot = 0,
+    inhR = 1,
+    inhG = 1,
+    inhB = 1,
+    inhA = 1,
+  ): boolean {
+    return this.spawnImpl(rng, 1, -1, true, ox, oy, bvx, bvy, inhSize, inhRot, inhR, inhG, inhB, inhA);
   }
 
   // Shared spawn body for both the own-emission path (`spawn`) and the sub-emitter
@@ -329,7 +372,7 @@ export class LayerSim {
   // along the emitter segment (world space) or stays local. Byte-identical to the
   // pre-M8 `spawn()` when `fromEvent` is false (the ordinal branch and the birth
   // recorder are both no-ops for a non-parent layer).
-  private spawnImpl(rng: Rng, f: number, arcT: number, fromEvent: boolean, ox: number, oy: number, bvx: number, bvy: number): boolean {
+  private spawnImpl(rng: Rng, f: number, arcT: number, fromEvent: boolean, ox: number, oy: number, bvx: number, bvy: number, inhSize: number, inhRot: number, inhR: number, inhG: number, inhB: number, inhA: number): boolean {
     const p = this.pool;
     if (p.count >= p.capacity) {
       this.capped = true;
@@ -344,8 +387,8 @@ export class LayerSim {
     // 3) life, speed, size, rotation, angularVelocity (1 draw each, always)
     let life = drawScalarInit(init.life, rng);
     let speed = drawScalarInit(init.speed, rng);
-    const size = drawScalarInit(init.size, rng);
-    const rot = drawScalarInit(init.rotation, rng);
+    let size = drawScalarInit(init.size, rng);
+    let rot = drawScalarInit(init.rotation, rng);
     const angVel = drawScalarInit(init.angularVelocity, rng);
     // A9 host params (schemaVersion 6): scale the DRAWN life/speed by their bound
     // param AFTER the draw — the PRNG stream is untouched (zero new draws), so a
@@ -459,6 +502,13 @@ export class LayerSim {
       py += oy;
       vx += bvx;
       vy += bvy;
+      // Inherited-property application (v9 I3), AFTER every draw so the PRNG stream
+      // is untouched. Each is gated at its identity value (1 / 0) so a
+      // non-inheriting event child bakes nothing and stays byte-identical (in
+      // particular `rot += 0` never flips a -0 rotation). inheritSize bakes into
+      // sizeInit; inheritRotation is additive; inheritColor is handled at the write.
+      if (inhSize !== 1) size *= inhSize;
+      if (inhRot !== 0) rot += inhRot;
     } else if (this.layer.space === "world") {
       // Spawn at the emitter's interpolated position along this step's segment,
       // and inherit a fraction of its velocity (schemaVersion 2). For a
@@ -495,6 +545,16 @@ export class LayerSim {
       p.tintA![i] = tintA;
     }
     if (p.flipBits !== null) p.flipBits[i] = flipBits;
+    // Inherit-color RGBA (v9 I3): written whenever the columns exist — the captured
+    // parent RGBA for a child of an inheritColor ref, else the neutral 1,1,1,1
+    // (an own spawn or a non-color event child), so those render unchanged. The
+    // render multiply is null-gated on the same columns.
+    if (p.inhR !== null) {
+      p.inhR[i] = inhR;
+      p.inhG![i] = inhG;
+      p.inhB![i] = inhB;
+      p.inhA![i] = inhA;
+    }
     // Record the spawn position as the trail's first (head) point (§M9). Uses the
     // FINAL spawn coordinates (px, py — post world/event offset), so the ribbon
     // starts exactly where the particle renders. Zero draws; no-op without a trail.
@@ -513,9 +573,48 @@ export class LayerSim {
     // are `fromEvent`). Gated on the recorder, which the Effect keeps false unless
     // this layer feeds a birth-trigger sub-emitter and it is not prewarming (E19).
     if (!fromEvent && this.recordBirthEvents) {
-      (this.birthEvents ??= []).push(px, py, vx, vy, ordinal);
+      const arr = (this.birthEvents ??= []);
+      arr.push(px, py, vx, vy, ordinal);
+      if (this.captureInherit) this.pushInherit(arr, i);
     }
     return true;
+  }
+
+  /**
+   * Append the six captured inherit floats (size FACTOR, rotation deg, r, g, b, a)
+   * to an event scratch (schemaVersion 9, RIBBON_INHERIT_PLAN I4). Called ONLY when
+   * `captureInherit` is set, so a non-inheriting parent's scratch stays the flat
+   * M8 quintuple. Reads the parent particle's state AT THE EVENT MOMENT (index `i`,
+   * its current stored age/rotation/tint):
+   *  - size = the dimensionless over-life size FACTOR `evalScalarTrack(ol.size, t,
+   *    rand0)` (1 when the track is null) — NOT the px size (I2 dimensional
+   *    soundness);
+   *  - rotation = the current stored rotation in degrees;
+   *  - RGBA = the sim-side color: the over-life gradient at `t` × the startColor
+   *    tint INCLUDING the hueJitter hue rotation (reused exactly as render.ts does),
+   *    EXCLUDING bySpeed and host params (render-only surfaces, documented).
+   * `t` is the same `min(1, age/lifetime)` render uses, so a birth captures at t=0,
+   * a death at t≈1, a collision at its mid-step age. Zero PRNG draws.
+   */
+  private pushInherit(arr: number[], i: number): void {
+    const p = this.pool;
+    const ol = this.layer.overLifetime;
+    const lifetime = p.lifetime[i]!;
+    const t = lifetime > 0 ? Math.min(1, p.age[i]! / lifetime) : 1;
+    const sizeFactor = ol.size !== null ? evalScalarTrack(ol.size, t, p.rand0[i]!) : 1;
+    const rot = p.rotation[i]!;
+    evalGradient(ol.color, t, IC);
+    const startColor = this.layer.startColor;
+    if (startColor !== null && startColor.mode === "hueJitter") {
+      const off = p.tintR![i]!;
+      if (off !== 0) hueRotateRGB(IC.r, IC.g, IC.b, off, IC);
+    } else if (startColor !== null) {
+      IC.r *= p.tintR![i]!;
+      IC.g *= p.tintG![i]!;
+      IC.b *= p.tintB![i]!;
+      IC.a *= p.tintA![i]!;
+    }
+    arr.push(sizeFactor, rot, IC.r, IC.g, IC.b, IC.a);
   }
 
   /** Advance all live particles by dt (§2.4 motion, §2.5 rotation, age/kill). */
@@ -804,7 +903,9 @@ export class LayerSim {
             // this scratch, so `i` is not a durable identity. A layer that records
             // collision events is a sub-emitter parent, so the ordinal column exists.
             const ord = p.ordinal !== null ? p.ordinal[i]! : 0;
-            (this.collisionEvents ??= []).push(cx, cy, vx, vy, ord);
+            const arr = (this.collisionEvents ??= []);
+            arr.push(cx, cy, vx, vy, ord);
+            if (this.captureInherit) this.pushInherit(arr, i); // v9 I4: 6 extra floats
           }
         }
       }
@@ -894,7 +995,9 @@ export class LayerSim {
         // feeds a death-trigger sub-emitter and it is not prewarming, E19).
         if (this.recordDeathEvents) {
           const ord = p.ordinal !== null ? p.ordinal[i]! : 0;
-          (this.deathEvents ??= []).push(p.x[i]!, p.y[i]!, p.velX[i]!, p.velY[i]!, ord);
+          const arr = (this.deathEvents ??= []);
+          arr.push(p.x[i]!, p.y[i]!, p.velX[i]!, p.velY[i]!, ord);
+          if (this.captureInherit) this.pushInherit(arr, i); // v9 I4: 6 extra floats
         }
         p.kill(i); // swap-remove; re-check slot i without advancing
       } else {

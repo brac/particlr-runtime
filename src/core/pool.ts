@@ -37,6 +37,15 @@ export interface PoolFlags {
    * trail module; the store's pts/head/len are registered as STRIDED columns so
    * swap-remove kill() moves a whole particle's ring block. Draws nothing. */
   trailMaxPoints?: number;
+  /** Per-particle inherit-color RGBA columns (schemaVersion 9,
+   * RIBBON_INHERIT_PLAN I3). Set iff this layer is the target of ≥1 `inheritColor`
+   * sub-emitter ref — a CROSS-layer property the Effect resolves (a child layer's
+   * own config never names it), so this flag is passed into the LayerSim
+   * constructor, not derived from `layer`. Draws nothing: each column is written at
+   * spawn from the captured event RGBA (else the neutral 1), and a render-time
+   * multiply on the finished color chain (after startColor, before bySpeed)
+   * consumes it. No existing document sets it, so the pool footprint is unchanged. */
+  inheritColor?: boolean;
 }
 
 export class ParticlePool {
@@ -92,6 +101,18 @@ export class ParticlePool {
    * arrays are registered as STRIDED columns, so swap-remove kill() moves a whole
    * particle's block and the trail follows its particle. */
   readonly trail: TrailStore | null;
+  /** Per-particle inherit-color RGBA (schemaVersion 9, RIBBON_INHERIT_PLAN I3);
+   * each null unless this layer is the target of ≥1 `inheritColor` sub-emitter ref.
+   * A render-time multiply on the finished color chain (the slot after startColor,
+   * before bySpeed). Written at every spawn — the captured parent RGBA for a child
+   * of an inheritColor ref, else the neutral 1,1,1,1 — so an own spawn or a
+   * non-color event child renders unchanged. Survive swap-remove like every column.
+   * NOT drawn (no PRNG) and NOT folded by _statehash (render-only derived state,
+   * like a bySpeed remap); the sim-visible inherit effects live in sizeInit/rotation. */
+  readonly inhR: Float32Array | null;
+  readonly inhG: Float32Array | null;
+  readonly inhB: Float32Array | null;
+  readonly inhA: Float32Array | null;
 
   // Float32 columns plus the single Uint8 flipBits column and the Uint32 ordinal
   // column are swap-removed together; all typed arrays support numeric index
@@ -147,6 +168,13 @@ export class ParticlePool {
     // Sub-emitter spawn ordinal (M8): one Uint32 column carried by swap-remove.
     this.ordinal = flags.ordinal ? new Uint32Array(capacity) : null;
     if (this.ordinal) this.all.push(this.ordinal);
+    // Inherit-color RGBA (v9, I3): four Float32 columns, allocated together only
+    // for an inheritColor-target layer and carried by swap-remove.
+    this.inhR = flags.inheritColor ? mk() : null;
+    this.inhG = flags.inheritColor ? mk() : null;
+    this.inhB = flags.inheritColor ? mk() : null;
+    this.inhA = flags.inheritColor ? mk() : null;
+    if (this.inhR) this.all.push(this.inhR, this.inhG!, this.inhB!, this.inhA!);
     // Per-particle trail ring buffer (M9): allocated only when the layer has a
     // trail module. pts is strided (maxPoints·2 floats/particle); head and len
     // are stride-1 columns carried by the same swap-remove block copy.

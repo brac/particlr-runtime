@@ -389,7 +389,7 @@ zero pool columns** — a v4 document migrates forward bit-identically
   (`once`). With `randomStartFrame: false` and `frameOverLife: null` the frame is
   exactly `⌊age·fps⌋`, byte-identical to v4.
 
-#### Schema v9 — connect-ribbon trail mode
+#### Schema v9 — connect-ribbon trail mode + sub-emitter inheritance
 
 schemaVersion 9 adds `trail.mode: "perParticle" | "connect"` (migration injects
 `"perParticle"`, so every v8 document behaves bit-identically).
@@ -410,6 +410,23 @@ schemaVersion 9 adds `trail.mode: "perParticle" | "connect"` (migration injects
   particles ⇒ no ribbon** (empty geometry, never a degenerate quad). The stable
   ordinal is assigned from the per-layer spawn counter, so connect mode adds **zero
   PRNG draws**; it reuses the same mesh/blend render path as per-particle trails.
+
+**Sub-emitter property inheritance.** Each `SubEmitterRef` gains three booleans
+beside `inheritVelocity` — `inheritColor`, `inheritSize`, `inheritRotation`
+(migration injects `false`). At the trigger event the parent particle's state is
+captured and applied to each child at spawn; the child's own PRNG stream is never
+touched (inheritance modifies drawn RESULTS, zero new draws).
+
+| flag | captured from the parent (at the event moment) | applied to the child |
+|---|---|---|
+| `inheritColor` | the parent's **sim-side RGBA** — the over-life gradient at ageNorm × the startColor tint **including** any `hueJitter` hue rotation, **excluding** `bySpeed` and host-param tints (those are render-only) | a per-particle multiply on the child's finished color chain (a dedicated inherit-RGBA column, allocated only on a layer that is the target of ≥1 `inheritColor` ref) — after startColor, before bySpeed |
+| `inheritSize` | the **dimensionless over-life size FACTOR** `evalScalarTrack(overLifetime.size, ageNorm, rand0)` (1 when the track is null) — **not** the px size (px × px is nonsense; the factor gives "a shrinking parent spawns smaller children") | the child's drawn size is **multiplied** by that factor (baked into `sizeInit`) |
+| `inheritRotation` | the parent's current rotation in **degrees** | **added** to the child's drawn rotation |
+
+Capture is per-PARENT-layer gated: a parent whose refs all leave every flag
+`false` records the flat pre-v9 event and does no capture work, so a document
+that opts out is bit-identical to schemaVersion 8. The full color chain is
+`gradient × startColor × inherit × bySpeed × tint × opacity`.
 
 ### Behavioral guarantees (edge cases)
 

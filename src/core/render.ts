@@ -148,6 +148,17 @@ export function computeRenderState(ls: LayerSim, buf: LayerRenderBuffers): void 
   // stay pre-v8-instruction-identical (never a multiply-by-white); a tint at
   // {1,1,1,1} multiplies by IEEE-exact 1.0 ⇒ byte-identical (C4).
   const tintParamMul = ls.tintParamMul;
+  // Sub-emitter inherit-color (schemaVersion 9, RIBBON_INHERIT_PLAN I3): a
+  // per-particle RGBA multiply on the finished color chain — the slot AFTER
+  // startColor and BEFORE bySpeed (gradient × startColor × INHERIT × bySpeed ×
+  // tint × opacity). The columns exist only on a layer that is the target of ≥1
+  // inheritColor ref (a child of an inheritColor sub-emitter); every other layer
+  // reads null and keeps its writes pre-v9-instruction-identical. Values were
+  // written at spawn (captured parent RGBA, else the neutral 1) — zero PRNG draws.
+  const inhR = p.inhR;
+  const inhG = p.inhG;
+  const inhB = p.inhB;
+  const inhA = p.inhA;
 
   for (let i = 0; i < p.count; i++) {
     const lifetime = p.lifetime[i]!;
@@ -180,6 +191,17 @@ export function computeRenderState(ls: LayerSim, buf: LayerRenderBuffers): void 
       buf.g[i] = rgba.g;
       buf.b[i] = rgba.b;
       buf.a[i] = rgba.a;
+    }
+
+    // Inherit-color multiply (§I3): fold the captured parent RGBA into the child's
+    // color right after startColor and before bySpeed. Null-gated on the columns,
+    // so a non-inherit-target layer's writes stay byte-identical; a child with the
+    // neutral 1,1,1,1 (own spawn / non-color event child) is an exact no-op.
+    if (inhR !== null) {
+      buf.r[i] = buf.r[i]! * inhR[i]!;
+      buf.g[i] = buf.g[i]! * inhG![i]!;
+      buf.b[i] = buf.b[i]! * inhB![i]!;
+      buf.a[i] = buf.a[i]! * inhA![i]!;
     }
 
     // By-speed remap (§M6): multiply the render size and/or RGBA by a lookup at
