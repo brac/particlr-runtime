@@ -162,12 +162,18 @@ export class LayerSim {
       tint: layer.startColor !== null,
       flip: layer.randomFlip !== null,
       // A layer with sub-emitters needs a stable per-particle ordinal to key its
-      // event child streams (§0.2, M8). Derived from the layer alone, so the pool
-      // footprint is unchanged for every non-parent layer.
-      ordinal: layer.subEmitters !== null,
-      // A trail layer allocates a per-particle ring buffer of `maxPoints` points
-      // (§M9); a trail-null layer allocates nothing (0 = off). Draws nothing.
-      trailMaxPoints: layer.trail !== null ? layer.trail.maxPoints : 0,
+      // event child streams (§0.2, M8). A connect-mode trail layer needs the SAME
+      // ordinal to thread its ribbon oldest→newest, swap-remove-immune (v9 R3):
+      // reuse the M8 mechanism (assigned from spawnCounter, zero PRNG draws). No
+      // existing document has connect mode, so this leaves every existing layer's
+      // pool footprint — and its statehash — unchanged.
+      ordinal: layer.subEmitters !== null || (layer.trail !== null && layer.trail.mode === "connect"),
+      // A per-particle trail layer allocates a ring buffer of `maxPoints` points
+      // (§M9); a connect-mode trail keeps NO position history (v9 R1/R2) and a
+      // trail-null layer allocates nothing (0 = off). Draws nothing. `!== "connect"`
+      // (not `=== "perParticle"`) keeps a legacy trail with an absent mode on the
+      // per-particle path.
+      trailMaxPoints: layer.trail !== null && layer.trail.mode !== "connect" ? layer.trail.maxPoints : 0,
     });
     this.rng = mulberry32(layerSeed);
     this.layerSeed = layerSeed;
@@ -493,10 +499,11 @@ export class LayerSim {
     // FINAL spawn coordinates (px, py — post world/event offset), so the ribbon
     // starts exactly where the particle renders. Zero draws; no-op without a trail.
     if (p.trail !== null) p.trail.spawn(i, px, py);
-    // Assign the stable spawn ordinal (M8) when this layer is a sub-emitter parent.
+    // Assign the stable spawn ordinal (M8) when the column exists — a sub-emitter
+    // parent OR a connect-mode trail layer (v9 R3, which orders its ribbon by it).
     // Advances during prewarm too (prewarmed particles can fire death triggers
     // later); only event CAPTURE is suppressed during prewarm. A no-op (zero draws,
-    // no column) for every non-parent layer, so the spawn stream is unchanged.
+    // no column) for every other layer, so the spawn stream is unchanged.
     let ordinal = 0;
     if (p.ordinal !== null) {
       ordinal = this.spawnCounter++;

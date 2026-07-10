@@ -17,7 +17,7 @@ import {
 import type { BlendMode, BuiltinTextureId, Flipbook, ParticleDoc } from "../format/types.js";
 import { BUILTIN_TEXTURE_IDS } from "../format/types.js";
 import { computeRenderState, makeRenderBuffers, type LayerRenderBuffers } from "../core/render.js";
-import { computeTrailGeometry, makeTrailGeometry } from "../core/trailGeometry.js";
+import { computeTrailGeometry, computeConnectGeometry, makeTrailGeometry } from "../core/trailGeometry.js";
 import type { Effect } from "../core/effect.js";
 import { generateBuiltinTexture, type TextureData } from "./textures.js";
 import { makeTrailView, syncTrailView, type TrailView } from "./trailMesh.js";
@@ -245,7 +245,11 @@ export class PixiParticleRenderer {
       // every committed golden — is unchanged.
       let trail: TrailView | null = null;
       if (layer.trail !== null) {
-        const geom = makeTrailGeometry(max, layer.trail.maxPoints);
+        // Connect mode (v9): ONE ribbon of up to `max` points (verts = max·2,
+        // segs = max−1) — makeTrailGeometry(1, max). Per-particle: `max` ribbons of
+        // `maxPoints`. Same mesh/GL path either way (R5); sync() picks the builder.
+        const geom =
+          layer.trail.mode === "connect" ? makeTrailGeometry(1, max) : makeTrailGeometry(max, layer.trail.maxPoints);
         trail = makeTrailView(geom, tex, blendOf(layer.blend));
         this.container.addChild(trail.mesh);
       }
@@ -375,7 +379,10 @@ export class PixiParticleRenderer {
       // render state, so clear the ribbon to zero draws.
       if (view.trail !== null) {
         if (enabled && count > 0) {
-          computeTrailGeometry(ls, view.buffers, view.trail.geom);
+          // Connect mode (v9) builds ONE ribbon through the live particles' current
+          // positions; per-particle mode rebuilds each particle's own ring ribbon.
+          if (ls.layer.trail!.mode === "connect") computeConnectGeometry(ls, view.buffers, view.trail.geom);
+          else computeTrailGeometry(ls, view.buffers, view.trail.geom);
         } else {
           view.trail.geom.vertexCount = 0;
           view.trail.geom.indexCount = 0;

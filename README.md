@@ -153,7 +153,8 @@ schemaVersion 3 adds per-layer feature modules, each `null` = off: `noise`
 `startColor` (per-particle spawn tint — two-gradient lerp or a ≤16-color
 palette), `randomFlip`, `render` (velocity alignment + speed stretch),
 `collision` (floor/rect planes), `subEmitters` (depth-1 refs to sibling
-layers), and `trail` (per-particle ribbons). `overLifetime.velocity` gains
+layers), and `trail` (per-particle ribbons; v9 adds a `connect` mode).
+`overLifetime.velocity` gains
 additive `x`/`y`/`orbital`/`radial` tracks; circles gain `innerRadius`/`arc`/
 `arcMode`/`arcSpeed` (donut + arc sweeps; cones get the arc modes too); bursts
 gain `cycles`/`interval`/`probability`. The layer cap is 8 (was 4). Exported
@@ -387,6 +388,28 @@ zero pool columns** — a v4 document migrates forward bit-identically
   offset (reusing the draw-13 frame uniform), then wraps (`loop`) or clamps
   (`once`). With `randomStartFrame: false` and `frameOverLife: null` the frame is
   exactly `⌊age·fps⌋`, byte-identical to v4.
+
+#### Schema v9 — connect-ribbon trail mode
+
+schemaVersion 9 adds `trail.mode: "perParticle" | "connect"` (migration injects
+`"perParticle"`, so every v8 document behaves bit-identically).
+
+- **`"perParticle"`** — the pre-v9 behavior: each particle carries its own
+  polyline of recent positions.
+- **`"connect"`** — the layer emits **ONE ribbon threaded through all of its
+  currently-live particles' current positions** (energy beams, lightning, chains —
+  a Shuriken connected ribbon / Effekseer track). No position history is kept, so
+  the ring buffer is not allocated and `maxPoints`/`minVertexDistance` are
+  **ignored** (E36). Vertices are ordered **oldest → newest by a stable
+  per-particle spawn ordinal**, so a particle dying mid-ribbon (swap-removed from
+  the pool) never reorders the survivors — the order is deterministic and
+  independent of pool compaction. `width`/`color` sample over ribbon `t` with
+  **`t = 0` at the newest particle (head)**, matching per-particle trails; `color`
+  null ⇒ each vertex takes its own particle's current render RGBA (a non-null
+  gradient scales its alpha by that vertex's particle alpha). **Fewer than 2 live
+  particles ⇒ no ribbon** (empty geometry, never a degenerate quad). The stable
+  ordinal is assigned from the per-layer spawn counter, so connect mode adds **zero
+  PRNG draws**; it reuses the same mesh/blend render path as per-particle trails.
 
 ### Behavioral guarantees (edge cases)
 

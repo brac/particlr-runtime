@@ -17,6 +17,7 @@ export { TrailStore } from "./trails.js";
 export { LayerSim } from "./layerSim.js";
 export {
   computeTrailGeometry,
+  computeConnectGeometry,
   makeTrailGeometry,
   type TrailGeometry,
 } from "./trailGeometry.js";

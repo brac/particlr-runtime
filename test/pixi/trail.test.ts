@@ -2,10 +2,11 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { ParticleContainer, Mesh } from "pixi.js";
-import { parseParticle } from "../../src/index.js";
+import { parseParticle, type ParticleDoc } from "../../src/index.js";
 import { Effect } from "../../src/core/effect.js";
 import { PixiParticleRenderer } from "../../src/pixi/renderer.js";
 import type { TrailView } from "../../src/pixi/trailMesh.js";
+import { makeLayer, makeDoc } from "../format/_helpers.js";
 
 function loadDoc(name: string) {
   const raw = readFileSync(resolve(__dirname, `../../../../presets/${name}.prt`), "utf8");
@@ -83,6 +84,36 @@ describe("PixiParticleRenderer — per-particle trails (M9)", () => {
     r.sync();
     const mesh = viewOf(r, 0).trail!.mesh;
     expect([mesh.position.x, mesh.position.y]).toEqual([70, 30]);
+    r.destroy();
+  });
+});
+
+// A connect-mode trail layer: ONE ribbon threaded through all live particles.
+const connectDoc = (): ParticleDoc =>
+  makeDoc({
+    layers: [
+      makeLayer({
+        trail: { mode: "connect", maxPoints: 8, minVertexDistance: 2, width: { mode: "constant", value: 5 }, color: null },
+      }),
+    ],
+  });
+
+describe("PixiParticleRenderer — connect ribbon (v9 M1)", () => {
+  it("builds one trail view whose ribbon is populated after stepping", () => {
+    const fx = new Effect(connectDoc(), { seed: 1337 });
+    const r = new PixiParticleRenderer(fx);
+    const v = viewOf(r, 0);
+    expect(v.trail).not.toBeNull();
+    expect(v.trail!.mesh).toBeInstanceOf(Mesh);
+    // The burst spawns ~12 particles at t=0; after a few steps they have distinct
+    // positions, so the single connect ribbon has real geometry.
+    for (let i = 0; i < 10; i++) fx.step(1 / 60);
+    r.sync();
+    const geom = v.trail!.geom;
+    expect(geom.vertexCount).toBeGreaterThan(0);
+    expect(geom.indexCount).toBeGreaterThan(0);
+    expect(v.trail!.geometry.indexBuffer.data.length).toBe(geom.indexCount);
+    expect(geom.positions.some((x) => x !== 0)).toBe(true);
     r.destroy();
   });
 });
