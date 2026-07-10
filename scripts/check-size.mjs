@@ -27,9 +27,10 @@ const js = result.outputFiles[0].contents;
 const gzipped = gzipSync(js).length;
 const kb = (gzipped / 1024).toFixed(2);
 
-console.log(`@particlr/runtime core: ${kb} KB gzipped (budget 20.00 KB)`);
+const budgetKb = (BUDGET_BYTES / 1024).toFixed(2);
+console.log(`@particlr/runtime core: ${kb} KB gzipped (budget ${budgetKb} KB)`);
 
 if (gzipped > BUDGET_BYTES) {
-  console.error(`FAIL: core exceeds 20 KB gzipped budget (${kb} KB).`);
+  console.error(`FAIL: core exceeds ${budgetKb} KB gzipped budget (${kb} KB).`);
   process.exit(1);
 }
