@@ -4,18 +4,20 @@ import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { Effect, parseParticle, type ParticleDoc } from "../../src/index.js";
 import { stateHash, dtSequence } from "./_statehash.js";
+import { presetsDir, hasPresets } from "../_presets.js";
 
 const fixtures = resolve(dirname(fileURLToPath(import.meta.url)), "../fixtures");
-const presetsDir = resolve(dirname(fileURLToPath(import.meta.url)), "../../../../presets");
 function loadFrom(base: string, name: string): ParticleDoc {
   const parsed = parseParticle(readFileSync(resolve(base, name), "utf8"));
   if (!parsed.ok) throw new Error(`${name} failed to parse: ${JSON.stringify(parsed.errors)}`);
   return parsed.doc!;
 }
 const loadDoc = (name: string): ParticleDoc => loadFrom(fixtures, name);
-const presetNames = readdirSync(presetsDir)
-  .filter((f) => f.endsWith(".prt"))
-  .sort();
+const presetNames = hasPresets
+  ? readdirSync(presetsDir)
+      .filter((f) => f.endsWith(".prt"))
+      .sort()
+  : [];
 
 describe("determinism (Gate 1)", () => {
   it("two runs with the same doc/seed/dt-sequence are bit-identical over 600 steps", () => {
@@ -53,7 +55,7 @@ describe("determinism (Gate 1)", () => {
   });
 });
 
-describe("preset snapshots (Gate 1)", () => {
+describe.skipIf(!hasPresets)("preset snapshots (Gate 1)", () => {
   // Hash of full state after 60 steps at dt=1/60 for EVERY preset. Any change to
   // the sim (or a preset) changes this digest and requires explicit human
   // sign-off — presets are fixtures (SLICE_ONE session guidance).

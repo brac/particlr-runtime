@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, resolve } from "node:path";
+import { presetsDir, hasPresets } from "../_presets.js";
+import { resolve } from "node:path";
 import {
   parseParticle,
   serializeParticle,
@@ -375,7 +375,6 @@ describe("maximal v5 document — byte-stable round-trip (all four features)", (
 // Every committed preset: the v4->v5 migration is bit-inert. Simulating the
 // migrated-from-v4 form yields the SAME stateHash as the committed v5 preset.
 // No snapshot / no `-u`: a direct equality against the reconstructed digest.
-const presetsDir = resolve(dirname(fileURLToPath(import.meta.url)), "../../../../presets");
 function loadPreset(name: string): ParticleDoc {
   const r = parseParticle(readFileSync(resolve(presetsDir, name), "utf8"));
   if (!r.ok) throw new Error(`${name}: ${JSON.stringify(r.errors)}`);
@@ -386,9 +385,9 @@ function runHash(doc: ParticleDoc): string {
   for (let i = 0; i < 60; i++) fx.step(1 / 60);
   return stateHash(fx);
 }
-const presetNames = readdirSync(presetsDir).filter((f) => f.endsWith(".prt")).sort();
+const presetNames = hasPresets ? readdirSync(presetsDir).filter((f) => f.endsWith(".prt")).sort() : [];
 
-describe("migrated-preset stateHash pin (v4 -> v5 is bit-inert)", () => {
+describe.skipIf(!hasPresets)("migrated-preset stateHash pin (v4 -> v5 is bit-inert)", () => {
   for (const name of presetNames) {
     it(`${name}`, () => {
       const v5 = loadPreset(name); // committed form (already v5)

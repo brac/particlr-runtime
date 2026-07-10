@@ -3,14 +3,15 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { parseParticle, validateParticle } from "../../src/index.js";
 import { Effect } from "../../src/core/effect.js";
+import { presetsDir, hasPresets } from "../_presets.js";
 
 function baseDoc() {
   // Start from a real preset and strip it to a single, controllable layer.
-  const doc = structuredClone(parseParticle(readFileSync(resolve(__dirname, "../../../../presets/sparks.prt"), "utf8")).doc!);
+  const doc = structuredClone(parseParticle(readFileSync(resolve(presetsDir, "sparks.prt"), "utf8")).doc!);
   return doc;
 }
 
-describe("burst spread endpoint (P2.2)", () => {
+describe.skipIf(!hasPresets)("burst spread endpoint (P2.2)", () => {
   it("distributes count-2 sub-events across [time, time+spread] inclusive", () => {
     const doc = baseDoc();
     doc.looping = false;
@@ -34,9 +35,9 @@ describe("burst spread endpoint (P2.2)", () => {
   });
 });
 
-describe("burst-window validation warnings (P2.2 / P2.3)", () => {
+describe.skipIf(!hasPresets)("burst-window validation warnings (P2.2 / P2.3)", () => {
   const doc = () => {
-    const d = structuredClone(parseParticle(readFileSync(resolve(__dirname, "../../../../presets/sparks.prt"), "utf8")).doc!);
+    const d = structuredClone(parseParticle(readFileSync(resolve(presetsDir, "sparks.prt"), "utf8")).doc!);
     d.looping = true;
     d.duration = 1;
     d.layers[0]!.emission.delay = 0;
@@ -66,7 +67,7 @@ describe("burst-window validation warnings (P2.2 / P2.3)", () => {
   });
 });
 
-describe("negative emission rate banks no credit (P2.3)", () => {
+describe.skipIf(!hasPresets)("negative emission rate banks no credit (P2.3)", () => {
   it("a rate curve dipping negative spawns nothing until it turns positive", () => {
     const doc = baseDoc();
     doc.looping = false;
@@ -90,7 +91,7 @@ describe("negative emission rate banks no credit (P2.3)", () => {
   });
 });
 
-describe("Effect duration guard (P2.3)", () => {
+describe.skipIf(!hasPresets)("Effect duration guard (P2.3)", () => {
   it("throws on a non-positive duration instead of hanging", () => {
     const doc = baseDoc();
     doc.duration = 0;
@@ -98,8 +99,8 @@ describe("Effect duration guard (P2.3)", () => {
   });
 });
 
-describe("seed & flipbook validation (P2.3)", () => {
-  const doc = () => structuredClone(parseParticle(readFileSync(resolve(__dirname, "../../../../presets/sparks.prt"), "utf8")).doc!);
+describe.skipIf(!hasPresets)("seed & flipbook validation (P2.3)", () => {
+  const doc = () => structuredClone(parseParticle(readFileSync(resolve(presetsDir, "sparks.prt"), "utf8")).doc!);
 
   it("rejects a fractional or negative seed", () => {
     const a = doc();

@@ -3,15 +3,16 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { parseParticle, validateParticle } from "../../src/index.js";
 import { Effect } from "../../src/core/effect.js";
+import { presetsDir, hasPresets } from "../_presets.js";
 
 function loadDoc(name: string) {
-  const raw = readFileSync(resolve(__dirname, `../../../../presets/${name}.prt`), "utf8");
+  const raw = readFileSync(resolve(presetsDir, `${name}.prt`), "utf8");
   const parsed = parseParticle(raw);
   if (!parsed.ok) throw new Error(`fixture ${name} invalid`);
   return structuredClone(parsed.doc!);
 }
 
-describe("spawn-loop clamps (P1.3)", () => {
+describe.skipIf(!hasPresets)("spawn-loop clamps (P1.3)", () => {
   it("a hostile continuous rate fills the pool once and does not hang", () => {
     const doc = loadDoc("fire");
     doc.layers[0]!.emission.rateOverTime = { mode: "constant", value: 1e15 };
@@ -43,7 +44,7 @@ describe("spawn-loop clamps (P1.3)", () => {
   });
 });
 
-describe("validation ceilings (P1.3)", () => {
+describe.skipIf(!hasPresets)("validation ceilings (P1.3)", () => {
   it("rejects a rate above the ceiling", () => {
     const doc = loadDoc("fire");
     doc.layers[0]!.emission.rateOverTime = { mode: "constant", value: 1e15 };

@@ -19,6 +19,12 @@ npm install @particlr/runtime pixi.js
 
 `pixi.js@^8` is a peer dependency (only needed if you use the `/pixi` adapter).
 
+**TypeScript note:** if you compile with `skipLibCheck: false`, importing
+`@particlr/runtime/pixi` may surface duplicate-identifier errors (TS2300/TS2403)
+from pixi.js v8's bundled `@webgpu/types` colliding with TypeScript's own DOM
+WebGPU declarations. That's an upstream pixi.js × recent-TypeScript issue, not
+this package; the standard fix is `"skipLibCheck": true` (the common default).
+
 ## Quick start (Pixi v8)
 
 This is the whole integration — load a `.prt`, step it each frame, render it:
@@ -44,7 +50,9 @@ app.ticker.add((ticker) => {
 });
 ```
 
-A complete runnable version lives in [`samples/pixi-game`](../../samples/pixi-game).
+A complete runnable version is live at
+[particlr.brac.dev/sample](https://particlr.brac.dev/sample/) — click the canvas
+to spawn effects through this exact package.
 
 ## Core API (`@particlr/runtime`)
 
@@ -163,8 +171,9 @@ types: `NoiseConfig`, `BySpeedConfig`, `StartColor`, `RandomFlip`,
 `SubTrigger`, `RGBAColor`. v1/v2 documents migrate forward losslessly and
 behave bit-identically. Feature behaviors land milestone-by-milestone
 (TIER1_PLAN); a document using a not-yet-implemented module validates with an
-`"unimplemented"` warning and the field stays inert. Full semantics:
-`docs/FORMAT_SPEC.md`.
+`"unimplemented"` warning and the field stays inert. The machine-readable
+reference for every field is the JSON Schema shipped with this package
+(`@particlr/runtime/particle.schema.json`).
 
 #### Schema v4 — point attractor / vortex + host hook
 
@@ -345,8 +354,8 @@ source, but only the **WebGL (GLSL)** path is verified: the golden-frame suite
 runs SwiftShader WebGL and there is no WebGPU golden lane yet, so L4
 preview/runtime parity is **attested on WebGL only**; the WGSL path ships
 unverified. Pin `preference: "webgl"` in your host `app.init` if you rely on
-byte-exact parity (the editor preview, the golden harness, and the
-`samples/pixi-game` host all do). Dissolve does **not** erode a trail ribbon
+byte-exact parity (the editor preview, the golden harness, and the live
+sample host all do). Dissolve does **not** erode a trail ribbon
 (E25) — a trail on the same layer renders un-eroded through its separate mesh
 shader.
 
@@ -481,9 +490,9 @@ exact and enables golden-frame testing.
 
 ## The `.prt` format
 
-`.prt` is a small, versioned, declarative JSON document — see
-[`FORMAT_SPEC.md`](../../docs/FORMAT_SPEC.md) and the machine-readable
-[`particle.schema.json`](./src/format/particle.schema.json) shipped with this package
+`.prt` is a small, versioned, declarative JSON document. Its machine-readable
+reference is the JSON Schema shipped with this package —
+[`particle.schema.json`](./src/format/particle.schema.json)
 (`import schema from "@particlr/runtime/particle.schema.json"`).
 
 Because the format is small, documented, and agent-readable, a coding agent can

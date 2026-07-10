@@ -7,9 +7,10 @@ import { Effect } from "../../src/core/effect.js";
 import { PixiParticleRenderer } from "../../src/pixi/renderer.js";
 import type { TrailView } from "../../src/pixi/trailMesh.js";
 import { makeLayer, makeDoc } from "../format/_helpers.js";
+import { presetsDir, hasPresets } from "../_presets.js";
 
 function loadDoc(name: string) {
-  const raw = readFileSync(resolve(__dirname, `../../../../presets/${name}.prt`), "utf8");
+  const raw = readFileSync(resolve(presetsDir, `${name}.prt`), "utf8");
   const parsed = parseParticle(raw);
   if (!parsed.ok) throw new Error(`fixture ${name} invalid: ${JSON.stringify(parsed.errors)}`);
   return structuredClone(parsed.doc!);
@@ -24,7 +25,7 @@ const viewOf = (r: PixiParticleRenderer, i: number): ViewProbe =>
 
 // The comet preset's layer 0 ("head") is world-space with a trail; layer 1
 // ("core-glow") has none.
-describe("PixiParticleRenderer — per-particle trails (M9)", () => {
+describe.skipIf(!hasPresets)("PixiParticleRenderer — per-particle trails (M9)", () => {
   it("builds a trail view for a trail layer and none for a null-trail layer", () => {
     const r = new PixiParticleRenderer(new Effect(loadDoc("comet"), { seed: 1337 }));
     expect(viewOf(r, 0).trail).not.toBeNull();

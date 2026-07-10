@@ -48,6 +48,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.pixi.json && tsc --noEmit -p tsconfig.scripts.json",
+    "test": "vitest run",
     "build": "tsc -p tsconfig.build.json && node scripts/copy-schema.mjs",
     "gen-schema": "tsx scripts/gen-schema.ts",
     "size": "node scripts/check-size.mjs"
@@ -66,6 +67,7 @@
     "pixi.js": "8.19.0",
     "ts-json-schema-generator": "^2.3.0",
     "tsx": "^4.19.2",
-    "typescript": "^5.6.3"
+    "typescript": "^5.6.3",
+    "vitest": "^3.0.5"
   }
 }

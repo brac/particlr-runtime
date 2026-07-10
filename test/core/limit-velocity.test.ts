@@ -1,15 +1,14 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, resolve } from "node:path";
+import { resolve } from "node:path";
 import { LayerSim, Effect, deriveLayerSeed, parseParticle, type Layer, type ScalarTrack, type ParticleDoc } from "../../src/index.js";
 import { makeLayer, makeDoc } from "../format/_helpers.js";
 import { stateHash, dtSequence } from "./_statehash.js";
+import { presetsDir, hasPresets } from "../_presets.js";
 
 const seed = deriveLayerSeed(1337, 0);
 const ct = (value: number): ScalarTrack => ({ mode: "constant", value });
 
-const presetsDir = resolve(dirname(fileURLToPath(import.meta.url)), "../../../../presets");
 const loadPreset = (name: string): ParticleDoc => {
   const parsed = parseParticle(readFileSync(resolve(presetsDir, name), "utf8"));
   if (!parsed.ok) throw new Error(`${name}: ${JSON.stringify(parsed.errors)}`);
@@ -163,7 +162,7 @@ describe("limit-velocity — terminal-velocity interaction (M1)", () => {
   });
 });
 
-describe("limit-velocity — determinism & inertness (M1)", () => {
+describe.skipIf(!hasPresets)("limit-velocity — determinism & inertness (M1)", () => {
   it("null pin: a limitVelocity-null layer is bit-identical run twice through the new path", () => {
     const layer = makeLayer({
       space: "world",

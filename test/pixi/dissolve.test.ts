@@ -9,9 +9,10 @@ import { parseParticle } from "../../src/index.js";
 import { Effect } from "../../src/core/effect.js";
 import { PixiParticleRenderer } from "../../src/pixi/renderer.js";
 import type { DissolveConfig } from "../../src/format/types.js";
+import { presetsDir, hasPresets } from "../_presets.js";
 
 function loadDoc(name: string) {
-  const raw = readFileSync(resolve(__dirname, `../../../../presets/${name}.prt`), "utf8");
+  const raw = readFileSync(resolve(presetsDir, `${name}.prt`), "utf8");
   const parsed = parseParticle(raw);
   if (!parsed.ok) throw new Error(`fixture ${name} invalid: ${JSON.stringify(parsed.errors)}`);
   return structuredClone(parsed.doc!);
@@ -149,7 +150,7 @@ describe("dissolve noise tile (0.3c)", () => {
 // In node vitest there is no GL context, so makeDissolveShader returns null and
 // a dissolve layer falls back to the default-shader path. These assert the
 // wiring is sound EITHER way (the golden preset proves the real GL shading).
-describe("PixiParticleRenderer — dissolve wiring (M3)", () => {
+describe.skipIf(!hasPresets)("PixiParticleRenderer — dissolve wiring (M3)", () => {
   it("constructs a dissolve layer without throwing and the PC exists", () => {
     const doc = loadDoc("smoke");
     doc.layers[0]!.dissolve = DISSOLVE;

@@ -6,9 +6,10 @@ import type { Flipbook } from "../../src/format/types.js";
 import { parseParticle } from "../../src/index.js";
 import { Effect } from "../../src/core/effect.js";
 import { PixiParticleRenderer } from "../../src/pixi/renderer.js";
+import { presetsDir, hasPresets } from "../_presets.js";
 
 function loadDoc(name: string) {
-  const raw = readFileSync(resolve(__dirname, `../../../../presets/${name}.prt`), "utf8");
+  const raw = readFileSync(resolve(presetsDir, `${name}.prt`), "utf8");
   const parsed = parseParticle(raw);
   if (!parsed.ok) throw new Error(`fixture ${name} invalid: ${JSON.stringify(parsed.errors)}`);
   return structuredClone(parsed.doc!);
@@ -22,7 +23,7 @@ function fakeTexture(width: number): Texture {
 
 const pcOf = (r: PixiParticleRenderer, i = 0) => r.container.children[i] as ParticleContainer;
 
-describe("PixiParticleRenderer — user textures (P0.1)", () => {
+describe.skipIf(!hasPresets)("PixiParticleRenderer — user textures (P0.1)", () => {
   it("does not throw for a user: ref and renders a synchronous placeholder", async () => {
     const doc = loadDoc("rain");
     doc.layers[0]!.texture.ref = "user:test";
@@ -77,7 +78,7 @@ describe("PixiParticleRenderer — user textures (P0.1)", () => {
   });
 });
 
-describe("PixiParticleRenderer — render list tracks live count, not capacity (P4.2)", () => {
+describe.skipIf(!hasPresets)("PixiParticleRenderer — render list tracks live count, not capacity (P4.2)", () => {
   it("keeps particleChildren equal to the live count as it rises and falls", () => {
     // A short-burst, non-looping effect: particle count rises then falls to 0.
     const doc = loadDoc("sparks"); // single burst at t=0, no continuous rate
@@ -159,7 +160,7 @@ describe("PixiParticleRenderer — render list tracks live count, not capacity (
   });
 });
 
-describe("PixiParticleRenderer — every per-frame attribute is GPU-dynamic", () => {
+describe.skipIf(!hasPresets)("PixiParticleRenderer — every per-frame attribute is GPU-dynamic", () => {
   // Regression: the option key for the scale-carrying attribute is `vertex`,
   // not `scale`. Pixi accepts unknown keys silently (Record<string, boolean>),
   // leaving vertex static: it uploads once at first render, freezing every
@@ -209,7 +210,7 @@ function flipbookDoc(fb: Partial<Flipbook> & Pick<Flipbook, "cols" | "rows" | "f
   return doc;
 }
 
-describe("PixiParticleRenderer — flipbook rendering (P4.1)", () => {
+describe.skipIf(!hasPresets)("PixiParticleRenderer — flipbook rendering (P4.1)", () => {
   it("slices a cols×rows sheet row-major with a top-left origin", () => {
     const r = new PixiParticleRenderer(new Effect(flipbookDoc({ cols: 2, rows: 2, fps: 10, mode: "loop" }), { seed: 1 }));
     const v = viewOf(r);
@@ -331,7 +332,7 @@ describe("PixiParticleRenderer — flipbook rendering (P4.1)", () => {
   });
 });
 
-describe("PixiParticleRenderer — velocity alignment + speed stretch (M1)", () => {
+describe.skipIf(!hasPresets)("PixiParticleRenderer — velocity alignment + speed stretch (M1)", () => {
   it("sets rotation from velocity and stretches scaleX (≠ scaleY) when render is set", () => {
     const doc = loadDoc("rain");
     const l = doc.layers[0]!;
@@ -460,7 +461,7 @@ describe("PixiParticleRenderer — velocity alignment + speed stretch (M1)", () 
   });
 });
 
-describe("PixiParticleRenderer — built-in texture cache self-heal (P0.2)", () => {
+describe.skipIf(!hasPresets)("PixiParticleRenderer — built-in texture cache self-heal (P0.2)", () => {
   it("regenerates a built-in texture destroyed by host teardown", () => {
     const doc = loadDoc("rain"); // uses the built-in "spark" texture
     const a = new PixiParticleRenderer(new Effect(doc, { seed: doc.seed }));
@@ -482,7 +483,7 @@ describe("PixiParticleRenderer — built-in texture cache self-heal (P0.2)", () 
   });
 });
 
-describe("PixiParticleRenderer — emitter placement (schemaVersion 2)", () => {
+describe.skipIf(!hasPresets)("PixiParticleRenderer — emitter placement (schemaVersion 2)", () => {
   it("places a local layer's container at the emitter; a world layer stays at origin", () => {
     // Two layers: layer 0 local, layer 1 world.
     const doc = loadDoc("rain");

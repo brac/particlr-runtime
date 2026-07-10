@@ -1,15 +1,14 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, resolve } from "node:path";
+import { resolve } from "node:path";
 import { LayerSim, Effect, deriveLayerSeed, mulberry32, parseParticle, type Layer, type NoiseConfig, type ParticleDoc } from "../../src/index.js";
 import { makeLayer, makeDoc } from "../format/_helpers.js";
 import { stateHash, dtSequence } from "./_statehash.js";
+import { presetsDir, hasPresets } from "../_presets.js";
 
 const seed = deriveLayerSeed(1337, 0);
 const NOISE: NoiseConfig = { strength: { mode: "constant", value: 50 }, frequency: 0.02, scrollSpeed: 0.3, octaves: 2 };
 
-const presetsDir = resolve(dirname(fileURLToPath(import.meta.url)), "../../../../presets");
 const loadPreset = (name: string): ParticleDoc => {
   const parsed = parseParticle(readFileSync(resolve(presetsDir, name), "utf8"));
   if (!parsed.ok) throw new Error(`${name}: ${JSON.stringify(parsed.errors)}`);
@@ -58,7 +57,7 @@ describe("noise draw 14 (schemaVersion 3, §0.2)", () => {
   });
 });
 
-describe("noise perturbation (schemaVersion 3, §0.3)", () => {
+describe.skipIf(!hasPresets)("noise perturbation (schemaVersion 3, §0.3)", () => {
   it("perturbs position but does NOT accumulate into stored velocity (§0.3)", () => {
     // One particle tracked in each of two twin sims (index 0 is stable — no
     // swap-remove), identical except for the noise module, with no gravity/
