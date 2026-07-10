@@ -1,6 +1,6 @@
 # @particlr/runtime
 
-The MIT-licensed particle runtime behind [particlr](../../README.md) — a
+The MIT-licensed particle runtime behind [particlr](https://particlr.brac.dev) — a
 framework-agnostic simulation core plus a PixiJS v8 adapter. It plays back
 `.prt` effect documents **deterministically**: the same document, seed, and
 sequence of `dt` values always produce the same frames. The particlr editor

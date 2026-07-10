@@ -1,0 +1,19 @@
+{
+  "//": "Local copy of the monorepo root ../../tsconfig.base.json. It lives here so @particlr/runtime builds STANDALONE when extracted to its public split repo (github.com/brac/particlr-runtime), where ../../ does not exist. KEEP IN SYNC with the root file — they must stay byte-identical in compilerOptions.",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "forceConsistentCasingInFileNames": true,
+    "useDefineForClassFields": true
+  }
+}

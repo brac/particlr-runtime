@@ -4,4 +4,6 @@
 export * from "./format/index.js";
 export * from "./core/index.js";
 
-export const RUNTIME_VERSION = "0.0.0";
+// Keep in sync with package.json "version" — pinned by a test in
+// test/placeholder.test.ts so the two can never drift.
+export const RUNTIME_VERSION = "0.3.0";
