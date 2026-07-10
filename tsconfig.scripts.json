@@ -1,0 +1,10 @@
+{
+  "//": "Typecheck config for the tsx-run Node scripts (schema generator + fixture generator) that need Node globals but ship no dist. noEmit only, chained into the package `typecheck` script.",
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022"],
+    "noEmit": true,
+    "types": ["node"]
+  },
+  "include": ["scripts/gen-schema.ts", "test/fixtures/_generate.ts"]
+}

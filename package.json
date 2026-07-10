@@ -25,7 +25,7 @@
     "access": "public"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.pixi.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.pixi.json && tsc --noEmit -p tsconfig.scripts.json",
     "build": "tsc -p tsconfig.build.json && node scripts/copy-schema.mjs",
     "gen-schema": "tsx scripts/gen-schema.ts",
     "size": "node scripts/check-size.mjs"
