@@ -2,6 +2,8 @@
 
 exports[`preset snapshots (Gate 1) > black-hole.prt state @60 steps is stable 1`] = `"7bc290b2"`;
 
+exports[`preset snapshots (Gate 1) > blast-anim.prt state @60 steps is stable 1`] = `"4f25541d"`;
+
 exports[`preset snapshots (Gate 1) > blizzard.prt state @60 steps is stable 1`] = `"25be413f"`;
 
 exports[`preset snapshots (Gate 1) > bubbles.prt state @60 steps is stable 1`] = `"d46dec4d"`;
