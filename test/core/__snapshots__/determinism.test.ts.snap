@@ -26,6 +26,8 @@ exports[`preset snapshots (Gate 1) > dust-puff.prt state @60 steps is stable 1`]
 
 exports[`preset snapshots (Gate 1) > ember-field.prt state @60 steps is stable 1`] = `"c61723ad"`;
 
+exports[`preset snapshots (Gate 1) > ember-pop.prt state @60 steps is stable 1`] = `"b64b14c1"`;
+
 exports[`preset snapshots (Gate 1) > explosion.prt state @60 steps is stable 1`] = `"70a20ede"`;
 
 exports[`preset snapshots (Gate 1) > falling-leaves.prt state @60 steps is stable 1`] = `"6734768b"`;
@@ -65,6 +67,8 @@ exports[`preset snapshots (Gate 1) > magic-burst.prt state @60 steps is stable 1
 exports[`preset snapshots (Gate 1) > muzzle-flash.prt state @60 steps is stable 1`] = `"bc5d1cda"`;
 
 exports[`preset snapshots (Gate 1) > pickup-sparkle.prt state @60 steps is stable 1`] = `"ef1c81da"`;
+
+exports[`preset snapshots (Gate 1) > plasma-arc.prt state @60 steps is stable 1`] = `"9238984b"`;
 
 exports[`preset snapshots (Gate 1) > portal.prt state @60 steps is stable 1`] = `"12f49c1c"`;
 
