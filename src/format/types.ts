@@ -297,12 +297,47 @@ export interface SubEmitterRef {
   count: number;
   probability: number;
   inheritVelocity: number;
+  /** Inherit the parent particle's COLOR into each child (schemaVersion 9,
+   * RIBBON_INHERIT_PLAN I1/I2). At trigger time the parent's sim-side RGBA is
+   * captured — its over-life gradient at ageNorm × startColor tint (including any
+   * `hueJitter` hue rotation), EXCLUDING bySpeed and host params (those are
+   * render-only surfaces, documented). At child spawn that captured RGBA
+   * multiplies a dedicated inherit-color channel (I3). `false` = the untouched
+   * pre-v9 path. */
+  inheritColor: boolean;
+  /** Inherit the parent particle's SIZE into each child (schemaVersion 9,
+   * RIBBON_INHERIT_PLAN I1/I2). What is captured is the parent's DIMENSIONLESS
+   * over-life size FACTOR (`evalScalarTrack(overLifetime.size, ageNorm, rand0)`,
+   * 1 when the track is null) — NOT the px size (px × px is nonsense; the factor
+   * gives "a shrinking parent spawns smaller children"). At child spawn the drawn
+   * size is multiplied by that factor (I3). `false` = the untouched pre-v9 path. */
+  inheritSize: boolean;
+  /** Inherit the parent particle's ROTATION into each child (schemaVersion 9,
+   * RIBBON_INHERIT_PLAN I1/I2). The parent's current rotation in degrees is
+   * captured and ADDED to the child's drawn rotation at spawn (additive, I3).
+   * `false` = the untouched pre-v9 path. */
+  inheritRotation: boolean;
 }
+
+/** Per-particle vs single-ribbon rendering of a layer's trail (schemaVersion 9,
+ * RIBBON_INHERIT_PLAN R1). `perParticle` = the pre-v9 behavior: each particle
+ * carries its own polyline of recent positions. `connect` = ONE ribbon threaded
+ * through ALL of the layer's currently-live particles, ordered oldest→newest by a
+ * stable per-particle spawn ordinal (a Shuriken-style connected ribbon / Effekseer
+ * track — energy beams, lightning, chains). In `connect` mode `maxPoints` and
+ * `minVertexDistance` are documented-IGNORED (no position history is kept; they
+ * remain in the shape for round-trip simplicity — see FORMAT_SPEC). */
+export type TrailMode = "perParticle" | "connect";
 
 /** Per-particle ribbon trail (schemaVersion 3). Polyline of the last
  * `maxPoints` positions; `width` over trail t (0 = head); `color` over trail
  * length (null = the particle's current color). */
 export interface TrailConfig {
+  /** Trail topology (schemaVersion 9, RIBBON_INHERIT_PLAN R1); migration injects
+   * `"perParticle"`. In `"connect"` mode this layer emits ONE ribbon through all
+   * live particles (oldest→newest by stable spawn ordinal) and `maxPoints` /
+   * `minVertexDistance` below are documented-ignored. */
+  mode: TrailMode;
   maxPoints: number;
   minVertexDistance: number;
   width: ScalarTrack;
@@ -456,7 +491,7 @@ export interface ColorParamDef {
 export type ParamDef = ScalarParamDef | ColorParamDef;
 
 export interface ParticleDoc {
-  schemaVersion: 8;
+  schemaVersion: 9;
   meta: ParticleMeta;
   duration: number;
   looping: boolean;
@@ -489,6 +524,7 @@ export const SIM_SPACES: readonly SimSpace[] = ["local", "world"];
 export const ARC_MODES: readonly ArcMode[] = ["random", "loop", "pingPong", "burstSpread"];
 export const SUB_TRIGGERS: readonly SubTrigger[] = ["birth", "death", "collision"];
 export const ATTRACTOR_FALLOFFS: readonly AttractorFalloff[] = ["none", "linear", "smooth"];
+export const TRAIL_MODES: readonly TrailMode[] = ["perParticle", "connect"];
 
 /** Current schema version this build understands. */
-export const CURRENT_SCHEMA_VERSION = 8;
+export const CURRENT_SCHEMA_VERSION = 9;

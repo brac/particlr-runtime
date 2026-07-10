@@ -132,13 +132,29 @@ const cCollision = (v: unknown): unknown =>
 const cSubEmitters = (v: unknown): unknown =>
   v === null || !Array.isArray(v)
     ? v
-    : v.map((s) => map(s, (o) => orderKeys(o, ["trigger", "layerId", "count", "probability", "inheritVelocity"])));
+    : // schemaVersion 9 (RIBBON_INHERIT_PLAN I1): the three inherit flags order
+      // directly after inheritVelocity.
+      v.map((s) =>
+        map(s, (o) =>
+          orderKeys(o, [
+            "trigger",
+            "layerId",
+            "count",
+            "probability",
+            "inheritVelocity",
+            "inheritColor",
+            "inheritSize",
+            "inheritRotation",
+          ]),
+        ),
+      );
 
 const cTrail = (v: unknown): unknown =>
   v === null
     ? null
     : map(v, (o) => {
-        const t = orderKeys(o, ["maxPoints", "minVertexDistance", "width", "color"]);
+        // schemaVersion 9 (RIBBON_INHERIT_PLAN R1): mode is the FIRST key in trail.
+        const t = orderKeys(o, ["mode", "maxPoints", "minVertexDistance", "width", "color"]);
         t.width = cTrack(t.width);
         t.color = t.color === null ? null : cGradient(t.color);
         return t;

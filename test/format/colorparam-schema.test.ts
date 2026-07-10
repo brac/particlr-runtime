@@ -48,7 +48,7 @@ describe("v7 -> v8 migration (color param + tintParam)", () => {
     expect(m.ok).toBe(true);
     if (!m.ok) return;
     const doc = m.doc as ParticleDoc;
-    expect(doc.schemaVersion).toBe(8);
+    expect(doc.schemaVersion).toBe(9);
     expect(doc.params[0]).toEqual({ kind: "scalar", name: "intensity", default: 1, min: 0, max: 2 });
     expect(doc.layers[0]!.tintParam).toBe(null);
   });
@@ -103,7 +103,7 @@ describe("v7 -> v8 migration (color param + tintParam)", () => {
     expect(m.ok).toBe(true);
     if (!m.ok) return;
     const doc = m.doc as ParticleDoc;
-    expect(doc.schemaVersion).toBe(8);
+    expect(doc.schemaVersion).toBe(9);
     expect(doc.layers[0]!.space).toBe("local"); // v1->v2 still applied
     expect(doc.params).toEqual([]); // v5->v6
     expect(doc.layers[0]!.tintParam).toBe(null); // v7->v8

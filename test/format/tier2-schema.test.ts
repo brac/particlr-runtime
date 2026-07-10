@@ -73,7 +73,7 @@ describe("v3 -> v4 migration", () => {
     expect(m.ok).toBe(true);
     if (!m.ok) return;
     const doc = m.doc as ParticleDoc;
-    expect(doc.schemaVersion).toBe(8); // migrateToCurrent chains to CURRENT (now 8)
+    expect(doc.schemaVersion).toBe(9); // migrateToCurrent chains to CURRENT (now 9)
     expect(doc.layers[0]!.attractor).toBe(null);
     expect(doc.layers[0]!.dissolve).toBe(null);
     expect(doc.layers[0]!.attractorInfluence).toBe(0);
@@ -97,9 +97,9 @@ describe("v3 -> v4 migration", () => {
     if (m.ok) expect(m.doc).toBe(doc); // current version passes through by reference
   });
 
-  it("refuses a v8 document (E11)", () => {
-    expect(migrateToCurrent({ schemaVersion: 9 }).ok).toBe(false);
-    const r = parseParticle({ ...makeDoc(), schemaVersion: 9 });
+  it("refuses a v10 document (E11)", () => {
+    expect(migrateToCurrent({ schemaVersion: 10 }).ok).toBe(false);
+    const r = parseParticle({ ...makeDoc(), schemaVersion: 10 });
     expect(r.ok).toBe(false);
     expect(r.errors[0]?.code).toBe("newer-version");
   });
@@ -130,7 +130,7 @@ describe("v3 -> v4 migration", () => {
     expect(m.ok).toBe(true);
     if (!m.ok) return;
     const doc = m.doc as ParticleDoc;
-    expect(doc.schemaVersion).toBe(8); // migrateToCurrent chains to CURRENT (now 8)
+    expect(doc.schemaVersion).toBe(9); // migrateToCurrent chains to CURRENT (now 9)
     expect(doc.layers[0]!.space).toBe("local"); // v1->v2
     expect(doc.layers[0]!.noise).toBe(null); // v2->v3
     expect(doc.layers[0]!.attractor).toBe(null); // v3->v4
@@ -157,7 +157,7 @@ describe("v3 -> v4 migration", () => {
     expect(m.ok).toBe(true);
     if (!m.ok) return;
     const doc = m.doc as ParticleDoc;
-    expect(doc.schemaVersion).toBe(8); // migrateToCurrent chains to CURRENT (now 8)
+    expect(doc.schemaVersion).toBe(9); // migrateToCurrent chains to CURRENT (now 9)
     expect(doc.layers[0]!.dissolve).toBe(null);
     expect(doc.layers[0]!.attractorInfluence).toBe(0);
   });

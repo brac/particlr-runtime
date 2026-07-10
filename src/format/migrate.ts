@@ -115,7 +115,42 @@ export const MIGRATIONS: Record<number, (doc: any) => any> = {
       : doc.params,
     layers: Array.isArray(doc.layers) ? doc.layers.map(migrateLayer7to8) : doc.layers,
   }),
+
+  // v8 -> v9: connect-ribbon trail mode + sub-emitter property inheritance
+  // (RIBBON_INHERIT_PLAN §M0). Two nested walks per layer: a non-null `trail`
+  // gains `mode: "perParticle"` (the pre-v9 topology) and every entry of a
+  // non-null `subEmitters` array gains `inheritColor/inheritSize/inheritRotation:
+  // false`. Both are spread-defaults-FIRST so a present value is never clobbered
+  // (a hand-authored `mode: "connect"` or `true` flag survives). Every default is
+  // inert (nothing reads mode or the flags in M0), so a migrated v8 document is
+  // bit-identical — PRNG stream, pool state, stateHash, golden frames — pinned by
+  // the migration-inertness test.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  8: (doc: any) => ({
+    ...doc,
+    schemaVersion: 9,
+    layers: Array.isArray(doc.layers) ? doc.layers.map(migrateLayer8to9) : doc.layers,
+  }),
 };
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function migrateLayer8to9(l: any): any {
+  if (l === null || typeof l !== "object") return l;
+  return {
+    ...l,
+    // trail is `TrailConfig | null`: only a non-null object gains a mode.
+    trail:
+      l.trail && typeof l.trail === "object" ? { mode: "perParticle", ...l.trail } : l.trail,
+    // subEmitters is `SubEmitterRef[] | null`: walk each entry when it is an array.
+    subEmitters: Array.isArray(l.subEmitters)
+      ? l.subEmitters.map((s: any) =>
+          s && typeof s === "object"
+            ? { inheritColor: false, inheritSize: false, inheritRotation: false, ...s }
+            : s,
+        )
+      : l.subEmitters,
+  };
+}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function migrateLayer7to8(l: any): any {

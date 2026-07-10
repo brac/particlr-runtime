@@ -7,7 +7,7 @@ describe("serializeParticle — canonical form", () => {
     const out = serializeParticle(makeDoc());
     expect(out.endsWith("\n")).toBe(true);
     expect(out.includes("\r")).toBe(false);
-    expect(out.split("\n")[1]).toBe('  "schemaVersion": 8,');
+    expect(out.split("\n")[1]).toBe('  "schemaVersion": 9,');
   });
 
   it("orders known keys by their declared order regardless of input order", () => {

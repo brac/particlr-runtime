@@ -14,6 +14,7 @@ import {
   FLIPBOOK_MODES,
   SIM_SPACES,
   SUB_TRIGGERS,
+  TRAIL_MODES,
   type ParticleDoc,
 } from "./types.js";
 import { decodeBase64 } from "./base64.js";
@@ -664,6 +665,10 @@ function checkTrail(ctx: Ctx, v: unknown, path: string): void {
     err(ctx, path, "must be a TrailConfig object or null");
     return;
   }
+  // Trail topology (schemaVersion 9, RIBBON_INHERIT_PLAN R1): one of the two modes
+  // when present (migration injects "perParticle"). In "connect" mode maxPoints /
+  // minVertexDistance are documented-ignored but still range-checked below.
+  if (v.mode !== undefined) checkEnum(ctx, v.mode, TRAIL_MODES, `${path}.mode`);
   if (!isInt(v.maxPoints) || (v.maxPoints as number) < 2 || (v.maxPoints as number) > 32)
     err(ctx, `${path}.maxPoints`, "maxPoints must be an integer in [2, 32]");
   if (!isNum(v.minVertexDistance) || (v.minVertexDistance as number) <= 0)
@@ -750,6 +755,13 @@ function checkSubEmitters(ctx: Ctx, v: unknown, path: string, selfId: string): v
     checkUnit(ctx, s.probability, `${sp}.probability`);
     if (checkNumber(ctx, s.inheritVelocity, `${sp}.inheritVelocity`) && ((s.inheritVelocity as number) < -2 || (s.inheritVelocity as number) > 2))
       err(ctx, `${sp}.inheritVelocity`, "inheritVelocity must be in [-2, 2]");
+    // E35 (schemaVersion 9, RIBBON_INHERIT_PLAN I5): the three inheritance flags
+    // must be booleans WHEN PRESENT (migration injects false ×3). Dedicated inherit
+    // columns sidestep the hueJitter-tint collision, so no cross-layer rule is needed.
+    for (const flag of ["inheritColor", "inheritSize", "inheritRotation"] as const) {
+      if (s[flag] !== undefined && !isBool(s[flag]))
+        err(ctx, `${sp}.${flag}`, `${flag} must be a boolean (E35)`);
+    }
   });
 }
 
