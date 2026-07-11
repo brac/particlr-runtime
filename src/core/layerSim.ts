@@ -403,6 +403,31 @@ export class LayerSim {
     let size = drawScalarInit(init.size, rng);
     let rot = drawScalarInit(init.rotation, rng);
     const angVel = drawScalarInit(init.angularVelocity, rng);
+    // B5 by-emitter-speed (schemaVersion 10, §B5): scale the DRAWN size/speed/life
+    // by a track lookup at the emitter-speed-normalized t. Emitter speed is the
+    // pure scalar √(emVX²+emVY²) — the velocity setEmitterStep already pushed for
+    // EVERY layer (world or local), so ZERO new PRNG draws (TIERB T7). Constant/
+    // curve tracks only (validator-enforced checkScalarTrackNoRange), evaluated with
+    // rand 0 — the value is per-spawn-STEP, shared by every particle spawned this
+    // step. ORDER PINNED (TIERB T4): this multiply runs BEFORE the A9 param multiply
+    // below, so the host size/speed/lifeParam stays the final per-instance knob
+    // layered on top of the authored emitter-speed response (multiplies commute
+    // mathematically; the order is pinned for legibility, like the color chain).
+    // The `min === max` degenerate is a HARD STEP at the shared bound (t=1 at/above,
+    // else 0), mirroring the bySpeed render ruling (render.ts `tSpeed`). Null-gated:
+    // a byEmitterSpeed-null layer is instruction-identical, and since no existing
+    // document carries the module no determinism digest moves. INERT for a static
+    // emitter — emVX/emVY are 0 unless the host drives setEmitterPosition, so t=0
+    // (FORMAT_SPEC E39 authoring note).
+    const bes = this.layer.byEmitterSpeed;
+    if (bes !== null) {
+      const emSpeed = Math.sqrt(this.emVX * this.emVX + this.emVY * this.emVY);
+      const besSpan = bes.range.max - bes.range.min;
+      const tEm = besSpan > 0 ? Math.min(1, Math.max(0, (emSpeed - bes.range.min) / besSpan)) : emSpeed >= bes.range.max ? 1 : 0;
+      if (bes.size !== null) size *= evalScalarTrack(bes.size, tEm, 0);
+      if (bes.speed !== null) speed *= evalScalarTrack(bes.speed, tEm, 0);
+      if (bes.life !== null) life *= evalScalarTrack(bes.life, tEm, 0);
+    }
     // A9 host params (schemaVersion 6): scale the DRAWN life/speed by their bound
     // param AFTER the draw — the PRNG stream is untouched (zero new draws), so a
     // bound-at-1 doc is byte-identical to an unbound one. Future spawns only: the
