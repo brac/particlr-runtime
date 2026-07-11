@@ -2,6 +2,8 @@
 
 exports[`preset snapshots (Gate 1) > arc-weld.prt state @60 steps is stable 1`] = `"d1ec5e8f"`;
 
+exports[`preset snapshots (Gate 1) > autumn-gust.prt state @60 steps is stable 1`] = `"c93b0eb0"`;
+
 exports[`preset snapshots (Gate 1) > black-hole.prt state @60 steps is stable 1`] = `"7bc290b2"`;
 
 exports[`preset snapshots (Gate 1) > blast-anim.prt state @60 steps is stable 1`] = `"4f25541d"`;

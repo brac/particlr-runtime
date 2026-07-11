@@ -696,6 +696,23 @@ export class LayerSim {
     const nPhase = p.noisePhase;
     const t = this.clock;
 
+    // Wind (schemaVersion 10, B6): a coherent, spatially-uniform force — every
+    // live particle feels the SAME wind vector this step, unlike the per-position
+    // noise curl above. It is a pure function of the effect clock (zero PRNG
+    // draws): the gust scalar `1 + gustAmount·sin(2π·gustFrequency·clock)` and the
+    // direction cos/sin are hoisted ONCE per step here (coherence by construction —
+    // position-independent). The per-particle block below only evaluates the
+    // strength track at the particle's ageNorm and adds `w·(cosDir,sinDir)·dt` into
+    // the STORED velocity, physical like gravity, inserted AFTER gravity and BEFORE
+    // the attractor block so drag and limitVelocity damp the wind+attractor sum.
+    // Gated on `wind !== null`; the migration injects null, so a null-wind layer
+    // keeps the motion loop instruction-identical and no existing digest moves.
+    const wind = this.layer.wind;
+    const windStrength = wind !== null ? wind.strength : null;
+    const windGust = wind !== null ? 1 + wind.gustAmount * Math.sin(2 * Math.PI * wind.gustFrequency * t) : 0;
+    const windCos = wind !== null ? Math.cos(wind.direction * RAD) : 0;
+    const windSin = wind !== null ? Math.sin(wind.direction * RAD) : 0;
+
     // Velocity over lifetime (schemaVersion 3, M3). Additive px/s (x/y), deg/s
     // clockwise orbital, and px/s outward radial, all evaluated at ageNorm and
     // applied into the position update only — NOT accumulated into velX/velY
@@ -811,9 +828,22 @@ export class LayerSim {
       // no-op and the null path is byte-identical to before this milestone.
       let ageLoss = 0;
 
-      // gravity, then attractor, then drag, then position (normative order §0.3b)
+      // gravity, then wind, then attractor, then drag, then position (normative
+      // order §0.3b / E40)
       let vx = p.velX[i]! + gx * dt;
       let vy = p.velY[i]! + gy * dt;
+      // Wind (§0.3b, E40): coherent directional acceleration into the stored
+      // velocity, added AFTER gravity and BEFORE the attractor block so drag and
+      // limitVelocity damp it. The gust and cos/sin are hoisted (position-
+      // independent — every particle this step gets the identical gust); only the
+      // strength track is evaluated per particle at its ageNorm (rand 0 — a
+      // range-forbidding track, zero draws), authoring an ease-in over life. Gated
+      // on `wind !== null`, so a null-wind layer is instruction-identical.
+      if (wind !== null) {
+        const w = evalScalarTrack(windStrength!, ageNorm, 0) * windGust;
+        vx += w * windCos * dt;
+        vy += w * windSin * dt;
+      }
       // Point attractor / vortex (§0.3b): entered only when a document attractor is
       // set or an active host attractor scales onto this layer. Reads the CURRENT
       // position (pre-integration), writes the STORED velocity via the vx/vy locals
