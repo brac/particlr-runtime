@@ -1,5 +1,7 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
+exports[`preset snapshots (Gate 1) > arc-weld.prt state @60 steps is stable 1`] = `"d1ec5e8f"`;
+
 exports[`preset snapshots (Gate 1) > black-hole.prt state @60 steps is stable 1`] = `"7bc290b2"`;
 
 exports[`preset snapshots (Gate 1) > blast-anim.prt state @60 steps is stable 1`] = `"4f25541d"`;

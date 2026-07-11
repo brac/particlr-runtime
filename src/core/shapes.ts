@@ -99,12 +99,11 @@ export function sampleShape(shape: Shape, uPos1: number, uPos2: number, uDir: nu
       return { px: (uPos1 - 0.5) * shape.length, py: 0, dirDeg: -90 };
 
     case "polyline":
-      // schemaVersion 10 (B1): arc-length polyline sampling lands in M1 (via a
-      // dedicated PolylineSampler built once in the LayerSim constructor, keyed
-      // off uPos1). Here it keeps the switch exhaustive AND is the E37
-      // degenerate/zero-length fallback: spawn at the origin with a random
-      // direction (point-shape behavior). No existing document carries this kind,
-      // so this branch is unreachable across the current determinism/golden suites.
+      // schemaVersion 10 (B1): arc-length polyline sampling is served by the
+      // dedicated PolylineSampler (built once in the LayerSim constructor, keyed off
+      // the already-drawn uPos1/uDir). This branch is reached ONLY as the E37
+      // degenerate/zero-length fallback (the sampler returns null): spawn at the
+      // origin with a random direction (point-shape behavior).
       return { px: 0, py: 0, dirDeg: uDir * 360 };
 
     case "texture":

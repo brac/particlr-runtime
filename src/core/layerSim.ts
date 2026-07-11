@@ -6,8 +6,9 @@ import type { Layer, RGBAColor } from "../format/types.js";
 import { mulberry32, type Rng } from "./prng.js";
 import { drawScalarInit, evalScalarTrack, evalGradient, hueRotateRGB, type RGBA } from "./tracks.js";
 import { ParticlePool } from "./pool.js";
-import { sampleShape } from "./shapes.js";
+import { sampleShape, type SpawnSample } from "./shapes.js";
 import { buildMaskSampler, type MaskSampler } from "./maskSampler.js";
+import { buildPolylineSampler, type PolylineSampler } from "./polylineSampler.js";
 import { curl2 } from "./noise.js";
 
 const RAD = Math.PI / 180;
@@ -160,6 +161,14 @@ export class LayerSim {
    * carries no per-run state, so reset() does not rebuild it. */
   private readonly maskSampler: MaskSampler | null;
 
+  /** Polyline arc-length sampler (schemaVersion 10, B1 / §B1). Config-derived and
+   * built ONCE in the constructor, mirroring maskSampler: non-null only for a
+   * `kind === "polyline"` layer with positive total arc length, null for every
+   * other kind AND for an E37 degenerate polyline (the spawn path then falls back
+   * to point-shape spawning via shapes.ts). Reuses the already-drawn `uPos1`/`uDir`
+   * — zero new PRNG draws — and carries no per-run state, so reset() leaves it. */
+  private readonly polylineSampler: PolylineSampler | null;
+
   constructor(layer: Layer, layerSeed: number, inheritColorTarget = false) {
     this.layer = layer;
     // Optional pool columns are allocated only for the modules this layer uses
@@ -200,6 +209,10 @@ export class LayerSim {
     // Emit-from-texture: decode + CDF-build the mask once (§0.3a). Null for every
     // non-texture layer, so no existing document allocates or pays for this.
     this.maskSampler = layer.shape.kind === "texture" ? buildMaskSampler(layer.shape) : null;
+    // Polyline: precompute the per-segment arc-length CDF once (§B1). Null for every
+    // non-polyline layer AND for a degenerate (zero-length) polyline, so no existing
+    // document allocates or pays for this and the E37 point-fallback stays in play.
+    this.polylineSampler = layer.shape.kind === "polyline" ? buildPolylineSampler(layer.shape) : null;
   }
 
   get count(): number {
@@ -479,15 +492,21 @@ export class LayerSim {
     const jy = isTexture ? rng() : 0;
 
     const i = p.spawn();
-    // Position resolution: a usable mask samples the CDF (§0.3a); otherwise the
-    // shapes.ts switch handles every other kind AND the E23 corrupt-mask fallback
-    // (point-shape spawning). The `kind === "texture"` guard narrows the shape for
-    // the sampler and is always true when maskSampler !== null.
+    // Position resolution: a usable mask samples the texture CDF (§0.3a); a usable
+    // polyline samples its arc-length CDF (§B1, reusing the already-drawn uPos1/uDir
+    // — no new draws); otherwise the shapes.ts switch handles every other kind AND
+    // the E23 corrupt-mask / E37 degenerate-polyline fallbacks (point-shape
+    // spawning). Each `kind ===` guard narrows the shape for its sampler and is
+    // always true when that sampler !== null (a layer has exactly one kind).
     const shape = this.layer.shape;
-    const s =
-      this.maskSampler !== null && shape.kind === "texture"
-        ? this.maskSampler.sample(uIdx, jx, jy, shape, uDir)
-        : sampleShape(shape, uPos1, uPos2, uDir, arcT);
+    let s: SpawnSample;
+    if (this.maskSampler !== null && shape.kind === "texture") {
+      s = this.maskSampler.sample(uIdx, jx, jy, shape, uDir);
+    } else if (this.polylineSampler !== null && shape.kind === "polyline") {
+      s = this.polylineSampler.sample(uPos1, uDir);
+    } else {
+      s = sampleShape(shape, uPos1, uPos2, uDir, arcT);
+    }
     const dirRad = s.dirDeg * RAD;
     let px = s.px;
     let py = s.py;
