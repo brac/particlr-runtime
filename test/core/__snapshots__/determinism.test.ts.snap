@@ -30,6 +30,8 @@ exports[`preset snapshots (Gate 1) > ember-field.prt state @60 steps is stable 1
 
 exports[`preset snapshots (Gate 1) > ember-pop.prt state @60 steps is stable 1`] = `"b64b14c1"`;
 
+exports[`preset snapshots (Gate 1) > ember-shatter.prt state @60 steps is stable 1`] = `"77516c60"`;
+
 exports[`preset snapshots (Gate 1) > explosion.prt state @60 steps is stable 1`] = `"70a20ede"`;
 
 exports[`preset snapshots (Gate 1) > falling-leaves.prt state @60 steps is stable 1`] = `"6734768b"`;

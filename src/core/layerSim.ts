@@ -717,6 +717,17 @@ export class LayerSim {
     const colDampen = collision !== null ? collision.dampen : 0;
     const colLifeLoss = collision !== null ? collision.lifetimeLoss : 0;
     const colTangent = 1 - colDampen; // tangential velocity survives, scaled
+    // Kill-on-collide (schemaVersion 10, B3). Zero PRNG draws — reuses the ageLoss
+    // accumulator like lifetimeLoss/killRadius. `killOnCollide false` skips the new
+    // branch below, so a non-kill collision layer is instruction-identical (the
+    // pre-impact speed is computed only when the flag is set).
+    const colKillOnCollide = collision !== null ? collision.killOnCollide : false;
+    const colMinKillSpeed = collision !== null ? collision.minKillSpeed : 0;
+    // Kill zones (schemaVersion 10, B3): death regions in the layer's sim frame
+    // (E20 lineage — same frame as the collision shape). Hoisted per step; the
+    // per-particle containment test below is gated on `killZones !== null`, so a
+    // null layer keeps the update loop instruction-identical. Zero PRNG draws.
+    const killZones = this.layer.killZones;
 
     // Point attractor / vortex (schemaVersion 4, §0.3b). Radial (`strength`) +
     // tangential acceleration toward a point in the layer's sim frame, written
@@ -868,6 +879,11 @@ export class LayerSim {
         let cx = p.x[i]!;
         let cy = p.y[i]!;
         let hit = false;
+        // Pre-impact speed for killOnCollide (B3): the stored velocity's magnitude
+        // BEFORE any reflect below mutates vx/vy. Computed only when killOnCollide
+        // is set (the ternary short-circuits to 0 otherwise, taking no sqrt), so a
+        // non-kill collision layer is instruction-identical.
+        const preImpactSpeed = colKillOnCollide ? Math.sqrt(vx * vx + vy * vy) : 0;
         if (colShape.kind === "floor") {
           if (cy > colShape.y && vy > 0) {
             cy = colShape.y;
@@ -916,6 +932,13 @@ export class LayerSim {
           // added `lifetime` above. For every collision-only layer ageLoss is 0
           // here, so `+=` is byte-identical to the pre-M2 `=` (exact IEEE no-op).
           ageLoss += colLifeLoss * lifetime;
+          // killOnCollide (B3): a hard-enough hit shatters — fold a full lifetime
+          // into ageLoss so the particle dies at this step's age/kill stage. The
+          // threshold is `>=` (a hit exactly AT minKillSpeed kills; `0` = always).
+          // The collision event STILL records below, so a shattering particle can
+          // fire both a collision-trigger and a death-trigger sub-emitter this step
+          // (normative double-event, FORMAT_SPEC E38 — the killRadius precedent).
+          if (colKillOnCollide && preImpactSpeed >= colMinKillSpeed) ageLoss += lifetime;
           if (this.recordCollisionEvents) {
             // Record the STABLE ordinal (M8), not the live index `i`: swap-remove
             // can move a different particle into slot `i` before the Effect reads
@@ -925,6 +948,25 @@ export class LayerSim {
             const arr = (this.collisionEvents ??= []);
             arr.push(cx, cy, vx, vy, ord);
             if (this.captureInherit) this.pushInherit(arr, i); // v9 I4: 6 extra floats
+          }
+        }
+      }
+
+      // Kill zones (schemaVersion 10, B3): post-integration death regions in the
+      // layer's sim frame, tested alongside the collision resolve (on the base-
+      // integrated position, before the VoL/noise perturbations). A particle whose
+      // position lands inside any rect folds a full lifetime into ageLoss so it
+      // dies this step. Boundary is inclusive (`>=`/`<=` — a point exactly on an
+      // edge is inside). `break` on first containment: ageLoss accumulates once
+      // regardless of overlap. Gated on `killZones !== null`; zero PRNG draws.
+      if (killZones !== null) {
+        const kx = p.x[i]!;
+        const ky = p.y[i]!;
+        for (let z = 0; z < killZones.length; z++) {
+          const zone = killZones[z]!;
+          if (kx >= zone.x && kx <= zone.x + zone.width && ky >= zone.y && ky <= zone.y + zone.height) {
+            ageLoss += lifetime;
+            break;
           }
         }
       }
