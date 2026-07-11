@@ -12,6 +12,7 @@ import {
   EASES,
   EMIT_FROM,
   FLIPBOOK_MODES,
+  POLYLINE_DIRECTIONS,
   SIM_SPACES,
   SUB_TRIGGERS,
   TRAIL_MODES,
@@ -333,6 +334,9 @@ function checkShape(ctx: Ctx, v: unknown, path: string): void {
     case "edge":
       checkNumber(ctx, v.length, `${path}.length`);
       break;
+    case "polyline":
+      checkPolyline(ctx, v, path);
+      break;
     case "texture":
       if (checkNumber(ctx, v.width, `${path}.width`) && (v.width as number) <= 0)
         err(ctx, `${path}.width`, "width must be > 0");
@@ -348,7 +352,53 @@ function checkShape(ctx: Ctx, v: unknown, path: string): void {
       // bad-mask and E26 surface hints above still apply).
       break;
     default:
-      err(ctx, `${path}.kind`, "must be one of: point, circle, cone, rect, edge, texture");
+      err(ctx, `${path}.kind`, "must be one of: point, circle, cone, rect, edge, polyline, texture");
+  }
+}
+
+// Polyline spawn shape (schemaVersion 10, B1). Structural problems (points not an
+// array of 2..64 finite {x,y}, non-boolean closed, bad direction enum) are ERRORS.
+// A DEGENERATE polyline (all points coincident ⇒ zero total arc length) is a
+// non-blocking WARNING (E37, code "bad-polyline"): the layer degrades to
+// point-shape spawning at the layer origin, exactly the E23 bad-mask pattern.
+function checkPolyline(ctx: Ctx, v: Record<string, unknown>, path: string): void {
+  if (!Array.isArray(v.points)) {
+    err(ctx, `${path}.points`, "points must be an array");
+    return;
+  }
+  if (v.points.length < 2 || v.points.length > 64) {
+    err(ctx, `${path}.points`, "points must have 2..64 entries");
+  }
+  let allFinite = true;
+  v.points.forEach((p, i) => {
+    const pp = `${path}.points[${i}]`;
+    if (!isObject(p)) {
+      err(ctx, pp, "point must be an {x,y} object");
+      allFinite = false;
+      return;
+    }
+    if (!checkNumber(ctx, p.x, `${pp}.x`)) allFinite = false;
+    if (!checkNumber(ctx, p.y, `${pp}.y`)) allFinite = false;
+  });
+  if (v.closed !== undefined && !isBool(v.closed)) err(ctx, `${path}.closed`, "closed must be a boolean");
+  checkEnum(ctx, v.direction, POLYLINE_DIRECTIONS, `${path}.direction`);
+  // E37 degenerate check: with sound, finite points, warn (do not reject) when the
+  // total arc length is ~zero — the runtime spawns from a point (position (0,0),
+  // random direction). Only checked when every point parsed cleanly.
+  if (allFinite && Array.isArray(v.points) && v.points.length >= 2) {
+    let total = 0;
+    for (let i = 1; i < v.points.length; i++) {
+      const a = v.points[i - 1] as { x: number; y: number };
+      const b = v.points[i] as { x: number; y: number };
+      total += Math.hypot(b.x - a.x, b.y - a.y);
+    }
+    if (v.closed === true && v.points.length >= 2) {
+      const a = v.points[v.points.length - 1] as { x: number; y: number };
+      const b = v.points[0] as { x: number; y: number };
+      total += Math.hypot(b.x - a.x, b.y - a.y);
+    }
+    if (total < 1e-6)
+      warn(ctx, path, "polyline has zero total length; the layer will emit from a point (E37)", "bad-polyline");
   }
 }
 
@@ -658,6 +708,75 @@ function checkCollision(ctx: Ctx, v: unknown, path: string): void {
   checkUnit(ctx, v.bounce, `${path}.bounce`);
   checkUnit(ctx, v.dampen, `${path}.dampen`);
   checkUnit(ctx, v.lifetimeLoss, `${path}.lifetimeLoss`);
+  // Kill-on-collide + min-kill-speed (schemaVersion 10, E38), validated WHEN
+  // PRESENT (migration injects killOnCollide:false, minKillSpeed:0). killOnCollide
+  // a boolean; minKillSpeed a finite number >= 0.
+  if (v.killOnCollide !== undefined && !isBool(v.killOnCollide))
+    err(ctx, `${path}.killOnCollide`, "killOnCollide must be a boolean (E38)");
+  if (v.minKillSpeed !== undefined && checkNumber(ctx, v.minKillSpeed, `${path}.minKillSpeed`) && (v.minKillSpeed as number) < 0)
+    err(ctx, `${path}.minKillSpeed`, "minKillSpeed must be >= 0 (E38)");
+}
+
+// Kill zones (schemaVersion 10, B3, E38): a layer-level `Rect[] | null`. At most 8
+// rects; each a finite `{x,y,width,height}` with width/height > 0. A particle whose
+// integrated position lands inside any rect dies (ageLoss += lifetime).
+function checkKillZones(ctx: Ctx, v: unknown, path: string): void {
+  if (!Array.isArray(v)) {
+    err(ctx, path, "killZones must be an array or null (E38)");
+    return;
+  }
+  if (v.length > 8) err(ctx, path, "killZones may have at most 8 rects (E38)");
+  v.forEach((z, i) => {
+    const zp = `${path}[${i}]`;
+    if (!isObject(z)) {
+      err(ctx, zp, "kill zone must be an {x,y,width,height} object (E38)");
+      return;
+    }
+    checkNumber(ctx, z.x, `${zp}.x`);
+    checkNumber(ctx, z.y, `${zp}.y`);
+    if (checkNumber(ctx, z.width, `${zp}.width`) && (z.width as number) <= 0)
+      err(ctx, `${zp}.width`, "width must be > 0 (E38)");
+    if (checkNumber(ctx, z.height, `${zp}.height`) && (z.height as number) <= 0)
+      err(ctx, `${zp}.height`, "height must be > 0 (E38)");
+  });
+}
+
+// By-emitter-speed (schemaVersion 10, B5, E39): a `{range:{min,max}, size, speed,
+// life}` module. Mirrors checkBySpeed's range rule; each of size/speed/life is null
+// or a checkScalarTrackNoRange track (constant/curve only — the value is per-
+// spawn-step, so no per-particle range mode, zero draws).
+function checkByEmitterSpeed(ctx: Ctx, v: unknown, path: string): void {
+  if (!isObject(v)) {
+    err(ctx, path, "must be a ByEmitterSpeedConfig object or null");
+    return;
+  }
+  if (!isObject(v.range)) {
+    err(ctx, `${path}.range`, "must be a {min,max} object");
+  } else {
+    const okMin = checkNumber(ctx, v.range.min, `${path}.range.min`);
+    const okMax = checkNumber(ctx, v.range.max, `${path}.range.max`);
+    if (okMin && okMax && (v.range.min as number) > (v.range.max as number))
+      err(ctx, `${path}.range`, "range min must be <= max");
+  }
+  for (const key of ["size", "speed", "life"] as const) {
+    if (v[key] !== null && v[key] !== undefined) checkScalarTrackNoRange(ctx, v[key], `${path}.${key}`);
+  }
+}
+
+// Wind (schemaVersion 10, B6, E40): `{direction, strength, gustFrequency,
+// gustAmount}`. direction finite; strength constant/curve only
+// (checkScalarTrackNoRange — zero draws, the noise.strength ruling); gustFrequency
+// finite >= 0; gustAmount a unit [0,1].
+function checkWind(ctx: Ctx, v: unknown, path: string): void {
+  if (!isObject(v)) {
+    err(ctx, path, "must be a WindConfig object or null");
+    return;
+  }
+  checkNumber(ctx, v.direction, `${path}.direction`);
+  checkScalarTrackNoRange(ctx, v.strength, `${path}.strength`);
+  if (checkNumber(ctx, v.gustFrequency, `${path}.gustFrequency`) && (v.gustFrequency as number) < 0)
+    err(ctx, `${path}.gustFrequency`, "gustFrequency must be >= 0");
+  checkUnit(ctx, v.gustAmount, `${path}.gustAmount`);
 }
 
 function checkTrail(ctx: Ctx, v: unknown, path: string): void {
@@ -840,6 +959,10 @@ function checkLayer(ctx: Ctx, v: unknown, path: string): void {
     // bySpeed behaves as of M6 — no "unimplemented" warning.
     checkBySpeed(ctx, v.bySpeed, `${path}.bySpeed`);
   }
+  // schemaVersion 10 modules (each null = off). Validated when present.
+  if (v.wind !== null && v.wind !== undefined) checkWind(ctx, v.wind, `${path}.wind`);
+  if (v.byEmitterSpeed !== null && v.byEmitterSpeed !== undefined)
+    checkByEmitterSpeed(ctx, v.byEmitterSpeed, `${path}.byEmitterSpeed`);
   if (v.startColor !== null && v.startColor !== undefined) {
     // startColor behaves as of M5 — no "unimplemented" warning.
     checkStartColor(ctx, v.startColor, `${path}.startColor`);
@@ -861,6 +984,13 @@ function checkLayer(ctx: Ctx, v: unknown, path: string): void {
     // the layer's local sim frame, not world coordinates).
     if (spaceOk && v.space === "local")
       warn(ctx, `${path}.collision`, "collision planes are in the layer's local frame and ride the emitter (E20)");
+  }
+  // Kill zones (schemaVersion 10, E38); null = none. Death regions in the layer's
+  // sim frame — local-space zones ride the emitter (E20 lineage).
+  if (v.killZones !== null && v.killZones !== undefined) {
+    checkKillZones(ctx, v.killZones, `${path}.killZones`);
+    if (spaceOk && v.space === "local")
+      warn(ctx, `${path}.killZones`, "kill zones are in the layer's local frame and ride the emitter (E20)");
   }
   if (v.subEmitters !== null && v.subEmitters !== undefined) {
     // subEmitters behave as of M8 — no "unimplemented" warning (the depth-1 /

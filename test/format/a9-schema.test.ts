@@ -90,7 +90,7 @@ describe("v5 -> v6 migration (A9)", () => {
     expect(m.ok).toBe(true);
     if (!m.ok) return;
     const doc = m.doc as ParticleDoc;
-    expect(doc.schemaVersion).toBe(9);
+    expect(doc.schemaVersion).toBe(10);
     expect(doc.params).toEqual([]);
     const l = doc.layers[0]!;
     expect(l.emission.rateOverTimeParam).toBe(null);
@@ -169,7 +169,7 @@ describe("v5 -> v6 migration (A9)", () => {
     expect(m.ok).toBe(true);
     if (!m.ok) return;
     const doc = m.doc as ParticleDoc;
-    expect(doc.schemaVersion).toBe(9);
+    expect(doc.schemaVersion).toBe(10);
     expect(doc.params).toEqual([]);
     expect(doc.layers[0]!.space).toBe("local"); // v1->v2 still applied
     expect(doc.layers[0]!.limitVelocity).toBe(null); // v4->v5 still applied

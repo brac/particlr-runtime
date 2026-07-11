@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 9,
+  "schemaVersion": 10,
   "meta": {
     "name": "Unknowns",
     "createdWith": "particlr@0.x",
@@ -103,7 +103,9 @@
       },
       "limitVelocity": null,
       "noise": null,
+      "wind": null,
       "bySpeed": null,
+      "byEmitterSpeed": null,
       "startColor": null,
       "randomFlip": null,
       "tintParam": null,
@@ -111,6 +113,7 @@
       "render": null,
       "dissolve": null,
       "collision": null,
+      "killZones": null,
       "attractor": null,
       "subEmitters": null,
       "trail": null,

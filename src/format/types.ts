@@ -57,6 +57,9 @@ export interface GradientTrack {
  * The others make emission march deterministically around the arc. */
 export type ArcMode = "random" | "loop" | "pingPong" | "burstSpread";
 
+/** Initial-velocity basis for a polyline spawn shape (schemaVersion 10, B1). */
+export type PolylineDirection = "normal" | "outward" | "random";
+
 export type Shape =
   | { kind: "point"; emitFrom: EmitFrom }
   | {
@@ -85,6 +88,29 @@ export type Shape =
     }
   | { kind: "rect"; width: number; height: number; emitFrom: EmitFrom }
   | { kind: "edge"; length: number; emitFrom: EmitFrom }
+  | {
+      kind: "polyline";
+      /** schemaVersion 10. Ordered vertex list, `2 ≤ length ≤ 64` (the 64 cap
+       * mirrors the mask-dimension bound and keeps the length-CDF cheap). Each
+       * x/y finite. Particles are born uniformly along the TOTAL arc length (a
+       * long segment gets proportionally more particles), reusing the already-
+       * drawn `uPos1` — zero new PRNG draws (B1). `edge` is a one-segment
+       * horizontal special case. */
+      points: Vec2[];
+      /** schemaVersion 10. When true a final wrap segment `points[n−1] →
+       * points[0]` joins the length-CDF, so an N-point outline emits around all
+       * N edges. */
+      closed: boolean;
+      /** schemaVersion 10. Initial-velocity basis. `normal` = the CCW normal of
+       * the spawned segment (a left→right segment emits up, `dirDeg −90` — the
+       * `edge` convention); `outward` = away from the polygon centroid (mean of
+       * `points`, natural for a `closed` outline, mirroring `circle`); `random` =
+       * `uDir·360` (point/texture behavior). */
+      direction: PolylineDirection;
+      /** Kept for Shape-union uniformity (no effect — a polyline spawns along its
+       * points, not a volume/surface split; E37 note). */
+      emitFrom: EmitFrom;
+    }
   | {
       kind: "texture";
       /** schemaVersion 4. Rendered size in px of the mask, centered on the layer
@@ -233,6 +259,29 @@ export interface NoiseConfig {
   octaves: number;
 }
 
+/** Coherent, spatially-uniform wind with time-varying gusts (schemaVersion 10,
+ * B6). Unlike `noise` (a per-position `curl2` field, deliberately de-coherent),
+ * every live particle feels the SAME wind vector at any instant — leaves surge as
+ * one. The vector is a pure function of the effect clock (zero PRNG draws): at sim
+ * time `clock`, `gust = 1 + gustAmount·sin(2π·gustFrequency·clock)`,
+ * `w = strength(ageNorm)·gust`, added as acceleration into stored velocity
+ * `vx += w·cos(direction)·dt`, `vy += w·sin(direction)·dt` — physical like
+ * gravity, applied AFTER gravity and BEFORE the attractor block so drag and
+ * limitVelocity damp it (see FORMAT_SPEC E40 / the normative motion order). null =
+ * off (the migration default). NOT host-param bindable in v1. */
+export interface WindConfig {
+  /** Wind direction in degrees clockwise from +x (Pixi convention). Finite. */
+  direction: number;
+  /** Base magnitude px/s² over the particle's ageNorm; constant/curve only
+   * (`checkScalarTrackNoRange` — no per-particle range mode, zero draws, same
+   * ruling as `noise.strength`). */
+  strength: ScalarTrack;
+  /** Gusts per second (Hz); `≥ 0`. `0` = steady wind (the sine term is constant). */
+  gustFrequency: number;
+  /** Depth of the gust modulation in `[0, 1]`; `0` = no gust. */
+  gustAmount: number;
+}
+
 /** Velocity-aligned rendering + speed stretch (schemaVersion 3).
  * `align: "velocity"` rotates the sprite to face its motion; `speedScale`
  * grows the along-motion stretch with speed, clamped to [minStretch, maxStretch]. */
@@ -252,6 +301,30 @@ export interface BySpeedConfig {
   size: ScalarTrack | null;
   color: GradientTrack | null;
   rotation: ScalarTrack | null;
+}
+
+/** Scale a particle's INITIAL values by how fast the EMITTER is moving, evaluated
+ * AT SPAWN (schemaVersion 10, B5) — "a car kicks up bigger, longer-lived dust the
+ * faster it drives." Modeled on `bySpeed` but keyed on emitter speed (the
+ * already-pushed `emVX/emVY`, zero PRNG draws) and applied at spawn to the drawn
+ * `size`/`speed`/`life` scalars. `t = clamp01((emitterSpeed − min)/(max − min))`
+ * (a hard step when `min === max`, the `bySpeed` ruling); each non-null track
+ * multiplies its drawn init value. Constant/curve only (`checkScalarTrackNoRange`)
+ * — the value is per-spawn-step, shared by every particle spawned that step, so a
+ * per-particle range mode has no meaning. Applied BEFORE the A9 param multiply
+ * (order pinned for legibility; multiplies commute). null = off (the migration
+ * default). Inert unless the host drives the emitter via `setEmitterPosition`
+ * (emitter speed is 0 otherwise — see FORMAT_SPEC E39). NOT host-param bindable
+ * (A9 size/speed/lifeParam already cover per-instance control). */
+export interface ByEmitterSpeedConfig {
+  /** Emitter-speed window (px/s) normalized to `t ∈ [0,1]`. */
+  range: { min: number; max: number };
+  /** Multiplier on the drawn init size; null = no size response. */
+  size: ScalarTrack | null;
+  /** Multiplier on the drawn init speed; null = no speed response. */
+  speed: ScalarTrack | null;
+  /** Multiplier on the drawn init lifetime; null = no life response. */
+  life: ScalarTrack | null;
 }
 
 /** Per-particle spawn-color variety (schemaVersion 3), applied as a constant
@@ -286,6 +359,31 @@ export interface CollisionConfig {
   bounce: number;
   dampen: number;
   lifetimeLoss: number;
+  /** On any collision hit, kill the particle immediately — the sim folds a full
+   * `lifetime` into `ageLoss` so it dies at this step's age/kill stage
+   * (schemaVersion 10, B3). This is `lifetimeLoss: 1` made explicit and
+   * orthogonal to bounce (it can fire with bounce/dampen at 0). Migration injects
+   * `false` (the untouched pre-v10 path). A shattered particle still records the
+   * collision event AND reaches its death event the same step, so it can fire
+   * both a collision-trigger and a death-trigger sub-emitter (the attractor
+   * `killRadius` precedent — see FORMAT_SPEC E38). */
+  killOnCollide: boolean;
+  /** Impact-speed threshold (px/s) at or above which `killOnCollide` fires
+   * (schemaVersion 10, B3): the pre-impact speed `√(vx²+vy²)` read before the
+   * reflect. Below it the particle bounces/dampens normally — "hard hits shatter,
+   * soft hits settle." `0` = always kill. Finite, `≥ 0`. Migration injects `0`.
+   * Ignored when `killOnCollide` is false. */
+  minKillSpeed: number;
+}
+
+/** An axis-aligned rectangle in the layer's sim frame (schemaVersion 10, B3),
+ * used for `killZones`. `width`/`height` are extents (> 0), not far corners;
+ * the rect covers `[x, x+width] × [y, y+height]`. */
+export interface Rect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 }
 
 /** How a layer's particles spawn children on another layer (schemaVersion 3).
@@ -413,8 +511,13 @@ export interface Layer {
   limitVelocity: ScalarTrack | null;
   /** Turbulence field (schemaVersion 3); null = off. */
   noise: NoiseConfig | null;
+  /** Coherent gusting wind (schemaVersion 10, B6); null = off. */
+  wind: WindConfig | null;
   /** Speed-driven size/color/rotation remaps (schemaVersion 3); null = off. */
   bySpeed: BySpeedConfig | null;
+  /** Scale initial size/speed/life by emitter speed at spawn (schemaVersion 10,
+   * B5); null = off. */
+  byEmitterSpeed: ByEmitterSpeedConfig | null;
   /** Per-particle spawn-color variety (schemaVersion 3); null = off. */
   startColor: StartColor | null;
   /** Per-particle random flip (schemaVersion 3); null = off. */
@@ -442,6 +545,12 @@ export interface Layer {
   dissolve: DissolveConfig | null;
   /** Simple collision (schemaVersion 3); null = off. */
   collision: CollisionConfig | null;
+  /** Death regions in the layer's sim frame (schemaVersion 10, B3); null = none.
+   * A particle whose integrated position lands inside ANY rect gets
+   * `ageLoss += lifetime` (dies this step) — distinct from a keep-inside collision
+   * rect (which bounces at the boundary). Max 8 rects, each `width/height > 0`.
+   * Local-space zones ride the emitter (E20 lineage). */
+  killZones: Rect[] | null;
   /** Point attractor / vortex (schemaVersion 4); null = off. */
   attractor: AttractorConfig | null;
   /** Sub-emitters (schemaVersion 3); null = none (was reserved in v1/v2). */
@@ -491,7 +600,7 @@ export interface ColorParamDef {
 export type ParamDef = ScalarParamDef | ColorParamDef;
 
 export interface ParticleDoc {
-  schemaVersion: 9;
+  schemaVersion: 10;
   meta: ParticleMeta;
   duration: number;
   looping: boolean;
@@ -519,7 +628,8 @@ export const BLEND_MODES: readonly BlendMode[] = ["normal", "add", "multiply", "
 export const EMIT_FROM: readonly EmitFrom[] = ["volume", "surface"];
 export const EASES: readonly Ease[] = ["linear", "easeIn", "easeOut", "easeInOut", "step"];
 export const FLIPBOOK_MODES: readonly Flipbook["mode"][] = ["loop", "once", "random"];
-export const SHAPE_KINDS: readonly Shape["kind"][] = ["point", "circle", "cone", "rect", "edge", "texture"];
+export const SHAPE_KINDS: readonly Shape["kind"][] = ["point", "circle", "cone", "rect", "edge", "polyline", "texture"];
+export const POLYLINE_DIRECTIONS: readonly PolylineDirection[] = ["normal", "outward", "random"];
 export const SIM_SPACES: readonly SimSpace[] = ["local", "world"];
 export const ARC_MODES: readonly ArcMode[] = ["random", "loop", "pingPong", "burstSpread"];
 export const SUB_TRIGGERS: readonly SubTrigger[] = ["birth", "death", "collision"];
@@ -527,4 +637,4 @@ export const ATTRACTOR_FALLOFFS: readonly AttractorFalloff[] = ["none", "linear"
 export const TRAIL_MODES: readonly TrailMode[] = ["perParticle", "connect"];
 
 /** Current schema version this build understands. */
-export const CURRENT_SCHEMA_VERSION = 9;
+export const CURRENT_SCHEMA_VERSION = 10;

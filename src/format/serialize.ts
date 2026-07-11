@@ -68,6 +68,8 @@ const SHAPE_ORDER: Record<string, readonly string[]> = {
   cone: ["kind", "direction", "spread", "radius", "arcMode", "arcSpeed", "emitFrom"],
   rect: ["kind", "width", "height", "emitFrom"],
   edge: ["kind", "length", "emitFrom"],
+  // schemaVersion 10: points list first, then the closed/direction flags.
+  polyline: ["kind", "points", "closed", "direction", "emitFrom"],
   // schemaVersion 4: mask blob last, human-legible header first.
   texture: ["kind", "width", "height", "threshold", "mask", "emitFrom"],
 };
@@ -124,10 +126,39 @@ const cCollision = (v: unknown): unknown =>
   v === null
     ? null
     : map(v, (o) => {
-        const c = orderKeys(o, ["shape", "bounce", "dampen", "lifetimeLoss"]);
+        // schemaVersion 10: killOnCollide + minKillSpeed append after lifetimeLoss.
+        const c = orderKeys(o, ["shape", "bounce", "dampen", "lifetimeLoss", "killOnCollide", "minKillSpeed"]);
         c.shape = map(c.shape, (s) => orderKeys(s, COLLISION_SHAPE_ORDER[String(s.kind)] ?? ["kind"]));
         return c;
       });
+
+// --- schemaVersion 10 feature-module canonicalizers ------------------------
+const cWind = (v: unknown): unknown =>
+  v === null
+    ? null
+    : map(v, (o) => {
+        const w = orderKeys(o, ["direction", "strength", "gustFrequency", "gustAmount"]);
+        w.strength = cTrack(w.strength);
+        return w;
+      });
+
+const cByEmitterSpeed = (v: unknown): unknown =>
+  v === null
+    ? null
+    : map(v, (o) => {
+        const b = orderKeys(o, ["range", "size", "speed", "life"]);
+        b.range = map(b.range, (rg) => orderKeys(rg, ["min", "max"]));
+        b.size = cTrackOrNull(b.size);
+        b.speed = cTrackOrNull(b.speed);
+        b.life = cTrackOrNull(b.life);
+        return b;
+      });
+
+const cKillZones = (v: unknown): unknown =>
+  v === null || !Array.isArray(v)
+    ? v
+    : // schemaVersion 10: each rect ordered x, y, width, height.
+      v.map((z) => map(z, (o) => orderKeys(o, ["x", "y", "width", "height"])));
 
 const cSubEmitters = (v: unknown): unknown =>
   v === null || !Array.isArray(v)
@@ -198,7 +229,11 @@ function cLayer(v: unknown): unknown {
       "overLifetime",
       "limitVelocity",
       "noise",
+      // schemaVersion 10: wind groups with noise (field forces); byEmitterSpeed
+      // directly after bySpeed.
+      "wind",
       "bySpeed",
+      "byEmitterSpeed",
       "startColor",
       "randomFlip",
       // schemaVersion 8 (COLOR_PARAM_PLAN C2): layer-level tint binding, directly
@@ -209,6 +244,8 @@ function cLayer(v: unknown): unknown {
       "render",
       "dissolve",
       "collision",
+      // schemaVersion 10: killZones directly after collision.
+      "killZones",
       "attractor",
       "subEmitters",
       "trail",
@@ -237,6 +274,9 @@ function cLayer(v: unknown): unknown {
       const so = orderKeys(s, SHAPE_ORDER[String(s.kind)] ?? ["kind", "emitFrom"]);
       // schemaVersion 4: order the nested texture mask (blob last).
       if (so.kind === "texture") so.mask = map(so.mask, (m) => orderKeys(m, ["width", "height", "data"]));
+      // schemaVersion 10: order each polyline point entry (x before y).
+      if (so.kind === "polyline" && Array.isArray(so.points))
+        so.points = so.points.map((p) => map(p, (pp) => orderKeys(pp, ["x", "y"])));
       return so;
     });
     l.initial = map(l.initial, (init) => {
@@ -269,12 +309,17 @@ function cLayer(v: unknown): unknown {
     l.limitVelocity = cTrackOrNull(l.limitVelocity);
     // schemaVersion 3 feature modules (each null = off).
     l.noise = cNoise(l.noise);
+    // schemaVersion 10 field forces / spawn-multiply (each null = off).
+    l.wind = cWind(l.wind);
     l.bySpeed = cBySpeed(l.bySpeed);
+    l.byEmitterSpeed = cByEmitterSpeed(l.byEmitterSpeed);
     l.startColor = cStartColor(l.startColor);
     l.randomFlip = cRandomFlip(l.randomFlip);
     l.render = cRender(l.render);
     l.dissolve = cDissolve(l.dissolve);
     l.collision = cCollision(l.collision);
+    // schemaVersion 10 death regions (null = none).
+    l.killZones = cKillZones(l.killZones);
     l.attractor = cAttractor(l.attractor);
     l.subEmitters = cSubEmitters(l.subEmitters);
     l.trail = cTrail(l.trail);

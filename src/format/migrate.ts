@@ -131,7 +131,41 @@ export const MIGRATIONS: Record<number, (doc: any) => any> = {
     schemaVersion: 9,
     layers: Array.isArray(doc.layers) ? doc.layers.map(migrateLayer8to9) : doc.layers,
   }),
+
+  // v9 -> v10: Tier-B remainder (TIERB_PLAN T9). Inject the inert per-layer
+  // defaults so a migrated v9 document produces a byte-identical PRNG stream, pool
+  // state, stateHash, and golden frames as the v9 runtime: `wind`,
+  // `byEmitterSpeed`, `killZones` all null (no force / no spawn multiply / no death
+  // region), and a non-null `collision` gains `killOnCollide: false,
+  // minKillSpeed: 0` (never kills on contact). The polyline shape is a new
+  // Shape.kind — no existing document has one, so no shape restamp. Spread the
+  // originals AFTER each default so a present value is never clobbered and unknown
+  // fields survive. Pinned by the migration-inertness test.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  9: (doc: any) => ({
+    ...doc,
+    schemaVersion: 10,
+    layers: Array.isArray(doc.layers) ? doc.layers.map(migrateLayer9to10) : doc.layers,
+  }),
 };
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function migrateLayer9to10(l: any): any {
+  if (l === null || typeof l !== "object") return l;
+  return {
+    // wind / byEmitterSpeed / killZones are NEW per-layer modules (off by default).
+    wind: null,
+    byEmitterSpeed: null,
+    killZones: null,
+    ...l,
+    // collision is `CollisionConfig | null`: only a non-null object gains the two
+    // kill fields (spread-after so a present value survives).
+    collision:
+      l.collision && typeof l.collision === "object"
+        ? { killOnCollide: false, minKillSpeed: 0, ...l.collision }
+        : l.collision,
+  };
+}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function migrateLayer8to9(l: any): any {

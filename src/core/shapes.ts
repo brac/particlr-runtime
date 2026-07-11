@@ -98,6 +98,15 @@ export function sampleShape(shape: Shape, uPos1: number, uPos2: number, uDir: nu
     case "edge":
       return { px: (uPos1 - 0.5) * shape.length, py: 0, dirDeg: -90 };
 
+    case "polyline":
+      // schemaVersion 10 (B1): arc-length polyline sampling lands in M1 (via a
+      // dedicated PolylineSampler built once in the LayerSim constructor, keyed
+      // off uPos1). Here it keeps the switch exhaustive AND is the E37
+      // degenerate/zero-length fallback: spawn at the origin with a random
+      // direction (point-shape behavior). No existing document carries this kind,
+      // so this branch is unreachable across the current determinism/golden suites.
+      return { px: 0, py: 0, dirDeg: uDir * 360 };
+
     case "texture":
       // schemaVersion 4: emit-from-texture mask sampling lands in M1 (via a
       // dedicated MaskSampler). Here it keeps the switch exhaustive AND is the

@@ -29,12 +29,12 @@ describe("validateParticle — document rules", () => {
   });
 
   it("rejects schemaVersion < 1 or non-integer", () => {
-    expect(firstCode(makeDoc({ schemaVersion: 0 as 9 }))).toBe("invalid-version");
-    expect(firstCode(makeDoc({ schemaVersion: 1.5 as 9 }))).toBe("invalid-version");
+    expect(firstCode(makeDoc({ schemaVersion: 0 as 10 }))).toBe("invalid-version");
+    expect(firstCode(makeDoc({ schemaVersion: 1.5 as 10 }))).toBe("invalid-version");
   });
 
   it("refuses a newer schemaVersion (E11)", () => {
-    expect(firstCode(makeDoc({ schemaVersion: 10 as 9 }))).toBe("newer-version");
+    expect(firstCode(makeDoc({ schemaVersion: 11 as 10 }))).toBe("newer-version");
   });
 
   it("rejects duration below the 0.05 floor (E13)", () => {

@@ -90,7 +90,7 @@ describe("v8 -> v9 migration (connect ribbon mode + inherit flags)", () => {
     expect(m.ok).toBe(true);
     if (!m.ok) return;
     const doc = m.doc as ParticleDoc;
-    expect(doc.schemaVersion).toBe(9);
+    expect(doc.schemaVersion).toBe(10);
     expect(doc.layers[0]!.trail!.mode).toBe("perParticle");
     const s = doc.layers[0]!.subEmitters![0]!;
     expect(s.inheritColor).toBe(false);
@@ -158,7 +158,7 @@ describe("v8 -> v9 migration (connect ribbon mode + inherit flags)", () => {
     expect(m.ok).toBe(true);
     if (!m.ok) return;
     const doc = m.doc as ParticleDoc;
-    expect(doc.schemaVersion).toBe(9);
+    expect(doc.schemaVersion).toBe(10);
     expect(doc.layers[0]!.space).toBe("local"); // v1->v2 still applied
     expect(doc.layers[0]!.trail!.mode).toBe("perParticle"); // v8->v9
     expect(doc.layers[0]!.subEmitters![0]!.inheritSize).toBe(false); // v8->v9
