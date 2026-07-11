@@ -1,5 +1,7 @@
 # @particlr/runtime
 
+[![CI](https://github.com/brac/particlr-runtime/actions/workflows/ci.yml/badge.svg)](https://github.com/brac/particlr-runtime/actions/workflows/ci.yml)
+
 The MIT-licensed particle runtime behind [particlr](https://particlr.brac.dev) — a
 framework-agnostic simulation core plus a PixiJS v8 adapter. It plays back
 `.prt` effect documents **deterministically**: the same document, seed, and

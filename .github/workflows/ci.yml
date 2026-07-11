@@ -1,0 +1,40 @@
+# CI for the public runtime mirror (github.com/brac/particlr-runtime).
+#
+# In the monorepo this file lives under packages/runtime/.github/, where GitHub
+# ignores it — GitHub only reads the repo-root .github/. It becomes the mirror's
+# root workflow via the subtree split that roots at packages/runtime/
+# (docs/RELEASE.md §5), so it rides every sync for free.
+#
+# The mirror ships no lockfile, so we use `npm install` (not `npm ci`) and set no
+# setup-node npm cache (cache: npm hard-fails without a lockfile). All scripts run
+# without `-w` flags — in the mirror this package IS the repo root.
+#
+# Expect ~578 pass / 61 skip here: preset-dependent suites self-skip via
+# test/_presets.ts when the monorepo's presets/ is absent. The monorepo run stays
+# exactly 1167/0.
+#
+# No schema-drift check here (gen-schema + git diff): drift is gated in the
+# monorepo CI, whose lockfile pins ts-json-schema-generator. This repo has no
+# lockfile, so a fresh ^2.3.0 resolve could change schema emission and
+# false-positive the diff with zero change in the repo. The mirror only ever
+# receives code that already passed the authoritative gate.
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - run: npm run size
