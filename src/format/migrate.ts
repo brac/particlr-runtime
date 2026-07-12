@@ -362,6 +362,14 @@ export type MigrateResult =
   | { ok: true; doc: unknown }
   | { ok: false; issue: ValidationIssue };
 
+/**
+ * Migrate a raw document to CURRENT_SCHEMA_VERSION. Ownership contract (audit
+ * 2026-07-12, C8): the INPUT is consumed — migrations never mutate it, but the
+ * returned doc may be the input itself (current-version pass-through) or may
+ * ALIAS unrewritten subtrees of it (each step shallow-spreads). Callers must
+ * not retain and mutate both objects independently. parseParticle insulates
+ * its own callers by cloning object inputs before calling this.
+ */
 export function migrateToCurrent(raw: unknown): MigrateResult {
   if (typeof raw !== "object" || raw === null) {
     return { ok: false, issue: { path: "", message: "document must be an object" } };
