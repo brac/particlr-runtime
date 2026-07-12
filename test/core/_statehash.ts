@@ -73,6 +73,44 @@ export function stateHash(fx: Effect): string {
       h = fnv1a(new Uint8Array(tr.len.buffer, tr.len.byteOffset, count * 2), h);
       h = fnv1a(new Uint8Array(tr.pts.buffer, tr.pts.byteOffset, count * tr.maxPoints * 2 * 4), h);
     }
+    // Mutable emission bookkeeping (C7/R6): folded LAST so a run that diverges ONLY
+    // in emission state — the fractional spawn accumulators, the burst-gate roll
+    // outcomes, or the sub-emitter ordinal counter — is caught even when every live
+    // particle column matches. Each is folded only when non-trivial (matching the
+    // optional-column pattern above), so a doc that never touches the feature keeps
+    // its exact prior digest: a burst-only layer that has finished emitting has
+    // acc/accDist === 0, a non-parent layer has spawnCounter === 0, and a
+    // probability-1 doc keeps burstGates null.
+    const priv = ls as unknown as { burstGates: Uint8Array[] | null; spawnCounter: number };
+    // acc + accDist (§2.8 + schemaVersion 2): fractional → Float64 bytes, folded as
+    // a fixed pair when EITHER is non-zero so a non-zero accDist can never alias a
+    // non-zero acc (both channels, fixed order, one fold).
+    if (ls.acc !== 0 || ls.accDist !== 0) {
+      h = fnv1a(new Uint8Array(new Float64Array([ls.acc, ls.accDist]).buffer), h);
+    }
+    // spawnCounter (M8): a monotone integer → Int32, folded only when a spawn has
+    // advanced it (i.e. an ordinal-carrying sub-emitter parent).
+    if (priv.spawnCounter !== 0) {
+      h = fnv1a(new Uint8Array(new Int32Array([priv.spawnCounter]).buffer), h);
+    }
+    // burstGates (M4): an array indexed by burstIndex of per-cycle outcome rows
+    // (each a Uint8Array of {0,1,2}). Folded in burstIndex order (deterministic),
+    // length-prefixed at every level; a not-yet-allocated row (a hole from an
+    // out-of-order first roll) folds a -1 sentinel so it can never alias a present
+    // empty row. Null (probability-1 doc) folds nothing.
+    const bg = priv.burstGates;
+    if (bg !== null) {
+      h = fnv1a(new Uint8Array(new Int32Array([bg.length]).buffer), h);
+      for (let i = 0; i < bg.length; i++) {
+        const row = bg[i];
+        if (row === undefined) {
+          h = fnv1a(new Uint8Array(new Int32Array([-1]).buffer), h);
+        } else {
+          h = fnv1a(new Uint8Array(new Int32Array([row.length]).buffer), h);
+          h = fnv1a(new Uint8Array(row.buffer, row.byteOffset, row.length), h);
+        }
+      }
+    }
   }
   return (h >>> 0).toString(16).padStart(8, "0");
 }
