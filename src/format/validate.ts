@@ -361,6 +361,11 @@ function checkShape(ctx: Ctx, v: unknown, path: string): void {
 // A DEGENERATE polyline (all points coincident ⇒ zero total arc length) is a
 // non-blocking WARNING (E37, code "bad-polyline"): the layer degrades to
 // point-shape spawning at the layer origin, exactly the E23 bad-mask pattern.
+// schemaVersion 12 (CURVES) adds `smoothing` (E42, checked below). The degeneracy
+// test still keys on the STRAIGHT-point total length: a curve through
+// near-coincident points is itself near-zero (both totals vanish only when all
+// points coincide), so the E37 predicate stays a conservative, boundary-exact proxy
+// for the flattened-chain length the sampler measures (research trap 4).
 function checkPolyline(ctx: Ctx, v: Record<string, unknown>, path: string): void {
   if (!Array.isArray(v.points)) {
     err(ctx, `${path}.points`, "points must be an array");
@@ -381,6 +386,18 @@ function checkPolyline(ctx: Ctx, v: Record<string, unknown>, path: string): void
     if (!checkNumber(ctx, p.y, `${pp}.y`)) allFinite = false;
   });
   if (v.closed !== undefined && !isBool(v.closed)) err(ctx, `${path}.closed`, "closed must be a boolean");
+  // E42 (schemaVersion 12, CURVES): Catmull-Rom smoothing, finite ∈ [0,1]. Tolerant
+  // of absent (like `closed` above) — a legacy/hand-built polyline without smoothing
+  // is treated as `0` (the migration/authoring default and the sampler's `> 0`
+  // short-circuit both key on the same zero), so it stays valid AND bit-identical.
+  // A PRESENT value must be finite and in range; non-finite hits checkNumber's
+  // generic message, out-of-range is the E42 message (the minKillSpeed/E38 pattern).
+  if (
+    v.smoothing !== undefined &&
+    checkNumber(ctx, v.smoothing, `${path}.smoothing`) &&
+    ((v.smoothing as number) < 0 || (v.smoothing as number) > 1)
+  )
+    err(ctx, `${path}.smoothing`, "smoothing must be in [0, 1] (E42)");
   checkEnum(ctx, v.direction, POLYLINE_DIRECTIONS, `${path}.direction`);
   // E37 degenerate check: with sound, finite points, warn (do not reject) when the
   // total arc length is ~zero — the runtime spawns from a point (position (0,0),

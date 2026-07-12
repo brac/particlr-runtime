@@ -10,7 +10,7 @@ function maximalDoc(): ParticleDoc {
   const grad = { keys: [{ t: 0, r: 1, g: 0.5, b: 0.2, a: 1 }, { t: 1, r: 0, g: 0, b: 0, a: 0 }] };
   const curve = { mode: "curve" as const, keys: [{ t: 0, v: 1, ease: "easeOut" as const }, { t: 1, v: 0 }] };
   return {
-    schemaVersion: 11,
+    schemaVersion: 12,
     meta: { name: "Maximal", createdWith: "particlr@0.x", notes: "" },
     duration: 2,
     looping: true,

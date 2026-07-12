@@ -162,7 +162,36 @@ export const MIGRATIONS: Record<number, (doc: any) => any> = {
     schemaVersion: 11,
     layers: Array.isArray(doc.layers) ? doc.layers.map(migrateLayer10to11) : doc.layers,
   }),
+
+  // v11 -> v12: Catmull-Rom polyline smoothing (CURVES_PLAN C6). A SHAPE restamp
+  // (the migrateShape2to3 precedent): every `polyline` shape gains `smoothing: 0`
+  // (spread-default-FIRST so a hand-authored / forward-written smoothing survives).
+  // `0` is honored EXACTLY by the sampler's `=== 0` short-circuit (build from the
+  // authored points, pre-CURVES code path), so a migrated v11 document produces a
+  // byte-identical PRNG stream, pool state, stateHash, frames, and render as v11 —
+  // zero golden churn. Non-polyline shapes pass through untouched. E11 now refuses
+  // v13. Pinned by the migration-inertness test.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  11: (doc: any) => ({
+    ...doc,
+    schemaVersion: 12,
+    layers: Array.isArray(doc.layers) ? doc.layers.map(migrateLayer11to12) : doc.layers,
+  }),
 };
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function migrateLayer11to12(l: any): any {
+  if (l === null || typeof l !== "object") return l;
+  return { ...l, shape: migrateShape11to12(l.shape) };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function migrateShape11to12(s: any): any {
+  if (s === null || typeof s !== "object") return s;
+  // Only the polyline kind gains smoothing; spread-default-FIRST (mirror
+  // migrateShape2to3's circle/cone restamp) so a present value is never clobbered.
+  return s.kind === "polyline" ? { smoothing: 0, ...s } : s;
+}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function migrateLayer10to11(l: any): any {

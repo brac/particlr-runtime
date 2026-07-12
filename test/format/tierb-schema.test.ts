@@ -108,7 +108,7 @@ describe("v9 -> v10 migration (wind / byEmitterSpeed / kill zones / kill-on-coll
     expect(m.ok).toBe(true);
     if (!m.ok) return;
     const doc = m.doc as ParticleDoc;
-    expect(doc.schemaVersion).toBe(11); // migrateToCurrent chains to CURRENT (now 11)
+    expect(doc.schemaVersion).toBe(12); // migrateToCurrent chains to CURRENT (now 12)
     expect(doc.layers[0]!.wind).toBe(null);
     expect(doc.layers[0]!.byEmitterSpeed).toBe(null);
     expect(doc.layers[0]!.killZones).toBe(null);

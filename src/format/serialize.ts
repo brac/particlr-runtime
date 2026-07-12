@@ -69,7 +69,10 @@ const SHAPE_ORDER: Record<string, readonly string[]> = {
   rect: ["kind", "width", "height", "emitFrom"],
   edge: ["kind", "length", "emitFrom"],
   // schemaVersion 10: points list first, then the closed/direction flags.
-  polyline: ["kind", "points", "closed", "direction", "emitFrom"],
+  // schemaVersion 12 (CURVES): `smoothing` is path geometry (it governs how the
+  // points connect, like `closed`), so it groups after `closed`, before the
+  // `direction` velocity-basis field — the circle-precedent grouping.
+  polyline: ["kind", "points", "closed", "smoothing", "direction", "emitFrom"],
   // schemaVersion 4: mask blob last, human-legible header first.
   texture: ["kind", "width", "height", "threshold", "mask", "emitFrom"],
 };

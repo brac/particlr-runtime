@@ -101,6 +101,18 @@ export type Shape =
        * points[0]` joins the length-CDF, so an N-point outline emits around all
        * N edges. */
       closed: boolean;
+      /** schemaVersion 12 (CURVES). Catmull-Rom smoothing in `[0, 1]` — TENSION
+       * semantics: the value scales the (centripetal, Barry–Goldman) tangent
+       * magnitude, so `0` = the straight polyline through the points and `1` = the
+       * full centripetal Catmull-Rom curve. The curve always passes THROUGH every
+       * authored point at every value (no control handles). `0` is honored EXACTLY
+       * (`=== 0`, no epsilon): the sampler short-circuits to the pre-CURVES
+       * unflattened arc-length CDF, so a `smoothing: 0` polyline is BIT-IDENTICAL
+       * to a pre-v12 one (the migration/authoring default, zero golden churn). Any
+       * `> 0` flattens each span into a fixed 16 segments once at sampler build and
+       * feeds the SAME arc-length CDF machinery; normals become the local curve
+       * normal. See FORMAT_SPEC "schemaVersion 12 features" (E42). */
+      smoothing: number;
       /** schemaVersion 10. Initial-velocity basis. `normal` = the CCW normal of
        * the spawned segment (a left→right segment emits up, `dirDeg −90` — the
        * `edge` convention); `outward` = away from the polygon centroid (mean of
@@ -617,7 +629,7 @@ export interface ColorParamDef {
 export type ParamDef = ScalarParamDef | ColorParamDef;
 
 export interface ParticleDoc {
-  schemaVersion: 11;
+  schemaVersion: 12;
   meta: ParticleMeta;
   duration: number;
   looping: boolean;
@@ -654,4 +666,4 @@ export const ATTRACTOR_FALLOFFS: readonly AttractorFalloff[] = ["none", "linear"
 export const TRAIL_MODES: readonly TrailMode[] = ["perParticle", "connect"];
 
 /** Current schema version this build understands. */
-export const CURRENT_SCHEMA_VERSION = 11;
+export const CURRENT_SCHEMA_VERSION = 12;

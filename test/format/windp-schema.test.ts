@@ -83,7 +83,7 @@ describe("v10 -> v11 migration (wind strength/direction param bindings)", () => 
     expect(m.ok).toBe(true);
     if (!m.ok) return;
     const doc = m.doc as ParticleDoc;
-    expect(doc.schemaVersion).toBe(11);
+    expect(doc.schemaVersion).toBe(12);
     expect(doc.layers[0]!.wind!.windStrengthParam).toBe(null);
     expect(doc.layers[0]!.wind!.windDirectionParam).toBe(null);
     // Pre-existing wind fields survive verbatim.
@@ -120,9 +120,9 @@ describe("v10 -> v11 migration (wind strength/direction param bindings)", () => 
     expect(runHash(migrated.doc as ParticleDoc)).toBe(runHash(v11));
   });
 
-  it("refuses a v12 document (E11 — newer than supported)", () => {
-    expect(migrateToCurrent({ schemaVersion: 12 }).ok).toBe(false);
-    const r = parseParticle({ ...makeDoc(), schemaVersion: 12 as 11 });
+  it("refuses a v13 document (E11 — newer than supported)", () => {
+    expect(migrateToCurrent({ schemaVersion: 13 }).ok).toBe(false);
+    const r = parseParticle({ ...makeDoc(), schemaVersion: 13 as 12 });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.errors[0]?.code).toBe("newer-version");
   });

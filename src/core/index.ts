@@ -12,7 +12,7 @@ export {
 } from "./tracks.js";
 export { sampleShape, type SpawnSample } from "./shapes.js";
 export { buildMaskSampler, MaskSampler } from "./maskSampler.js";
-export { buildPolylineSampler, PolylineSampler } from "./polylineSampler.js";
+export { buildPolylineSampler, PolylineSampler, flattenPolyline, POLYLINE_FLATTEN_N } from "./polylineSampler.js";
 export { ParticlePool } from "./pool.js";
 export { TrailStore } from "./trails.js";
 export { LayerSim } from "./layerSim.js";
