@@ -64,6 +64,27 @@ function warn(ctx: Ctx, path: string, message: string, code?: string): void {
   ctx.warnings.push(code ? { path, message, code } : { path, message });
 }
 
+// R3 (C2/C4): gate a nullable field, emitting a NON-BLOCKING warning when it is
+// ABSENT (undefined) rather than explicit `null`. The format's normative
+// convention is explicit-null for every "off" field, and the runtime core trusts
+// it — its guards are strict `!== null` then dereference, so an absent field would
+// crash the sim (C2) or silently shift the per-particle PRNG stream (C4).
+// parseParticle normalizes absent→null BEFORE this validator runs (normalize.ts),
+// so a parsed doc never triggers this — only a DIRECT validateParticle caller
+// (hand-built test docs, npm consumers building docs programmatically) does, and
+// they are told that explicit null is canonical. Returns whether the field is
+// PRESENT-AND-NON-NULL, i.e. whether there is a value to validate; `null` or absent
+// both return false (skip the sub-check). Never an error — hand-built docs must
+// keep validating.
+function presentNullable(ctx: Ctx, obj: Record<string, unknown>, key: string, path: string): boolean {
+  const v = obj[key];
+  if (v === undefined) {
+    warn(ctx, `${path}.${key}`, `${key} is absent; treated as null (explicit null is canonical) (E43)`, "absent-nullable");
+    return false;
+  }
+  return v !== null;
+}
+
 function checkNumber(ctx: Ctx, v: unknown, path: string): boolean {
   if (!isNum(v)) {
     err(ctx, path, "must be a finite number");
@@ -436,7 +457,7 @@ function checkFlipbook(ctx: Ctx, v: unknown, path: string): void {
   // A7 (schemaVersion 5): randomStartFrame (bool, required) + frameOverLife
   // (null or a deterministic constant/curve track — no range/randomBetweenCurves).
   if (!isBool(v.randomStartFrame)) err(ctx, `${path}.randomStartFrame`, "randomStartFrame must be a boolean");
-  if (v.frameOverLife !== null && v.frameOverLife !== undefined)
+  if (presentNullable(ctx, v, "frameOverLife", path))
     checkScalarTrackNoRange(ctx, v.frameOverLife, `${path}.frameOverLife`);
   // A7 flipbook upgrades behave as of M4 (render.ts flipbookFrame, E30
   // precedence), so randomStartFrame / frameOverLife no longer draw the temporary
@@ -476,7 +497,7 @@ function checkEmission(ctx: Ctx, v: unknown, path: string): void {
   checkRateCeiling(ctx, v.rateOverTime, `${path}.rateOverTime`);
   // rateOverDistance (schemaVersion 2): optional track, same ceiling. The
   // world-space-only warning is emitted by checkLayer, which sees `space`.
-  if (v.rateOverDistance !== null && v.rateOverDistance !== undefined) {
+  if (presentNullable(ctx, v, "rateOverDistance", path)) {
     checkScalarTrack(ctx, v.rateOverDistance, `${path}.rateOverDistance`);
     checkRateCeiling(ctx, v.rateOverDistance, `${path}.rateOverDistance`);
   }
@@ -608,8 +629,11 @@ function checkOverLifetime(ctx: Ctx, v: unknown, path: string): void {
     checkScalarTrackOrNull(ctx, v.velocity.drag, `${path}.velocity.drag`, true);
     checkScalarTrackOrNull(ctx, v.velocity.speedMultiplier, `${path}.velocity.speedMultiplier`, true);
     // Velocity over lifetime (schemaVersion 3): four optional additive tracks.
+    // C4: absent here silently shifts the PRNG stream (an extra per-particle draw
+    // vs an explicit-null track), so warn on absence (presentNullable) — parsed
+    // docs are normalized so only direct callers see it.
     for (const key of ["x", "y", "orbital", "radial"] as const) {
-      if (v.velocity[key] !== undefined)
+      if (presentNullable(ctx, v.velocity, key, `${path}.velocity`))
         checkScalarTrackOrNull(ctx, v.velocity[key], `${path}.velocity.${key}`, true);
     }
   }
@@ -779,7 +803,7 @@ function checkByEmitterSpeed(ctx: Ctx, v: unknown, path: string): void {
       err(ctx, `${path}.range`, "range min must be <= max");
   }
   for (const key of ["size", "speed", "life"] as const) {
-    if (v[key] !== null && v[key] !== undefined) checkScalarTrackNoRange(ctx, v[key], `${path}.${key}`);
+    if (presentNullable(ctx, v, key, path)) checkScalarTrackNoRange(ctx, v[key], `${path}.${key}`);
   }
 }
 
@@ -933,7 +957,7 @@ function checkLayer(ctx: Ctx, v: unknown, path: string): void {
   // A4 limit-velocity (schemaVersion 5); null = off. A deterministic constant/curve
   // track (no range/randomBetweenCurves — checkScalarTrackNoRange, E27). Behaves as
   // of M1 (the sim velocity clamp), so it no longer draws an "unimplemented" warning.
-  if (v.limitVelocity !== null && v.limitVelocity !== undefined) {
+  if (presentNullable(ctx, v, "limitVelocity", path)) {
     checkScalarTrackNoRange(ctx, v.limitVelocity, `${path}.limitVelocity`);
   }
 
@@ -978,32 +1002,32 @@ function checkLayer(ctx: Ctx, v: unknown, path: string): void {
   // As of M9 (the final Tier-1 milestone) every module is implemented, so none
   // draws the temporary "unimplemented" warning any longer.
   const selfId = isStr(v.id) ? v.id : "";
-  if (v.noise !== null && v.noise !== undefined) {
+  if (presentNullable(ctx, v, "noise", path)) {
     // noise behaves as of M2 — no "unimplemented" warning.
     checkNoise(ctx, v.noise, `${path}.noise`);
   }
-  if (v.bySpeed !== null && v.bySpeed !== undefined) {
+  if (presentNullable(ctx, v, "bySpeed", path)) {
     // bySpeed behaves as of M6 — no "unimplemented" warning.
     checkBySpeed(ctx, v.bySpeed, `${path}.bySpeed`);
   }
   // schemaVersion 10 modules (each null = off). Validated when present.
-  if (v.wind !== null && v.wind !== undefined) checkWind(ctx, v.wind, `${path}.wind`);
-  if (v.byEmitterSpeed !== null && v.byEmitterSpeed !== undefined)
+  if (presentNullable(ctx, v, "wind", path)) checkWind(ctx, v.wind, `${path}.wind`);
+  if (presentNullable(ctx, v, "byEmitterSpeed", path))
     checkByEmitterSpeed(ctx, v.byEmitterSpeed, `${path}.byEmitterSpeed`);
-  if (v.startColor !== null && v.startColor !== undefined) {
+  if (presentNullable(ctx, v, "startColor", path)) {
     // startColor behaves as of M5 — no "unimplemented" warning.
     checkStartColor(ctx, v.startColor, `${path}.startColor`);
   }
-  if (v.randomFlip !== null && v.randomFlip !== undefined) {
+  if (presentNullable(ctx, v, "randomFlip", path)) {
     // randomFlip behaves as of M5 — no "unimplemented" warning.
     checkRandomFlip(ctx, v.randomFlip, `${path}.randomFlip`);
   }
-  if (v.render !== null && v.render !== undefined) {
+  if (presentNullable(ctx, v, "render", path)) {
     // render behaves as of M1 — no "unimplemented" warning (the align:"velocity"
     // rotation-override warning below still applies).
     checkRender(ctx, v.render, `${path}.render`);
   }
-  if (v.collision !== null && v.collision !== undefined) {
+  if (presentNullable(ctx, v, "collision", path)) {
     // collision behaves as of M7 — no "unimplemented" warning (the E20 local-frame
     // hint below still applies).
     checkCollision(ctx, v.collision, `${path}.collision`);
@@ -1014,17 +1038,17 @@ function checkLayer(ctx: Ctx, v: unknown, path: string): void {
   }
   // Kill zones (schemaVersion 10, E38); null = none. Death regions in the layer's
   // sim frame — local-space zones ride the emitter (E20 lineage).
-  if (v.killZones !== null && v.killZones !== undefined) {
+  if (presentNullable(ctx, v, "killZones", path)) {
     checkKillZones(ctx, v.killZones, `${path}.killZones`);
     if (spaceOk && v.space === "local")
       warn(ctx, `${path}.killZones`, "kill zones are in the layer's local frame and ride the emitter (E20)");
   }
-  if (v.subEmitters !== null && v.subEmitters !== undefined) {
+  if (presentNullable(ctx, v, "subEmitters", path)) {
     // subEmitters behave as of M8 — no "unimplemented" warning (the depth-1 /
     // self-ref / count / continuous-child checks in checkSubEmitters still apply).
     checkSubEmitters(ctx, v.subEmitters, `${path}.subEmitters`, selfId);
   }
-  if (v.trail !== null && v.trail !== undefined) {
+  if (presentNullable(ctx, v, "trail", path)) {
     // trail behaves as of M9 — no "unimplemented" warning (the E18 flipbook hint
     // below still applies).
     checkTrail(ctx, v.trail, `${path}.trail`);
@@ -1034,7 +1058,7 @@ function checkLayer(ctx: Ctx, v: unknown, path: string): void {
   }
 
   // schemaVersion 4 feature modules (each null = off). Validated when present.
-  if (v.dissolve !== null && v.dissolve !== undefined) {
+  if (presentNullable(ctx, v, "dissolve", path)) {
     // dissolve behaves as of M3 — no "unimplemented" warning (the E25 trail
     // hint below still applies).
     checkDissolve(ctx, v.dissolve, `${path}.dissolve`);
@@ -1042,7 +1066,7 @@ function checkLayer(ctx: Ctx, v: unknown, path: string): void {
     if (v.trail !== null && v.trail !== undefined)
       warn(ctx, `${path}.dissolve`, "dissolve does not erode trail ribbons; the trail renders un-eroded (E25)");
   }
-  if (v.attractor !== null && v.attractor !== undefined) {
+  if (presentNullable(ctx, v, "attractor", path)) {
     // attractor behaves as of M2 — no "unimplemented" warning (the E24 local-frame
     // hint below still applies).
     checkAttractor(ctx, v.attractor, `${path}.attractor`);

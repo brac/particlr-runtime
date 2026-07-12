@@ -335,7 +335,7 @@ describe("maximal v5 document — byte-stable round-trip (all four features)", (
             size: { mode: "randomBetweenCurves", a: [{ t: 0, v: 1, ease: "easeOut" }, { t: 1, v: 0 }], b: [{ t: 0, v: 0.5 }, { t: 1, v: 2 }] },
             color: { keys: [{ t: 0, r: 1, g: 0.8, b: 0.3, a: 1 }, { t: 1, r: 1, g: 0.1, b: 0, a: 0 }] },
             rotation: null,
-            velocity: { gravity: { x: 0, y: 30 }, drag: null, speedMultiplier: null, x: null, y: null, orbital: null, radial: null },
+            velocity: { gravity: { x: 0, y: 30 }, gravityParam: null, drag: null, speedMultiplier: null, x: null, y: null, orbital: null, radial: null },
           },
           // A6 hueJitter startColor.
           startColor: { mode: "hueJitter", degrees: 45 },

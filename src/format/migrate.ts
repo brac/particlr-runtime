@@ -309,13 +309,19 @@ function migrateTexture4to5(t: any): any {
 function migrateLayer2to3(l: any): any {
   if (l === null || typeof l !== "object") return l;
   return {
-    // Modules off by default; `subEmitters`/`trail` were already null in v2.
+    // Every schemaVersion-3 module defaults to null (off). FORMAT_SPEC:78 promises
+    // the v2→v3 migration writes ALL of these, including `subEmitters`/`trail` — the
+    // v1/v2 documents that reserved those fields were spec-optional, so a doc that
+    // omitted them must still migrate to explicit null (R5/C3), not `undefined`
+    // (which the strict `!== null` runtime guards would dereference and crash on).
     noise: null,
     bySpeed: null,
     startColor: null,
     randomFlip: null,
     render: null,
     collision: null,
+    subEmitters: null,
+    trail: null,
     ...l,
     shape: migrateShape2to3(l.shape),
     emission: migrateEmission2to3(l.emission),
