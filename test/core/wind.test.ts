@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { LayerSim, deriveLayerSeed, type Layer, type WindConfig, type ScalarTrack } from "../../src/index.js";
-import { makeLayer } from "../format/_helpers.js";
+import { Effect, LayerSim, deriveLayerSeed, type Layer, type ParticleDoc, type ParamDef, type WindConfig, type ScalarTrack } from "../../src/index.js";
+import { makeLayer, makeDoc } from "../format/_helpers.js";
+import { stateHash, dtSequence } from "./_statehash.js";
 
 const seed = deriveLayerSeed(1337, 0);
 const ct = (value: number): ScalarTrack => ({ mode: "constant", value });
@@ -159,6 +160,129 @@ describe("wind — coherent gusting directional force (B6)", () => {
     // One more step barely moves it (steady state reached, no runaway).
     ls.update(dt);
     expect(Math.abs(ls.pool.velX[0]! - prev)).toBeLessThan(1e-3);
+  });
+
+  // ── WINDP (schemaVersion 11): host-param bindings ──────────────────────────
+  // windStrengthMul (multiplier, identity 1) folds into the hoisted gust;
+  // windDirOffsetDeg (degree offset, identity 0) rotates the vector before cos/sin.
+  it("windStrengthMul scales the per-step wind delta exactly (2× doubles it)", () => {
+    // Steady wind (gustAmount 0 ⇒ gust 1 exactly), direction 0, constant strength —
+    // so the delta is S·mul·dt and a mul of 2 is an exact ×2 (power-of-two, no
+    // rounding). Proves the strength-param multiplier applies at the hoist.
+    const wind: WindConfig = w({ direction: 0, strength: ct(100), gustFrequency: 0, gustAmount: 0 });
+    const base = new LayerSim(windLayer(wind), seed);
+    expect(base.spawn()).toBe(true);
+    base.setClock(0);
+    base.update(0.02);
+    const dBase = base.pool.velX[0]!; // = 100 · 1 · 0.02 = 2
+
+    const scaled = new LayerSim(windLayer(wind), seed);
+    scaled.windStrengthMul = 2;
+    expect(scaled.spawn()).toBe(true);
+    scaled.setClock(0);
+    scaled.update(0.02);
+    expect(scaled.pool.velX[0]!).toBe(2 * dBase); // exact doubling
+    expect(dBase).toBe(2); // sanity: the base delta is what we expect
+  });
+
+  it("windDirOffsetDeg rotates the wind vector BEFORE cos/sin (90° offset swaps the axis exactly)", () => {
+    // Base direction 0 (pure +x). Offset 90 ⇒ effective 90 ⇒ pure +y (y-down frame):
+    // the offset must be added to the direction, not to the components. Steady wind
+    // so the delta is purely the direction basis.
+    const S = 100;
+    const dt = 0.02;
+    const off = new LayerSim(windLayer(w({ direction: 0, strength: ct(S), gustFrequency: 0, gustAmount: 0 })), seed);
+    off.windDirOffsetDeg = 90;
+    expect(off.spawn()).toBe(true);
+    off.setClock(0);
+    off.update(dt);
+    expect(off.pool.velX[0]!).toBeCloseTo(S * Math.cos(90 * RAD) * dt, 6); // ≈ 0
+    expect(off.pool.velY[0]!).toBeCloseTo(S * Math.sin(90 * RAD) * dt, 6); // = S·dt
+    // An offset of 90 on base 0 is BIT-IDENTICAL to a natively-authored direction 90
+    // (0 + 90 === 90 + 0), proving the offset composes into the same angle.
+    const native = new LayerSim(windLayer(w({ direction: 90, strength: ct(S), gustFrequency: 0, gustAmount: 0 })), seed);
+    expect(native.spawn()).toBe(true);
+    native.setClock(0);
+    native.update(dt);
+    expect(off.pool.velX[0]!).toBe(native.pool.velX[0]!);
+    expect(off.pool.velY[0]!).toBe(native.pool.velY[0]!);
+  });
+
+  it("identity defaults are exact IEEE no-ops: mul 1 / offset 0 ≡ the untouched hoist (bit-identical)", () => {
+    // The load-bearing invariant: a bound-at-identity sim is byte-identical to the
+    // pre-v11 wind. Curve strength + gust + non-axis-aligned direction to exercise
+    // the full product; mul 1 and offset 0 must not perturb a single bit.
+    const wind: WindConfig = w({ direction: 37, strength: curve(10, 90), gustFrequency: 0.6, gustAmount: 0.5 });
+    const plain = new LayerSim(windLayer(wind), seed);
+    const ident = new LayerSim(windLayer(wind), seed);
+    ident.windStrengthMul = 1;
+    ident.windDirOffsetDeg = 0;
+    expect(plain.spawn()).toBe(true);
+    expect(ident.spawn()).toBe(true);
+    for (const c of [0.05, 0.2, 0.5, 0.9]) {
+      plain.setClock(c);
+      plain.update(0.02);
+      ident.setClock(c);
+      ident.update(0.02);
+    }
+    expect(ident.pool.velX[0]!).toBe(plain.pool.velX[0]!);
+    expect(ident.pool.velY[0]!).toBe(plain.pool.velY[0]!);
+  });
+
+  // ── WINDP Effect-level binding: resolution + event-driven push ─────────────
+  const P = (over: Partial<ParamDef> = {}): ParamDef => ({ kind: "scalar", name: "wind", default: 1, min: 0, max: 4, ...over });
+  // A one-layer wind doc; `bind` names the param wired into windStrengthParam (null
+  // = unbound). Steady wind so the strength param is the only per-instance variable.
+  function windDoc(bind: string | null, params: ParamDef[]): ParticleDoc {
+    const wind = w({ direction: 0, strength: ct(100), gustFrequency: 0, gustAmount: 0 });
+    wind.windStrengthParam = bind;
+    return makeDoc({ layers: [windLayer(wind)], params, looping: false, duration: 100 });
+  }
+  const drive = (fx: Effect, n: number): void => {
+    const dts = dtSequence(7, n);
+    for (let i = 0; i < n; i++) fx.step(dts[i]!);
+  };
+
+  it("determinism law: an identity-bound doc (param default 1) is digest-identical to the unbound doc", () => {
+    // hasParams flips true for the bound doc (it declares a param), so pushParamMuls
+    // now runs — but every resolved value is identity, so the whole 60-step digest
+    // must match the unbound (hasParams false) control. This is the identity proof.
+    const bound = new Effect(windDoc("wind", [P()]), { seed: 1337 });
+    const unbound = new Effect(windDoc(null, []), { seed: 1337 });
+    drive(bound, 60);
+    drive(unbound, 60);
+    expect(stateHash(bound)).toBe(stateHash(unbound));
+  });
+
+  it("unknown / dangling binding behaves like the A9 knobs: resolves to identity (digest-identical to unbound)", () => {
+    // windStrengthParam names a param that is NOT declared, while an unrelated param
+    // IS declared (so hasParams is true and paramMul actually runs the lookup). The
+    // undeclared name resolves to null ⇒ the identity path, exactly as a dangling
+    // sizeParam takes the untouched v5 path. Digest matches the unbound control.
+    const dangling = new Effect(windDoc("ghost", [P({ name: "other" })]), { seed: 1337 });
+    const unbound = new Effect(windDoc(null, []), { seed: 1337 });
+    drive(dangling, 60);
+    drive(unbound, 60);
+    expect(stateHash(dangling)).toBe(stateHash(unbound));
+  });
+
+  it("setParam mid-run drives the NEXT step's hoist (event-driven push, not retroactive)", () => {
+    const fx = new Effect(windDoc("wind", [P()]), { seed: 1337 });
+    const ident = new Effect(windDoc("wind", [P()]), { seed: 1337 });
+    // Identical for the first 20 steps (both at default 1).
+    const dts = dtSequence(7, 40);
+    for (let i = 0; i < 20; i++) {
+      fx.step(dts[i]!);
+      ident.step(dts[i]!);
+    }
+    expect(stateHash(fx)).toBe(stateHash(ident));
+    // Bump fx's param, then step BOTH once: fx must diverge on this next step (the
+    // new multiplier reached the hoist), proving the push is event-driven and the
+    // change takes effect prospectively.
+    fx.setParam("wind", 3);
+    fx.step(dts[20]!);
+    ident.step(dts[20]!);
+    expect(stateHash(fx)).not.toBe(stateHash(ident));
   });
 
   it("scrub-resim determinism: the same (clock, dt) sequence yields bit-identical state", () => {

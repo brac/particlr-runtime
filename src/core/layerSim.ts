@@ -75,6 +75,22 @@ export class LayerSim {
    * never touches the statehash (tint is render-only, C4); params persist, so
    * reset() deliberately leaves it in place. */
   tintParamMul: RGBAColor | null = null;
+  /** WINDP host-parameter push-fields (schemaVersion 11), OWNED by the Effect
+   * exactly like the A9 scalar muls above: resolved from the (scalar) param store
+   * and pushed EVENT-DRIVEN (construction + every effective `setParam`). Unlike the
+   * A9 muls these carry IDENTITY defaults (not `null`): the wind hoist recomputes
+   * every step and is always gated on `wind !== null`, so there is no stale-before-
+   * first-step class (P3) and no null "untouched" path to preserve — the sim simply
+   * reads a plain identity scalar. `windStrengthMul` (identity 1) is the
+   * `windStrengthParam` MULTIPLIER, folded ONCE into the hoisted gust in `update()`;
+   * `windDirOffsetDeg` (identity 0) is the `windDirectionParam` additive DEGREE
+   * OFFSET, added to the base direction BEFORE cos/sin. Both are exact IEEE no-ops
+   * at their identity (×1, +0), so an unbound / identity-bound doc's wind is
+   * byte-identical and no digest moves. Only read inside the `wind !== null` hoist,
+   * so a null-wind layer never touches them. Plain scalars, not pool columns — they
+   * never touch the statehash; params persist, so reset() deliberately leaves them. */
+  windStrengthMul = 1;
+  windDirOffsetDeg = 0;
   /** Continuous-emission fractional accumulator (§2.8), owned by Effect. */
   acc = 0;
   /** Rate-over-distance fractional accumulator (schemaVersion 2), owned by Effect. */
@@ -709,9 +725,19 @@ export class LayerSim {
     // keeps the motion loop instruction-identical and no existing digest moves.
     const wind = this.layer.wind;
     const windStrength = wind !== null ? wind.strength : null;
-    const windGust = wind !== null ? 1 + wind.gustAmount * Math.sin(2 * Math.PI * wind.gustFrequency * t) : 0;
-    const windCos = wind !== null ? Math.cos(wind.direction * RAD) : 0;
-    const windSin = wind !== null ? Math.sin(wind.direction * RAD) : 0;
+    // WINDP (schemaVersion 11): the `windStrengthParam` multiplier folds into the
+    // hoisted gust ONCE (the cheaper form P3 offers — one per-step multiply, not a
+    // per-particle one; it commutes with the per-particle strength eval below). At
+    // the identity `windStrengthMul === 1` the product `gust × 1` is an exact IEEE
+    // no-op, so the folded gust is bit-identical to the pre-v11 hoist and no
+    // unbound/identity-bound digest moves. The `windDirectionParam` offset is ADDED
+    // to the base direction BEFORE cos/sin — it rotates the wind VECTOR (an offset
+    // on the components would be meaningless); at the identity `windDirOffsetDeg ===
+    // 0` the sum `direction + 0` is exact for every finite authored direction.
+    const windGust = wind !== null ? (1 + wind.gustAmount * Math.sin(2 * Math.PI * wind.gustFrequency * t)) * this.windStrengthMul : 0;
+    const windDir = wind !== null ? wind.direction + this.windDirOffsetDeg : 0;
+    const windCos = wind !== null ? Math.cos(windDir * RAD) : 0;
+    const windSin = wind !== null ? Math.sin(windDir * RAD) : 0;
 
     // Velocity over lifetime (schemaVersion 3, M3). Additive px/s (x/y), deg/s
     // clockwise orbital, and px/s outward radial, all evaluated at ageNorm and

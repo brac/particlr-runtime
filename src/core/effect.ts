@@ -466,6 +466,22 @@ export class Effect {
       // a kind-mismatch are handled uniformly, and the null-gated render path is
       // restored when a binding dangles. Null ⇒ render.ts takes the pre-v8 path.
       ls.tintParamMul = this.colorMul(ls.layer.tintParam);
+      // WINDP (schemaVersion 11): resolve the two wind bindings through the SAME
+      // `paramMul` table as the five scalar knobs above (a wind param is a scalar) —
+      // one shared loop, no duplicated resolution path. Unlike the A9 muls the wind
+      // hoist has NO null "untouched" branch (it is always gated on wind !== null),
+      // so an unbound / undeclared (dangling E32) binding maps its `null` to the
+      // IDENTITY here — strength ×1, direction +0 — which the hoist reads as an exact
+      // no-op. A null-wind layer skips the resolve, keeping its fields at the
+      // identity initializers. Pushed at construction (before prewarm) and on every
+      // effective setParam, so the NEXT step's hoist sees the current value (P4).
+      const wind = ls.layer.wind;
+      if (wind !== null) {
+        const sMul = this.paramMul(wind.windStrengthParam);
+        ls.windStrengthMul = sMul === null ? 1 : sMul;
+        const dOff = this.paramMul(wind.windDirectionParam);
+        ls.windDirOffsetDeg = dOff === null ? 0 : dOff;
+      }
     }
   }
 
