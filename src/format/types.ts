@@ -268,7 +268,8 @@ export interface NoiseConfig {
  * `vx += w·cos(direction)·dt`, `vy += w·sin(direction)·dt` — physical like
  * gravity, applied AFTER gravity and BEFORE the attractor block so drag and
  * limitVelocity damp it (see FORMAT_SPEC E40 / the normative motion order). null =
- * off (the migration default). NOT host-param bindable in v1. */
+ * off (the migration default). Host-param bindable as of schemaVersion 11 (WINDP)
+ * via the two `wind…Param` fields below (application lands with the runtime). */
 export interface WindConfig {
   /** Wind direction in degrees clockwise from +x (Pixi convention). Finite. */
   direction: number;
@@ -280,6 +281,22 @@ export interface WindConfig {
   gustFrequency: number;
   /** Depth of the gust modulation in `[0, 1]`; `0` = no gust. */
   gustAmount: number;
+  /** Host-parameter binding for wind `strength` (schemaVersion 11, WINDP). Names a
+   * scalar `ParticleDoc.params` entry whose current value **multiplies** the
+   * evaluated strength track each step — the MULTIPLIER convention, exactly like
+   * `sizeParam`/`speedParam`, so the **authoring identity is `1`** (a param at its
+   * default `1` is an IEEE-exact ×1 no-op ⇒ byte-identical render). `null`/absent =
+   * unbound = the untouched pre-v11 code path (P1/P2). */
+  windStrengthParam: string | null;
+  /** Host-parameter binding for wind `direction` (schemaVersion 11, WINDP). Names a
+   * scalar `ParticleDoc.params` entry whose current value is **added** to
+   * `direction` as a DEGREE OFFSET each step — effective direction =
+   * `direction + param`. This is the FIRST **offset-semantics** knob (a multiplier
+   * is meaningless for an angle): the OFFSET convention, so the **authoring identity
+   * is `0`** (a param at default `0` is an IEEE-exact +0 no-op ⇒ byte-identical; the
+   * authored base composes with the game's live swing and wraps naturally through
+   * cos/sin). `null`/absent = unbound = the untouched pre-v11 path (P1/P2). */
+  windDirectionParam: string | null;
 }
 
 /** Velocity-aligned rendering + speed stretch (schemaVersion 3).
@@ -600,7 +617,7 @@ export interface ColorParamDef {
 export type ParamDef = ScalarParamDef | ColorParamDef;
 
 export interface ParticleDoc {
-  schemaVersion: 10;
+  schemaVersion: 11;
   meta: ParticleMeta;
   duration: number;
   looping: boolean;
@@ -637,4 +654,4 @@ export const ATTRACTOR_FALLOFFS: readonly AttractorFalloff[] = ["none", "linear"
 export const TRAIL_MODES: readonly TrailMode[] = ["perParticle", "connect"];
 
 /** Current schema version this build understands. */
-export const CURRENT_SCHEMA_VERSION = 10;
+export const CURRENT_SCHEMA_VERSION = 11;

@@ -34,7 +34,7 @@ describe("validateParticle — document rules", () => {
   });
 
   it("refuses a newer schemaVersion (E11)", () => {
-    expect(firstCode(makeDoc({ schemaVersion: 11 as 10 }))).toBe("newer-version");
+    expect(firstCode(makeDoc({ schemaVersion: 12 as 11 }))).toBe("newer-version");
   });
 
   it("rejects duration below the 0.05 floor (E13)", () => {

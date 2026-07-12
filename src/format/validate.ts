@@ -542,11 +542,14 @@ function checkInitial(ctx: Ctx, v: unknown, path: string): void {
 // non-empty string, or that names a param absent from `params`, is an E32 error
 // (A9_PLAN §0.4). `requiredKind` (schemaVersion 8, COLOR_PARAM_PLAN C6): the named
 // param must be of that kind — a scalar `…Param` naming a color param, or
-// `tintParam` naming a scalar param, is an E34 error.
-function checkParamBinding(ctx: Ctx, v: unknown, path: string, requiredKind: "scalar" | "color"): void {
+// `tintParam` naming a scalar param, is an E34 error. `shapeCode` (schemaVersion 11,
+// WINDP) overrides the string-or-null shape-error code — the two wind bindings pass
+// "E41" (their genuinely-new shape check) while STILL reusing this same declared-
+// param-name cross-check (unknown name = the existing E32 error, kind = E34).
+function checkParamBinding(ctx: Ctx, v: unknown, path: string, requiredKind: "scalar" | "color", shapeCode = "E32"): void {
   if (v === null || v === undefined) return;
   if (!isStr(v) || v.length === 0) {
-    err(ctx, path, "param binding must be a non-empty string or null (E32)");
+    err(ctx, path, `param binding must be a non-empty string or null (${shapeCode})`);
     return;
   }
   if (!ctx.paramNames.has(v)) {
@@ -766,7 +769,8 @@ function checkByEmitterSpeed(ctx: Ctx, v: unknown, path: string): void {
 // Wind (schemaVersion 10, B6, E40): `{direction, strength, gustFrequency,
 // gustAmount}`. direction finite; strength constant/curve only
 // (checkScalarTrackNoRange — zero draws, the noise.strength ruling); gustFrequency
-// finite >= 0; gustAmount a unit [0,1].
+// finite >= 0; gustAmount a unit [0,1]. schemaVersion 11 (WINDP, E41): the two
+// `wind…Param` scalar bindings, checked at the end.
 function checkWind(ctx: Ctx, v: unknown, path: string): void {
   if (!isObject(v)) {
     err(ctx, path, "must be a WindConfig object or null");
@@ -777,6 +781,12 @@ function checkWind(ctx: Ctx, v: unknown, path: string): void {
   if (checkNumber(ctx, v.gustFrequency, `${path}.gustFrequency`) && (v.gustFrequency as number) < 0)
     err(ctx, `${path}.gustFrequency`, "gustFrequency must be >= 0");
   checkUnit(ctx, v.gustAmount, `${path}.gustAmount`);
+  // WINDP bindings (schemaVersion 11): strength/direction may name a scalar param.
+  // E41 is the genuinely-new string-or-null shape check; the declared-name cross-
+  // check reuses the existing machinery (unknown name = E32, kind mismatch = E34),
+  // exactly like sizeParam et al.
+  checkParamBinding(ctx, v.windStrengthParam, `${path}.windStrengthParam`, "scalar", "E41");
+  checkParamBinding(ctx, v.windDirectionParam, `${path}.windDirectionParam`, "scalar", "E41");
 }
 
 function checkTrail(ctx: Ctx, v: unknown, path: string): void {

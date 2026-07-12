@@ -137,7 +137,8 @@ const cWind = (v: unknown): unknown =>
   v === null
     ? null
     : map(v, (o) => {
-        const w = orderKeys(o, ["direction", "strength", "gustFrequency", "gustAmount"]);
+        // schemaVersion 11 (WINDP P1): the two binding fields append after gustAmount.
+        const w = orderKeys(o, ["direction", "strength", "gustFrequency", "gustAmount", "windStrengthParam", "windDirectionParam"]);
         w.strength = cTrack(w.strength);
         return w;
       });

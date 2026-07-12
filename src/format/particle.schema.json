@@ -7,7 +7,7 @@
       "properties": {
         "schemaVersion": {
           "type": "number",
-          "const": 10
+          "const": 11
         },
         "meta": {
           "$ref": "#/definitions/ParticleMeta"
@@ -1266,15 +1266,31 @@
         "gustAmount": {
           "type": "number",
           "description": "Depth of the gust modulation in `[0, 1]`; `0` = no gust."
+        },
+        "windStrengthParam": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Host-parameter binding for wind `strength` (schemaVersion 11, WINDP). Names a scalar `ParticleDoc.params` entry whose current value **multiplies** the evaluated strength track each step — the MULTIPLIER convention, exactly like `sizeParam`/`speedParam`, so the **authoring identity is `1`** (a param at its default `1` is an IEEE-exact ×1 no-op ⇒ byte-identical render). `null`/absent = unbound = the untouched pre-v11 code path (P1/P2)."
+        },
+        "windDirectionParam": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Host-parameter binding for wind `direction` (schemaVersion 11, WINDP). Names a scalar `ParticleDoc.params` entry whose current value is **added** to `direction` as a DEGREE OFFSET each step — effective direction = `direction + param`. This is the FIRST **offset-semantics** knob (a multiplier is meaningless for an angle): the OFFSET convention, so the **authoring identity is `0`** (a param at default `0` is an IEEE-exact +0 no-op ⇒ byte-identical; the authored base composes with the game's live swing and wraps naturally through cos/sin). `null`/absent = unbound = the untouched pre-v11 path (P1/P2)."
         }
       },
       "required": [
         "direction",
         "strength",
         "gustFrequency",
-        "gustAmount"
+        "gustAmount",
+        "windStrengthParam",
+        "windDirectionParam"
       ],
-      "description": "Coherent, spatially-uniform wind with time-varying gusts (schemaVersion 10, B6). Unlike `noise` (a per-position `curl2` field, deliberately de-coherent), every live particle feels the SAME wind vector at any instant — leaves surge as one. The vector is a pure function of the effect clock (zero PRNG draws): at sim time `clock`, `gust = 1 + gustAmount·sin(2π·gustFrequency·clock)`, `w = strength(ageNorm)·gust`, added as acceleration into stored velocity `vx += w·cos(direction)·dt`, `vy += w·sin(direction)·dt` — physical like gravity, applied AFTER gravity and BEFORE the attractor block so drag and limitVelocity damp it (see FORMAT_SPEC E40 / the normative motion order). null = off (the migration default). NOT host-param bindable in v1."
+      "description": "Coherent, spatially-uniform wind with time-varying gusts (schemaVersion 10, B6). Unlike `noise` (a per-position `curl2` field, deliberately de-coherent), every live particle feels the SAME wind vector at any instant — leaves surge as one. The vector is a pure function of the effect clock (zero PRNG draws): at sim time `clock`, `gust = 1 + gustAmount·sin(2π·gustFrequency·clock)`, `w = strength(ageNorm)·gust`, added as acceleration into stored velocity `vx += w·cos(direction)·dt`, `vy += w·sin(direction)·dt` — physical like gravity, applied AFTER gravity and BEFORE the attractor block so drag and limitVelocity damp it (see FORMAT_SPEC E40 / the normative motion order). null = off (the migration default). Host-param bindable as of schemaVersion 11 (WINDP) via the two `wind…Param` fields below (application lands with the runtime)."
     },
     "BySpeedConfig": {
       "type": "object",

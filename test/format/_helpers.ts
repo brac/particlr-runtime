@@ -75,7 +75,7 @@ export function makeLayer(overrides: Partial<Layer> = {}): Layer {
 
 export function makeDoc(overrides: Partial<ParticleDoc> = {}): ParticleDoc {
   return {
-    schemaVersion: 10,
+    schemaVersion: 11,
     meta: { name: "Test", createdWith: "particlr@0.x", notes: "" },
     duration: 1.2,
     looping: true,

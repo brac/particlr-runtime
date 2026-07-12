@@ -48,7 +48,7 @@ describe("parseParticle", () => {
     };
     const r = parseParticle(v2);
     expect(r.ok).toBe(true);
-    expect(r.doc?.schemaVersion).toBe(10);
+    expect(r.doc?.schemaVersion).toBe(11);
     expect(r.doc?.layers[0]?.noise).toBe(null);
     expect(r.doc?.layers[0]?.overLifetime.velocity.orbital).toBe(null);
     // v3 -> v4 defaults injected too.
@@ -97,7 +97,7 @@ describe("migrateToCurrent", () => {
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     const doc = r.doc as { schemaVersion: number; layers: Array<Record<string, unknown>> };
-    expect(doc.schemaVersion).toBe(10);
+    expect(doc.schemaVersion).toBe(11);
     // v1->v2 defaults
     expect(doc.layers[0]!.space).toBe("local");
     expect(doc.layers[0]!.inheritVelocity).toBe(0);
@@ -124,7 +124,7 @@ describe("migrateToCurrent", () => {
   });
 
   it("refuses newer and rejects invalid versions", () => {
-    expect(migrateToCurrent({ schemaVersion: 11 }).ok).toBe(false);
+    expect(migrateToCurrent({ schemaVersion: 12 }).ok).toBe(false);
     expect(migrateToCurrent({ schemaVersion: 0 }).ok).toBe(false);
     expect(migrateToCurrent(null).ok).toBe(false);
   });

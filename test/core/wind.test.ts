@@ -6,6 +6,10 @@ const seed = deriveLayerSeed(1337, 0);
 const ct = (value: number): ScalarTrack => ({ mode: "constant", value });
 const curve = (a: number, b: number): ScalarTrack => ({ mode: "curve", keys: [{ t: 0, v: a }, { t: 1, v: b }] });
 const RAD = Math.PI / 180;
+// WINDP (schemaVersion 11): the wind literals below omit the two param bindings;
+// `w` fills them as null (unbound = the pre-v11 behavior these sim tests assert).
+const w = (o: Omit<WindConfig, "windStrengthParam" | "windDirectionParam">): WindConfig =>
+  ({ ...o, windStrengthParam: null, windDirectionParam: null });
 
 // A single-point layer with ZERO initial speed and ZERO gravity/drag, so after a
 // spawn every particle sits at velocity 0 and update() writes ONLY the wind
@@ -46,7 +50,7 @@ function stepOnce(wind: WindConfig | null, clock: number, dt: number, n = 1): La
 
 describe("wind — coherent gusting directional force (B6)", () => {
   it("is position-independent: two particles at different positions get an IDENTICAL wind delta (coherence law)", () => {
-    const wind: WindConfig = { direction: 30, strength: ct(80), gustFrequency: 0.5, gustAmount: 0.4 };
+    const wind: WindConfig = w({ direction: 30, strength: ct(80), gustFrequency: 0.5, gustAmount: 0.4 });
     const ls = new LayerSim(windLayer(wind), seed);
     expect(ls.spawn()).toBe(true);
     expect(ls.spawn()).toBe(true);
@@ -69,7 +73,7 @@ describe("wind — coherent gusting directional force (B6)", () => {
     // direction 0 ⇒ cos 1 / sin 0; strength constant 100; dt 0.02.
     const S = 100;
     const dt = 0.02;
-    const ls = stepOnce({ direction: 0, strength: ct(S), gustFrequency: 0.5, gustAmount: 0.4 }, 0.5, dt);
+    const ls = stepOnce(w({ direction: 0, strength: ct(S), gustFrequency: 0.5, gustAmount: 0.4 }), 0.5, dt);
     expect(ls.pool.velX[0]!).toBeCloseTo(S * 1.4 * dt, 5); // 100 × 1.4 × 0.02 = 2.8
     expect(ls.pool.velY[0]!).toBeCloseTo(0, 6);
   });
@@ -79,7 +83,7 @@ describe("wind — coherent gusting directional force (B6)", () => {
     const dt = 0.02;
     const dir = 90;
     // gustFrequency 0 ⇒ gust 1 (steady), so the delta is purely the direction basis.
-    const ls = stepOnce({ direction: dir, strength: ct(S), gustFrequency: 0, gustAmount: 0.5 }, 0.3, dt);
+    const ls = stepOnce(w({ direction: dir, strength: ct(S), gustFrequency: 0, gustAmount: 0.5 }), 0.3, dt);
     expect(ls.pool.velX[0]!).toBeCloseTo(S * Math.cos(dir * RAD) * dt, 5); // ≈ 0
     expect(ls.pool.velY[0]!).toBeCloseTo(S * Math.sin(dir * RAD) * dt, 5); // = S·dt
   });
@@ -87,7 +91,7 @@ describe("wind — coherent gusting directional force (B6)", () => {
   it("evaluates strength at each particle's ageNorm (authorable ease-in over life)", () => {
     // A curve strength 0→100 over ageNorm; direction 0, steady gust. Two particles
     // at DIFFERENT ages in the SAME step must get deltas proportional to strength(t).
-    const wind: WindConfig = { direction: 0, strength: curve(0, 100), gustFrequency: 0, gustAmount: 0 };
+    const wind: WindConfig = w({ direction: 0, strength: curve(0, 100), gustFrequency: 0, gustAmount: 0 });
     const ls = new LayerSim(windLayer(wind), seed);
     expect(ls.spawn()).toBe(true);
     expect(ls.spawn()).toBe(true);
@@ -104,7 +108,7 @@ describe("wind — coherent gusting directional force (B6)", () => {
   });
 
   it("gustAmount 0 ⇒ steady wind (gust = 1 at every clock)", () => {
-    const wind: WindConfig = { direction: 0, strength: ct(100), gustFrequency: 2, gustAmount: 0 };
+    const wind: WindConfig = w({ direction: 0, strength: ct(100), gustFrequency: 2, gustAmount: 0 });
     const dt = 0.02;
     const a = stepOnce(wind, 0.1, dt).pool.velX[0]!;
     const b = stepOnce(wind, 0.6, dt).pool.velX[0]!; // different clock
@@ -113,7 +117,7 @@ describe("wind — coherent gusting directional force (B6)", () => {
   });
 
   it("gustFrequency 0 ⇒ steady wind (sin(0) = 0, gust = 1)", () => {
-    const wind: WindConfig = { direction: 0, strength: ct(100), gustFrequency: 0, gustAmount: 0.9 };
+    const wind: WindConfig = w({ direction: 0, strength: ct(100), gustFrequency: 0, gustAmount: 0.9 });
     const dt = 0.02;
     const a = stepOnce(wind, 0.1, dt).pool.velX[0]!;
     const b = stepOnce(wind, 5.3, dt).pool.velX[0]!;
@@ -141,7 +145,7 @@ describe("wind — coherent gusting directional force (B6)", () => {
     const S = 200;
     const d = 2;
     const dt = 0.02;
-    const wind: WindConfig = { direction: 0, strength: ct(S), gustFrequency: 0, gustAmount: 0 };
+    const wind: WindConfig = w({ direction: 0, strength: ct(S), gustFrequency: 0, gustAmount: 0 });
     const ls = new LayerSim(windLayer(wind, { drag: ct(d) }), seed);
     expect(ls.spawn()).toBe(true);
     let prev = 0;
@@ -158,7 +162,7 @@ describe("wind — coherent gusting directional force (B6)", () => {
   });
 
   it("scrub-resim determinism: the same (clock, dt) sequence yields bit-identical state", () => {
-    const wind: WindConfig = { direction: 37, strength: curve(10, 90), gustFrequency: 0.6, gustAmount: 0.5 };
+    const wind: WindConfig = w({ direction: 37, strength: curve(10, 90), gustFrequency: 0.6, gustAmount: 0.5 });
     const clocks = [0.05, 0.1, 0.17, 0.31, 0.5, 0.72, 0.9];
     const dt = 0.02;
     const run = (): { vx: number; vy: number; x: number; y: number } => {

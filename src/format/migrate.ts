@@ -147,7 +147,36 @@ export const MIGRATIONS: Record<number, (doc: any) => any> = {
     schemaVersion: 10,
     layers: Array.isArray(doc.layers) ? doc.layers.map(migrateLayer9to10) : doc.layers,
   }),
+
+  // v10 -> v11: host-param bindable wind (WIND_PARAMS_PLAN P5). One nested walk per
+  // layer: a NON-NULL `wind` gains `windStrengthParam: null` and
+  // `windDirectionParam: null` (both unbound); a null wind is left untouched (no
+  // object materialized). Spread-defaults-FIRST so a hand-authored / forward-written
+  // binding survives (mirror the `9:` collision walk). Both identity values are
+  // no-ops (×1 for strength, +0 for direction) and nothing reads them until W-M1, so
+  // a migrated v10 document is bit-identical — PRNG stream, pool state, stateHash,
+  // golden frames — pinned by the migration-inertness test. E11 now refuses v12.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  10: (doc: any) => ({
+    ...doc,
+    schemaVersion: 11,
+    layers: Array.isArray(doc.layers) ? doc.layers.map(migrateLayer10to11) : doc.layers,
+  }),
 };
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function migrateLayer10to11(l: any): any {
+  if (l === null || typeof l !== "object") return l;
+  return {
+    ...l,
+    // wind is `WindConfig | null`: only a non-null object gains the two binding
+    // fields (spread-after so a present value survives).
+    wind:
+      l.wind && typeof l.wind === "object"
+        ? { windStrengthParam: null, windDirectionParam: null, ...l.wind }
+        : l.wind,
+  };
+}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function migrateLayer9to10(l: any): any {
