@@ -18,7 +18,7 @@ import {
   TRAIL_MODES,
   type ParticleDoc,
 } from "./types.js";
-import { decodeBase64 } from "./base64.js";
+import { decodeBase64, IMAGE_DATA_URL_RE } from "./base64.js";
 
 export interface ValidationIssue {
   path: string;
@@ -1153,6 +1153,10 @@ export function validateParticle(input: unknown): ValidationResult {
     err(ctx, "seed", "seed must be an integer in [0, 4294967296)");
 
   // textures (optional). Collect names first so texture refs can be checked.
+  // E44: each value must be an embedded base64 image data URL — a .prt file is
+  // self-contained (FORMAT_SPEC "Texture handling") and the Pixi adapter decodes
+  // the payload directly (no fetch), so a remote URL or any other string shape
+  // could never load anyway; reject it here with a clear path instead.
   if (input.textures !== undefined) {
     if (!isObject(input.textures)) {
       err(ctx, "textures", "textures must be an object of name -> data URL");
@@ -1160,6 +1164,8 @@ export function validateParticle(input: unknown): ValidationResult {
       for (const [name, url] of Object.entries(input.textures)) {
         ctx.textureNames.add(name);
         if (!isStr(url)) err(ctx, `textures.${name}`, "texture data must be a string");
+        else if (!IMAGE_DATA_URL_RE.test(url))
+          err(ctx, `textures.${name}`, "texture data must be a base64 image data URL (data:image/...;base64,...) (E44)");
       }
     }
   }

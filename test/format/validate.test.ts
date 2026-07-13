@@ -101,6 +101,32 @@ describe("validateParticle — texture rules", () => {
     if (r.ok) expect(r.warnings.length).toBe(0);
   });
 
+  it("rejects a texture value that is not a base64 image data URL (E44)", () => {
+    const bads = [
+      "https://evil.example/x.png", // remote URL — must never be loadable
+      "data:text/html;base64,AAAA", // non-image MIME
+      "data:image/png,rawpayload", // data URL but not base64
+      "x.png", // bare path
+    ];
+    for (const bad of bads) {
+      const d = makeDoc({
+        textures: { puff: bad },
+        layers: [makeLayer({ texture: { ref: "user:puff", frames: null } })],
+      });
+      expect(errPaths(d), bad).toContain("textures.puff");
+    }
+  });
+
+  it("accepts any image MIME subtype as a texture data URL (E44)", () => {
+    for (const ok of ["data:image/jpeg;base64,AAAA", "data:image/webp;base64,AAAA", "data:image/svg+xml;base64,AAAA"]) {
+      const d = makeDoc({
+        textures: { puff: ok },
+        layers: [makeLayer({ texture: { ref: "user:puff", frames: null } })],
+      });
+      expect(validateParticle(d).ok, ok).toBe(true);
+    }
+  });
+
   it("validates flipbook frames", () => {
     const bad = makeDoc({
       layers: [makeLayer({ texture: { ref: "circle-soft", frames: { cols: 0, rows: 2, fps: 12, mode: "loop" } } })],

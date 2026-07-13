@@ -5,6 +5,13 @@
 // character, wrong length, or misplaced / wrong-count padding) so callers can
 // degrade gracefully (E23) instead of throwing.
 
+// The one legal shape for an embedded texture value (E44): a base64 image data
+// URL. Capture group 1 is the MIME type. Shared by the validator (rejects
+// anything else at parse time) and the Pixi adapter (decodes the payload with
+// decodeBase64 instead of fetch(), so the runtime carries no network
+// capability — a remote URL in a hand-crafted doc can never be loaded).
+export const IMAGE_DATA_URL_RE = /^data:(image\/[a-z0-9.+-]+);base64,/i;
+
 const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 const EQ = 61; // "="
 

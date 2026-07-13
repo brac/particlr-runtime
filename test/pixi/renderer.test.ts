@@ -1,11 +1,11 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { BufferImageSource, ParticleContainer, Particle, Texture } from "pixi.js";
 import type { Flipbook } from "../../src/format/types.js";
 import { parseParticle } from "../../src/index.js";
 import { Effect } from "../../src/core/effect.js";
-import { PixiParticleRenderer } from "../../src/pixi/renderer.js";
+import { PixiParticleRenderer, dataUrlToBlob } from "../../src/pixi/renderer.js";
 import { presetsDir, hasPresets } from "../_presets.js";
 
 function loadDoc(name: string) {
@@ -75,6 +75,51 @@ describe.skipIf(!hasPresets)("PixiParticleRenderer — user textures (P0.1)", ()
     expect(pcOf(r).texture.width).toBe(64); // still the placeholder
     expect(r.warnings.some((w) => w.includes("broken"))).toBe(true);
     r.destroy();
+  });
+});
+
+describe("dataUrlToBlob — embedded texture decode carries no network capability", () => {
+  // 1×1 red PNG.
+  const PNG_B64 =
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
+  it("decodes a base64 image data URL into a typed Blob", async () => {
+    const blob = dataUrlToBlob(`data:image/png;base64,${PNG_B64}`);
+    expect(blob.type).toBe("image/png");
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    expect([...bytes.slice(0, 4)]).toEqual([0x89, 0x50, 0x4e, 0x47]); // PNG signature
+  });
+
+  it("throws on anything that is not a base64 image data URL (E44 shape)", () => {
+    const bads = [
+      "https://evil.example/x.png", // remote URL — the whole point of not using fetch()
+      "data:text/html;base64,AAAA", // non-image MIME
+      `data:image/png,${PNG_B64}`, // not base64-marked
+      "data:image/png;base64,%%%%", // malformed base64 payload
+    ];
+    for (const bad of bads) expect(() => dataUrlToBlob(bad), bad).toThrow();
+  });
+});
+
+describe.skipIf(!hasPresets)("PixiParticleRenderer — default loader never fetches", () => {
+  it("falls back to the placeholder on a remote-URL texture without calling fetch", async () => {
+    const spy = vi.fn();
+    const orig = globalThis.fetch;
+    globalThis.fetch = spy as unknown as typeof fetch;
+    try {
+      const doc = loadDoc("rain");
+      doc.layers[0]!.texture.ref = "user:evil";
+      doc.textures = { evil: "https://evil.example/x.png" };
+      const fx = new Effect(doc, { seed: doc.seed });
+      const r = new PixiParticleRenderer(fx); // default decode path, no injected loader
+      await r.ready;
+      expect(spy).not.toHaveBeenCalled();
+      expect(pcOf(r).texture.width).toBe(64); // soft-circle placeholder kept
+      expect(r.warnings.some((w) => w.includes("evil"))).toBe(true);
+      r.destroy();
+    } finally {
+      globalThis.fetch = orig;
+    }
   });
 });
 

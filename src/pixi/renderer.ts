@@ -16,6 +16,7 @@ import {
 } from "pixi.js";
 import type { BlendMode, BuiltinTextureId, Flipbook, ParticleDoc } from "../format/types.js";
 import { BUILTIN_TEXTURE_IDS } from "../format/types.js";
+import { decodeBase64, IMAGE_DATA_URL_RE } from "../format/base64.js";
 import { computeRenderState, makeRenderBuffers, type LayerRenderBuffers } from "../core/render.js";
 import { computeTrailGeometry, computeConnectGeometry, makeTrailGeometry } from "../core/trailGeometry.js";
 import type { Effect } from "../core/effect.js";
@@ -57,18 +58,34 @@ function builtinTexture(id: BuiltinTextureId): Texture {
 }
 
 // Decoded user textures (embedded data URLs), cached by data URL so a rebuild
-// or a second layer reuses the decode instead of re-fetching. Same
+// or a second layer reuses the decode instead of re-decoding. Same
 // never-destroy + destroyed-guard policy as the built-ins. Page-lifetime cache
 // with no eviction — see runtime README; per-texture refcounting is v1.5.
 const USER_TEXTURES = new Map<string, Texture>();
+
+/**
+ * Parse an embedded texture (`data:image/...;base64,` — the E44 shape) into a
+ * typed Blob. Deliberately NOT `fetch(dataUrl)`: the runtime must carry zero
+ * network capability (any `fetch` identifier gets the package flagged by
+ * supply-chain scanners), and a non-`data:` string in a hand-crafted doc must
+ * be unloadable rather than silently fetched. Throws on anything that is not a
+ * well-formed base64 image data URL — callers treat that as a failed decode
+ * (E10 soft-circle fallback). Exported for tests.
+ */
+export function dataUrlToBlob(dataUrl: string): Blob {
+  const m = IMAGE_DATA_URL_RE.exec(dataUrl);
+  const bytes = m ? decodeBase64(dataUrl.slice(m[0].length)) : null;
+  if (!m || !bytes) throw new Error("texture is not a base64 image data URL");
+  // decodeBase64 allocates a fresh Uint8Array, so its .buffer is a plain
+  // ArrayBuffer — the cast just recovers what TS's ArrayBufferLike default loses.
+  return new Blob([bytes as Uint8Array<ArrayBuffer>], { type: m[1]!.toLowerCase() });
+}
 
 /** Default browser decode path for an embedded data-URL texture. */
 async function decodeDataUrlTexture(dataUrl: string): Promise<Texture> {
   const cached = USER_TEXTURES.get(dataUrl);
   if (cached && !cached.destroyed) return cached;
-  const res = await fetch(dataUrl);
-  const blob = await res.blob();
-  const bitmap = await createImageBitmap(blob);
+  const bitmap = await createImageBitmap(dataUrlToBlob(dataUrl));
   const source = new ImageSource({ resource: bitmap });
   const tex = new Texture({ source });
   USER_TEXTURES.set(dataUrl, tex);
@@ -141,8 +158,9 @@ export interface PixiParticleRendererOptions {
   renderer?: unknown;
   /**
    * Override async user-texture loading. Defaults to a browser decode
-   * (fetch → createImageBitmap → ImageSource). Tests inject a deterministic
-   * loader since node has no `createImageBitmap`.
+   * (base64 decode → createImageBitmap → ImageSource; no fetch — the runtime
+   * carries no network capability). Tests inject a deterministic loader since
+   * node has no `createImageBitmap`.
    */
   loadTexture?: (dataUrl: string) => Promise<Texture>;
 }
