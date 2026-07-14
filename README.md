@@ -8,6 +8,15 @@ back with this package. The editor previews through this exact runtime, and
 playback is deterministic (same document + seed ⇒ same frames) — so what you
 tune is what you ship.
 
+<!-- ABSOLUTE URL, deliberately: npm does not resolve relative image paths, and
+     this README is subtree-split into the public mirror where no repo-relative
+     asset path exists. The image is served from the landing app's public/ dir. -->
+![The 57 CC0 presets bundled with the particlr editor, each labelled](https://particlr.com/presets-contact-sheet.png)
+
+The editor ships 57 CC0 presets — every frame above was rendered by *this*
+package. Open any of them at [particlr.com](https://particlr.com), tune it,
+export, and play it back here.
+
 ## Install
 
 ```sh
