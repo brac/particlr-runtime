@@ -3,7 +3,7 @@
 [![CI](https://github.com/brac/particlr-runtime/actions/workflows/ci.yml/badge.svg)](https://github.com/brac/particlr-runtime/actions/workflows/ci.yml)
 
 Plays `.prt` particle effects in PixiJS v8. Design effects visually in the
-[particlr editor](https://particlr.brac.dev), export a `.prt` file, play it
+[particlr editor](https://particlr.com), export a `.prt` file, play it
 back with this package. The editor previews through this exact runtime, and
 playback is deterministic (same document + seed ⇒ same frames) — so what you
 tune is what you ship.
@@ -38,7 +38,7 @@ app.ticker.add((t) => {
 ```
 
 That's the whole integration. Live example:
-[particlr.brac.dev/sample](https://particlr.brac.dev/sample/).
+[particlr.com/sample](https://particlr.com/sample/).
 
 ## Going further
 

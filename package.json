@@ -4,7 +4,7 @@
   "description": "Framework-agnostic particle simulation core + Pixi v8 adapter for the .prt format.",
   "license": "MIT",
   "type": "module",
-  "homepage": "https://particlr.brac.dev",
+  "homepage": "https://particlr.com",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/brac/particlr-runtime.git"
