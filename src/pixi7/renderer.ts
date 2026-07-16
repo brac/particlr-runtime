@@ -42,6 +42,7 @@ import type { Effect } from "../core/effect.js";
 // generator here and wrap it in a v7 Texture below.
 import { generateBuiltinTexture, type TextureData } from "../pixi/textures.js";
 import { makeTrailView, syncTrailView, type TrailView } from "./trailMesh.js";
+import { DissolveParticleContainer } from "./dissolveRenderer.js";
 
 export { generateBuiltinTexture, type TextureData };
 
@@ -188,6 +189,12 @@ interface LayerView {
    * layer has a trail module. Its Mesh is added to the container BEFORE this
    * layer's ParticleContainer, so the ribbon renders under the sprites. (M2) */
   trail: TrailView | null;
+  /** The dissolve container (schemaVersion 4, M3) when `layer.dissolve !== null`,
+   * else null. Same object as `pc` when set (DissolveParticleContainer extends
+   * ParticleContainer); kept as the subtype so sync() can advance its erosion
+   * clock (`time = effect.time`). A dissolve layer routes to the forked
+   * particlrDissolve plugin instead of stock "particle". */
+  dissolve: DissolveParticleContainer | null;
 }
 
 export interface PixiParticleRendererOptions {
@@ -259,19 +266,35 @@ export class PixiParticleRenderer {
       // An unknown key is silently accepted and ignored (setProperties only
       // reads vertices/scale/position/rotation/uvs/tint/alpha), the same trap as
       // the v8 vertex/scale bug.
-      const pc = new ParticleContainer(max, {
-        vertices: true,
-        position: true,
-        rotation: true,
-        tint: true,
-        uvs: fb !== null,
-      });
+      // Dissolve (schemaVersion 4, M3): a dissolve layer OWNS the forked particle
+      // pipeline. Because v7's ParticleContainer.render() hardcodes the "particle"
+      // plugin (no per-container shader option like v8), a dissolve layer is a
+      // DissolveParticleContainer — same positional ctor + IDENTICAL dynamic flags,
+      // plus the dissolve config — whose render() routes to the particlrDissolve
+      // plugin fork. Every non-dissolve layer constructs EXACTLY as before (the
+      // ctor call below is byte-identical), so a dissolve-free document's child
+      // objects — and every committed golden — are unchanged. The dissolve golden
+      // preset (M4) is the live-GL proof; headless unit tests exercise the config +
+      // clock plumbing (the subclass constructs with no Shader).
+      let pc: ParticleContainer;
+      let dissolve: DissolveParticleContainer | null = null;
+      if (layer.dissolve !== null) {
+        dissolve = new DissolveParticleContainer(
+          max,
+          { vertices: true, position: true, rotation: true, tint: true, uvs: fb !== null },
+          layer.dissolve,
+        );
+        pc = dissolve;
+      } else {
+        pc = new ParticleContainer(max, {
+          vertices: true,
+          position: true,
+          rotation: true,
+          tint: true,
+          uvs: fb !== null,
+        });
+      }
       pc.blendMode = blendOf(layer.blend);
-
-      // Dissolve (schemaVersion 4): a dissolve layer will OWN a forked particle
-      // shader/renderer. M3 wiring point — this milestone renders dissolve
-      // layers through the stock v7 ParticleRenderer (no fork yet). The dissolve
-      // golden preset is the eventual live-GL proof.
 
       // Preallocate the full pool of Sprite objects (one-time; no per-frame
       // allocation churn) but do NOT add them to the container. sync() keeps
@@ -313,6 +336,7 @@ export class PixiParticleRenderer {
         flipbook: fb,
         frames: sliced.frames,
         trail,
+        dissolve,
       };
       this.views.push(view);
 
@@ -339,9 +363,11 @@ export class PixiParticleRenderer {
       const enabled = ls.layer.enabled;
       const count = enabled ? ls.count : 0;
 
-      // Dissolve (M3 wiring point): a dissolve layer will advance its erosion
-      // clock (uTime = effect.time) here every frame. Stock pipeline this
-      // milestone — nothing to advance yet.
+      // Dissolve (M3): advance the erosion clock. The plugin reads uTime off the
+      // container, so writing effect.time here drives the shader deterministically —
+      // exact under scrub/golden replay, identical to the v8 adapter's
+      // view.dissolveUniforms.uTime = effect.time.
+      if (view.dissolve !== null) view.dissolve.time = this.effect.time;
 
       // Per-layer container placement (schemaVersion 2). A local layer rides the
       // emitter (its particles carry effect-local coords); a world layer stays at
