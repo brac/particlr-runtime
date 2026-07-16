@@ -35,11 +35,13 @@ import type { BlendMode, BuiltinTextureId, Flipbook, ParticleDoc } from "../form
 import { BUILTIN_TEXTURE_IDS } from "../format/types.js";
 import { decodeBase64, IMAGE_DATA_URL_RE } from "../format/base64.js";
 import { computeRenderState, makeRenderBuffers, type LayerRenderBuffers } from "../core/render.js";
+import { computeTrailGeometry, computeConnectGeometry, makeTrailGeometry } from "../core/trailGeometry.js";
 import type { Effect } from "../core/effect.js";
 // textures.ts has zero pixi imports and is SHARED as-is with the v8 adapter
 // (never copied — Codebase facts, PIXI7_PLAN). We import the pure pixel-math
 // generator here and wrap it in a v7 Texture below.
 import { generateBuiltinTexture, type TextureData } from "../pixi/textures.js";
+import { makeTrailView, syncTrailView, type TrailView } from "./trailMesh.js";
 
 export { generateBuiltinTexture, type TextureData };
 
@@ -182,6 +184,10 @@ interface LayerView {
   /** Sliced frame textures (row-major), or null for a single-frame layer.
    * `sync()` assigns `particles[j].texture = frames[frameIndex]`. (P4.1) */
   frames: Texture[] | null;
+  /** Per-particle or connect trail ribbon (schemaVersion 3/9); null unless the
+   * layer has a trail module. Its Mesh is added to the container BEFORE this
+   * layer's ParticleContainer, so the ribbon renders under the sprites. (M2) */
+  trail: TrailView | null;
 }
 
 export interface PixiParticleRendererOptions {
@@ -280,12 +286,22 @@ export class PixiParticleRenderer {
         particles.push(p);
       }
 
-      // Trail ribbon (M2 wiring point): a trail layer will build a Mesh added
-      // BEFORE this layer's ParticleContainer (renders under the sprites). M2
-      // ports makeTrailView/syncTrailView; this milestone leaves trail === null,
-      // so a trail-null document's child order — and every committed golden — is
-      // unchanged.
-      // trail: null (M2)
+      // Trail ribbon (M2): build the mesh BEFORE adding the ParticleContainer so
+      // it sits behind (renders under) this layer's sprites. Its geometry buffers
+      // wrap the core TrailGeometry arrays; sync() fills them via
+      // computeTrailGeometry/computeConnectGeometry. Blend mode is shared with the
+      // layer. Only trail layers add an extra child, so a trail-null document's
+      // child order — and every committed golden — is unchanged.
+      let trail: TrailView | null = null;
+      if (layer.trail !== null) {
+        // Connect mode (v9): ONE ribbon of up to `max` points (verts = max·2,
+        // segs = max−1) — makeTrailGeometry(1, max). Per-particle: `max` ribbons of
+        // `maxPoints`. Same mesh/GL path either way (R5); sync() picks the builder.
+        const geom =
+          layer.trail.mode === "connect" ? makeTrailGeometry(1, max) : makeTrailGeometry(max, layer.trail.maxPoints);
+        trail = makeTrailView(geom, tex, blendOf(layer.blend));
+        this.container.addChild(trail.mesh);
+      }
 
       this.container.addChild(pc);
       const view: LayerView = {
@@ -296,6 +312,7 @@ export class PixiParticleRenderer {
         invFrameWidth: sliced.invFrameWidth,
         flipbook: fb,
         frames: sliced.frames,
+        trail,
       };
       this.views.push(view);
 
@@ -333,6 +350,12 @@ export class PixiParticleRenderer {
       // never-moved emitter both resolve to (0,0), keeping v1 output identical.
       if (ls.layer.space === "world") view.pc.position.set(0, 0);
       else view.pc.position.set(ex, ey);
+      // The trail mesh's vertices carry the same sim-frame coordinates as the
+      // sprites, so it rides the emitter exactly like the ParticleContainer (M2).
+      if (view.trail !== null) {
+        if (ls.layer.space === "world") view.trail.mesh.position.set(0, 0);
+        else view.trail.mesh.position.set(ex, ey);
+      }
 
       if (enabled && count > 0) {
         computeRenderState(ls, view.buffers);
@@ -393,6 +416,23 @@ export class PixiParticleRenderer {
             if (frames) part.texture = frames[b.frame[j]!]!;
           }
         }
+      }
+      // Trail ribbon geometry (M2): rebuild from the layer's ring buffers (or the
+      // connect view) and update the mesh buffers + draw range. computeRenderState
+      // above filled view.buffers (the trail's null-color path reads each
+      // particle's current render RGBA from it); when the layer is disabled or
+      // empty there is no render state, so clear the ribbon to zero draws.
+      if (view.trail !== null) {
+        if (enabled && count > 0) {
+          // Connect mode (v9) builds ONE ribbon through the live particles' current
+          // positions; per-particle mode rebuilds each particle's own ring ribbon.
+          if (ls.layer.trail!.mode === "connect") computeConnectGeometry(ls, view.buffers, view.trail.geom);
+          else computeTrailGeometry(ls, view.buffers, view.trail.geom);
+        } else {
+          view.trail.geom.vertexCount = 0;
+          view.trail.geom.indexCount = 0;
+        }
+        syncTrailView(view.trail);
       }
       this.syncRenderList(view, count);
     }
