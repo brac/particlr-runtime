@@ -89,14 +89,19 @@ describe("dissolve shader canary (§0.5)", () => {
     const require = createRequire(import.meta.url);
     const runtimePkg = JSON.parse(readFileSync(resolve(__dirname, "../../package.json"), "utf8"));
     const range: string = runtimePkg.peerDependencies["pixi.js"];
-    expect(range).toBe(">=8.6.0 <9");
+    // Widened to span both majors at phase 10 (pixi7 adapter, ruling R3). This
+    // v8 lane still installs pixi.js@8.x, so it verifies the installed v8
+    // satisfies the (now dual-major) range; the pixi7 suite pins the alias
+    // package's 7.4.3 separately (node_modules/pixi7/package.json).
+    expect(range).toBe(">=7.2.0 <9");
     // pixi.js does not expose ./package.json in its exports map, so resolve the
     // entry and read the package.json at the package-folder boundary.
     const entry = require.resolve("pixi.js").replace(/\\/g, "/");
     const pkgDir = entry.slice(0, entry.indexOf("pixi.js/") + "pixi.js/".length);
     const installed: string = JSON.parse(readFileSync(pkgDir + "package.json", "utf8")).version;
     const [maj, min, pat] = installed.split(".").map((s) => parseInt(s, 10));
-    // range ">=8.6.0 <9": major 8, (minor > 6 || (minor === 6 && patch >= 0)).
+    // This lane installs pixi.js@8.x; ">=7.2.0 <9" ⊇ ">=8.6.0 <9", so the v8
+    // build's own floor (major 8, minor ≥ 6) is the stronger check we keep.
     const satisfies = maj === 8 && (min! > 6 || (min === 6 && pat! >= 0));
     expect(satisfies, `installed pixi.js ${installed} must satisfy ${range}`).toBe(true);
   });

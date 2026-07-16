@@ -38,6 +38,10 @@
       "types": "./dist/pixi/index.d.ts",
       "import": "./dist/pixi/index.js"
     },
+    "./pixi7": {
+      "types": "./dist/pixi7/index.d.ts",
+      "import": "./dist/pixi7/index.js"
+    },
     "./particle.schema.json": "./dist/particle.schema.json"
   },
   "files": [
@@ -47,14 +51,14 @@
     "access": "public"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.pixi.json && tsc --noEmit -p tsconfig.scripts.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.pixi.json && tsc --noEmit -p tsconfig.pixi7.json && tsc --noEmit -p tsconfig.scripts.json",
     "test": "vitest run",
-    "build": "tsc -p tsconfig.build.json && node scripts/copy-schema.mjs",
+    "build": "tsc -p tsconfig.build.json && tsc -p tsconfig.build-pixi7.json && node scripts/copy-schema.mjs",
     "gen-schema": "tsx scripts/gen-schema.ts",
     "size": "node scripts/check-size.mjs"
   },
   "peerDependencies": {
-    "pixi.js": ">=8.6.0 <9"
+    "pixi.js": ">=7.2.0 <9"
   },
   "peerDependenciesMeta": {
     "pixi.js": {
@@ -65,6 +69,7 @@
     "@types/node": "^22",
     "esbuild": "^0.24.2",
     "pixi.js": "8.19.0",
+    "pixi7": "npm:pixi.js@7.4.3",
     "ts-json-schema-generator": "^2.3.0",
     "tsx": "^4.19.2",
     "typescript": "^5.6.3",

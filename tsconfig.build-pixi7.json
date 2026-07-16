@@ -1,0 +1,16 @@
+{
+  "//": "Emit config for the Pixi v7 adapter only. Separate from tsconfig.build.json (which EXCLUDES src/pixi7) so the adapter typechecks against v7 types via the `paths` override while tsc emits `import ... from \"pixi.js\"` unchanged into dist/pixi7. Same DOM lib + declaration settings as tsconfig.build.json. rootDir stays `src` so src/pixi7/index.ts emits to dist/pixi7/index.js and its `../pixi/textures.js` import stays valid at runtime (dist/pixi/textures.js is produced by the main build).",
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "outDir": "dist",
+    "rootDir": "src",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "paths": {
+      "pixi.js": ["../../node_modules/pixi7"]
+    }
+  },
+  "include": ["src/pixi7"]
+}
