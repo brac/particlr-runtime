@@ -2,7 +2,8 @@
 
 [![CI](https://github.com/brac/particlr-runtime/actions/workflows/ci.yml/badge.svg)](https://github.com/brac/particlr-runtime/actions/workflows/ci.yml)
 
-Plays `.prt` particle effects in PixiJS v8. Design effects visually in the
+Plays `.prt` particle effects in PixiJS v8 (and PixiJS v7, via a separate
+subpath — see below). Design effects visually in the
 [particlr editor](https://particlr.com), export a `.prt` file, play it
 back with this package. The editor previews through this exact runtime, and
 playback is deterministic (same document + seed ⇒ same frames) — so what you
@@ -48,6 +49,44 @@ app.ticker.add((t) => {
 
 That's the whole integration. Live example:
 [particlr.com/sample](https://particlr.com/sample/).
+
+## Pixi v7
+
+Games still on PixiJS v7 (the v7 → v8 migration is a large lift) can consume the
+same `.prt` effects without migrating. The v7 adapter lives on its own subpath —
+**one subpath per major**: `./pixi` is the v8 adapter, `./pixi7` is the v7
+adapter. The `pixi.js` peer range is `">=7.2.0 <9"`, and the v7 adapter is
+developed and golden-tested against **pixi.js 7.4.3**.
+
+The only differences from the v8 snippet above are the v7 `Application` idiom
+(the constructor is synchronous — no `await app.init()` — and the canvas is
+`app.view`) and the import path:
+
+```ts
+import { Application } from "pixi.js";
+import { parseParticle, Effect } from "@particlr/runtime";
+import { PixiParticleRenderer } from "@particlr/runtime/pixi7";
+
+const app = new Application({ width: 800, height: 600 });
+document.body.appendChild(app.view);
+
+const doc = parseParticle(await (await fetch("boom.prt")).text()).doc!;
+const fx = new Effect(doc, { seed: 1337 });
+const view = new PixiParticleRenderer(fx);
+view.container.position.set(400, 300); // where the effect plays
+app.stage.addChild(view.container);
+
+app.ticker.add(() => {
+  fx.step(app.ticker.deltaMS / 1000); // advance the simulation
+  view.sync();                        // draw it
+});
+```
+
+The public API is identical to `./pixi` — migrating between majors is a one-line
+import change. The v7 adapter is at **full feature parity**: flipbooks, trails
+(including connect ribbons), sub-emitter rendering (driven by the shared core),
+and dissolve (via a forked v7 particle pipeline). The one hard limit is the
+renderer: v7 has no WebGPU, so the v7 adapter is **WebGL only**.
 
 ## Going further
 
