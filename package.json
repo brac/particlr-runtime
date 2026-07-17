@@ -68,6 +68,7 @@
   "devDependencies": {
     "@types/node": "^22",
     "esbuild": "^0.24.2",
+    "jsdom": "^26",
     "pixi.js": "8.19.0",
     "pixi7": "npm:pixi.js@7.4.3",
     "ts-json-schema-generator": "^2.3.0",
