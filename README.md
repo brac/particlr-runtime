@@ -60,7 +60,7 @@ developed and golden-tested against **pixi.js 7.4.3**.
 
 The only differences from the v8 snippet above are the v7 `Application` idiom
 (the constructor is synchronous — no `await app.init()` — and the canvas is
-`app.view`) and the import path:
+`app.view`, typed as `ICanvas`, hence the cast) and the import path:
 
 ```ts
 import { Application } from "pixi.js";
@@ -68,7 +68,7 @@ import { parseParticle, Effect } from "@particlr/runtime";
 import { PixiParticleRenderer } from "@particlr/runtime/pixi7";
 
 const app = new Application({ width: 800, height: 600 });
-document.body.appendChild(app.view);
+document.body.appendChild(app.view as HTMLCanvasElement);
 
 const doc = parseParticle(await (await fetch("boom.prt")).text()).doc!;
 const fx = new Effect(doc, { seed: 1337 });
