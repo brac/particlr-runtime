@@ -11,7 +11,7 @@
 // replacement, so a pixi patch that changes the attribute layout trips loudly here
 // BEFORE the golden lane.
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ExtensionType, ParticleContainer, extensions } from "pixi.js";
@@ -29,7 +29,23 @@ import type { DissolveConfig } from "../../src/format/types.js";
 import { presetsDir, hasPresets } from "../_presets.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const root = resolve(here, "../../../.."); // packages/runtime/test/pixi7 -> repo root
+
+// Walk up from here to the first ancestor containing node_modules/pixi7, so the
+// stock-source and package.json reads below work at BOTH the monorepo depth
+// (alias hoisted to the workspace root) and the subtree-split mirror depth (this
+// package is the repo root with its own node_modules). Replaces a hard-coded
+// monorepo-only "../../../.." that broke the mirror's CI.
+function packageInstallRoot(from: string): string {
+  let dir = from;
+  while (!existsSync(resolve(dir, "node_modules/pixi7"))) {
+    const up = dirname(dir);
+    if (up === dir) throw new Error("node_modules/pixi7 not found above " + from);
+    dir = up;
+  }
+  return dir;
+}
+
+const root = packageInstallRoot(here);
 const pcPkgDir = resolve(root, "node_modules/@pixi/particle-container");
 
 function loadDoc(name: string) {

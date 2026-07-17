@@ -1,5 +1,5 @@
 {
-  "//": "Typecheck config for the Pixi v7 adapter. Same DOM lib as tsconfig.pixi.json, but the `paths` override redirects the bare `pixi.js` import to the npm-alias devDep (`pixi7` = pixi.js@7.4.3) so src/pixi7 typechecks against v7 types while tsc still EMITS `import ... from \"pixi.js\"` unchanged (paths affect type resolution only). The alias hoists to the WORKSPACE ROOT node_modules (verified empirically 2026-07-16 — npm placed it at ../../node_modules/pixi7, not packages/runtime/node_modules). skipLibCheck is inherited from base and restated here for the documented @webgpu/types vs lib.dom drift.",
+  "//": "Typecheck config for the Pixi v7 adapter. Same DOM lib as tsconfig.pixi.json, but the `paths` override redirects the bare `pixi.js` import to the npm-alias devDep (`pixi7` = pixi.js@7.4.3) so src/pixi7 typechecks against v7 types while tsc still EMITS `import ... from \"pixi.js\"` unchanged (paths affect type resolution only). The `paths` list is a DUAL-CONTEXT fallback: in the monorepo npm hoists the alias to the WORKSPACE ROOT node_modules (../../node_modules/pixi7), while in the subtree-split standalone mirror (github.com/brac/particlr-runtime) this package IS the repo root and npm installs it locally (./node_modules/pixi7). TS tries the entries in order and the first that resolves to a real file wins, so one array serves both layouts (was ../../ only, which fell through silently to v8 in the mirror and broke its CI). skipLibCheck is inherited from base and restated here for the documented @webgpu/types vs lib.dom drift.",
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
@@ -7,7 +7,9 @@
     "skipLibCheck": true,
     "types": [],
     "paths": {
-      "pixi.js": ["../../node_modules/pixi7"]
+      // Dual-context fallback (see "//" above): monorepo root hoist first,
+      // standalone mirror local node_modules second. First resolvable file wins.
+      "pixi.js": ["../../node_modules/pixi7", "./node_modules/pixi7"]
     }
   },
   "include": ["src/pixi7"]

@@ -1,5 +1,5 @@
 {
-  "//": "Emit config for the Pixi v7 adapter only. Separate from tsconfig.build.json (which EXCLUDES src/pixi7) so the adapter typechecks against v7 types via the `paths` override while tsc emits `import ... from \"pixi.js\"` unchanged into dist/pixi7. Same DOM lib + declaration settings as tsconfig.build.json. rootDir stays `src` so src/pixi7/index.ts emits to dist/pixi7/index.js and its `../pixi/textures.js` import stays valid at runtime (dist/pixi/textures.js is produced by the main build).",
+  "//": "Emit config for the Pixi v7 adapter only. Separate from tsconfig.build.json (which EXCLUDES src/pixi7) so the adapter typechecks against v7 types via the `paths` override while tsc emits `import ... from \"pixi.js\"` unchanged into dist/pixi7. Same DOM lib + declaration settings as tsconfig.build.json. rootDir stays `src` so src/pixi7/index.ts emits to dist/pixi7/index.js and its `../pixi/textures.js` import stays valid at runtime (dist/pixi/textures.js is produced by the main build). The `paths` list is a DUAL-CONTEXT fallback: in the monorepo npm hoists the alias to the WORKSPACE ROOT node_modules (../../node_modules/pixi7); in the subtree-split standalone mirror this package is the repo root and npm installs it locally (./node_modules/pixi7). TS tries the entries in order and the first that resolves to a real file wins, so one array serves both layouts (was ../../ only, which fell through silently to v8 in the mirror and broke its CI).",
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
@@ -9,7 +9,9 @@
     "declarationMap": true,
     "sourceMap": true,
     "paths": {
-      "pixi.js": ["../../node_modules/pixi7"]
+      // Dual-context fallback (see "//" above): monorepo root hoist first,
+      // standalone mirror local node_modules second. First resolvable file wins.
+      "pixi.js": ["../../node_modules/pixi7", "./node_modules/pixi7"]
     }
   },
   "include": ["src/pixi7"]

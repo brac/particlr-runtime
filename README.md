@@ -88,6 +88,14 @@ import change. The v7 adapter is at **full feature parity**: flipbooks, trails
 and dissolve (via a forked v7 particle pipeline). The one hard limit is the
 renderer: v7 has no WebGPU, so the v7 adapter is **WebGL only**.
 
+Performance note, measured honestly: v7's `ParticleContainer` renders full
+`Sprite` objects where v8 renders lightweight `Particle` structs, so the v7
+adapter costs more CPU per frame by construction — in our benchmarks (~500
+live particles, high churn, real Chromium) the v7 adapter spends ~1.3 ms per
+frame where v8 spends ~0.1 ms. Both are far under a 60 fps budget; at typical
+2D-game particle counts this is not a limiting factor, but if you are pushing
+tens of thousands of particles, v8 is the faster target.
+
 ## Going further
 
 `Effect` also has a movable emitter for trails (`setEmitterPosition`),

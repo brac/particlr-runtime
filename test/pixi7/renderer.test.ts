@@ -8,7 +8,7 @@
 // points at the npm-alias package (pixi.js@7.4.3). The resolution-proof block
 // below asserts that at runtime.
 import { describe, it, expect, vi } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ALPHA_MODES, ParticleContainer, SCALE_MODES, Sprite, Texture, VERSION } from "pixi.js";
@@ -17,6 +17,20 @@ import { parseParticle } from "../../src/index.js";
 import { Effect } from "../../src/core/effect.js";
 import { PixiParticleRenderer, dataUrlToBlob } from "../../src/pixi7/renderer.js";
 import { presetsDir, hasPresets } from "../_presets.js";
+
+// Walk up from `from` to the first ancestor containing node_modules/pixi7, so
+// file reads work at BOTH the monorepo depth (alias hoisted to the workspace
+// root) and the subtree-split mirror depth (this package is the repo root with
+// its own node_modules). Replaces a hard-coded monorepo-only "../../../..".
+function packageInstallRoot(from: string): string {
+  let dir = from;
+  while (!existsSync(resolve(dir, "node_modules/pixi7"))) {
+    const up = dirname(dir);
+    if (up === dir) throw new Error("node_modules/pixi7 not found above " + from);
+    dir = up;
+  }
+  return dir;
+}
 
 function loadDoc(name: string) {
   const raw = readFileSync(resolve(presetsDir, `${name}.prt`), "utf8");
@@ -65,7 +79,12 @@ describe("pixi7 adapter resolves pixi.js v7 at runtime, not v8", () => {
 
   it("pins the alias package (node_modules/pixi7) at 7.4.3 and confirms v8 is a different major", () => {
     const here = dirname(fileURLToPath(import.meta.url));
-    const root = resolve(here, "../../../.."); // packages/runtime/test/pixi7 -> repo root
+    // Dual-context root discovery: walk up from here to the dir that holds
+    // node_modules/pixi7. In the monorepo that is the WORKSPACE ROOT (four up,
+    // where npm hoists the alias); in the subtree-split standalone mirror this
+    // package IS the repo root (two up) with its own node_modules. A hard-coded
+    // "../../../.." assumed monorepo depth and broke the mirror's CI.
+    const root = packageInstallRoot(here);
     const aliasPkg = JSON.parse(readFileSync(resolve(root, "node_modules/pixi7/package.json"), "utf8"));
     expect(aliasPkg.version).toBe("7.4.3");
     const v8Pkg = JSON.parse(readFileSync(resolve(root, "node_modules/pixi.js/package.json"), "utf8"));
