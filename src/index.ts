@@ -7,4 +7,4 @@ export * from "./core/index.js";
 
 // Keep in sync with package.json "version" — pinned by a test in
 // test/placeholder.test.ts so the two can never drift.
-export const RUNTIME_VERSION = "0.5.1";
+export const RUNTIME_VERSION = "0.5.2";

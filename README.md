@@ -96,6 +96,25 @@ frame where v8 spends ~0.1 ms. Both are far under a 60 fps budget; at typical
 2D-game particle counts this is not a limiting factor, but if you are pushing
 tens of thousands of particles, v8 is the faster target.
 
+## Builtin textures without Pixi
+
+The five builtin textures (`circle-soft`, `circle-hard`, `square`, `spark`,
+`smoke`) are generated as pure-math straight-alpha RGBA pixel buffers — no
+canvas, no GPU, no `pixi.js`. They are the same bytes every adapter uploads.
+If you are writing a renderer for another engine and only need those buffers,
+import them from the `./textures` subpath, which pulls in **zero** Pixi code:
+
+```ts
+import { generateBuiltinTexture, type TextureData } from "@particlr/runtime/textures";
+
+const tex: TextureData = generateBuiltinTexture("circle-soft");
+// tex.width, tex.height, tex.pixels (Uint8Array, RGBA, non-premultiplied)
+```
+
+This entry needs no `pixi.js` peer and runs in bare Node. The `./pixi` and
+`./pixi7` adapters continue to re-export `generateBuiltinTexture` for existing
+consumers, so nothing changes for Pixi users.
+
 ## Going further
 
 `Effect` also has a movable emitter for trails (`setEmitterPosition`),

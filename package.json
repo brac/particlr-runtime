@@ -1,6 +1,6 @@
 {
   "name": "@particlr/runtime",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "Framework-agnostic particle simulation core + Pixi v8 and Pixi v7 adapters for the .prt format.",
   "license": "MIT",
   "type": "module",
@@ -33,6 +33,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./textures": {
+      "types": "./dist/textures.d.ts",
+      "import": "./dist/textures.js"
     },
     "./pixi": {
       "types": "./dist/pixi/index.d.ts",
