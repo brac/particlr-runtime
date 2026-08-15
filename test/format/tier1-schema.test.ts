@@ -75,7 +75,7 @@ function maximalDoc(): ParticleDoc {
         opacityParam: null,
         render: { align: "velocity", speedScale: 0.01, minStretch: 1, maxStretch: 4 },
         dissolve: null,
-        collision: { shape: { kind: "rect", x: -100, y: -100, width: 200, height: 200 }, bounce: 0.6, dampen: 0.1, lifetimeLoss: 0.05 },
+        collision: { shape: { kind: "rect", x: -100, y: -100, width: 200, height: 200 }, bounce: 0.6, dampen: 0.1, lifetimeLoss: 0.05, killOnCollide: false, minKillSpeed: 0 },
         killZones: null,
         attractor: null,
         subEmitters: [{ trigger: "death", layerId: "child", count: 8, probability: 0.9, inheritVelocity: 0.5 }],

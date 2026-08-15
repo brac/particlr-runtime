@@ -14,6 +14,7 @@ import {
   FLIPBOOK_MODES,
   MAX_BURST_CYCLES,
   MAX_BURSTS,
+  MAX_TRACK_KEYS,
   POLYLINE_DIRECTIONS,
   SIM_SPACES,
   SUB_TRIGGERS,
@@ -135,6 +136,12 @@ function checkCurveKeys(ctx: Ctx, keys: unknown, path: string): void {
     err(ctx, path, "curve must have at least one key", "empty-curve"); // E4
     return;
   }
+  // Upper bound too: evalCurve scans the keys linearly per particle per frame, so an
+  // unbounded array is a per-frame cost multiplier, not just a large document. (F-5)
+  if (keys.length > MAX_TRACK_KEYS) {
+    err(ctx, path, `curve may have at most ${MAX_TRACK_KEYS} keys`, "too-many-curve-keys");
+    return;
+  }
   let prevT = -Infinity;
   keys.forEach((k, i) => {
     const kp = `${path}[${i}]`;
@@ -247,6 +254,11 @@ function checkGradient(ctx: Ctx, v: unknown, path: string): void {
     err(ctx, `${path}.keys`, "gradient must have at least one key", "empty-gradient");
     return;
   }
+  // Same linear-scan ceiling as a curve track (evalGradient, per particle per frame). (F-5)
+  if (keys.length > MAX_TRACK_KEYS) {
+    err(ctx, `${path}.keys`, `gradient may have at most ${MAX_TRACK_KEYS} keys`, "too-many-gradient-keys");
+    return;
+  }
   let prevT = -Infinity;
   keys.forEach((k, i) => {
     const kp = `${path}.keys[${i}]`;
@@ -269,16 +281,32 @@ function checkGradient(ctx: Ctx, v: unknown, path: string): void {
   });
 }
 
-// A field the shape's `required` list names for this kind (types.ts + the generated
-// particle.schema.json). Nothing backfills the arc fields for a document already at
-// schemaVersion >= 3 — normalizeNullables only touches `| null` fields and
-// migrateShape2to3 never runs — so tolerating an absent one let a partial
-// (LLM-authored) shape validate clean and then sample as NaN, blanking the layer with
-// no diagnostic (F-1). Absent is an ERROR; returns whether there is a value to check.
-function requireShapeField(ctx: Ctx, v: Record<string, unknown>, key: string, path: string, kind: string): boolean {
+// A field types.ts declares REQUIRED with no `| null` arm, so normalizeNullables
+// never backfills it and the migration that would have injected it does not run on a
+// document already at the current schemaVersion. Validating such a field only WHEN
+// PRESENT let a partial (LLM- or hand-authored) object validate clean and then
+// misbehave silently at sim time (F-1 shapes, F-3 collision — E45). Absent is an
+// ERROR; returns whether there is a value to go on and check. `owner` names the
+// container in the message; `code` stays per-caller so each site keeps its own
+// diagnostic string.
+function requireField(
+  ctx: Ctx,
+  v: Record<string, unknown>,
+  key: string,
+  path: string,
+  owner: string,
+  code: string,
+): boolean {
   if (v[key] !== undefined) return true;
-  err(ctx, `${path}.${key}`, `${key} is required on a ${kind} shape`, "missing-shape-field");
+  err(ctx, `${path}.${key}`, `${key} is required on ${owner}`, code);
   return false;
+}
+
+// The shape arm: a field the shape's `required` list names for this kind (types.ts +
+// the generated particle.schema.json). An absent arc field sampled as NaN, blanking
+// the layer with no diagnostic. (F-1)
+function requireShapeField(ctx: Ctx, v: Record<string, unknown>, key: string, path: string, kind: string): boolean {
+  return requireField(ctx, v, key, path, `a ${kind} shape`, "missing-shape-field");
 }
 
 // Arc mode + speed (schemaVersion 3), shared by circle and cone — required on both.
@@ -775,12 +803,21 @@ function checkCollision(ctx: Ctx, v: unknown, path: string): void {
   checkUnit(ctx, v.bounce, `${path}.bounce`);
   checkUnit(ctx, v.dampen, `${path}.dampen`);
   checkUnit(ctx, v.lifetimeLoss, `${path}.lifetimeLoss`);
-  // Kill-on-collide + min-kill-speed (schemaVersion 10, E38), validated WHEN
-  // PRESENT (migration injects killOnCollide:false, minKillSpeed:0). killOnCollide
-  // a boolean; minKillSpeed a finite number >= 0.
-  if (v.killOnCollide !== undefined && !isBool(v.killOnCollide))
+  // Kill-on-collide + min-kill-speed (schemaVersion 10, E38): REQUIRED on a non-null
+  // collision, not merely validated when present (F-3). types.ts declares both
+  // non-optional and neither is `| null`, so COLLISION_NULLABLE_KEYS is empty and
+  // NOTHING backfills them for a doc already at schemaVersion >= 10 — migrateTierB
+  // never runs. Tolerating an absent minKillSpeed let layerSim evaluate
+  // `preImpactSpeed >= undefined` (always false), making an explicitly enabled
+  // killOnCollide a permanent silent no-op that also starved every death-trigger
+  // sub-emitter. Absent is an ERROR. killOnCollide a boolean; minKillSpeed finite >= 0.
+  if (requireField(ctx, v, "killOnCollide", path, "a non-null collision (E38)", "missing-collision-field") && !isBool(v.killOnCollide))
     err(ctx, `${path}.killOnCollide`, "killOnCollide must be a boolean (E38)");
-  if (v.minKillSpeed !== undefined && checkNumber(ctx, v.minKillSpeed, `${path}.minKillSpeed`) && (v.minKillSpeed as number) < 0)
+  if (
+    requireField(ctx, v, "minKillSpeed", path, "a non-null collision (E38)", "missing-collision-field") &&
+    checkNumber(ctx, v.minKillSpeed, `${path}.minKillSpeed`) &&
+    (v.minKillSpeed as number) < 0
+  )
     err(ctx, `${path}.minKillSpeed`, "minKillSpeed must be >= 0 (E38)");
 }
 

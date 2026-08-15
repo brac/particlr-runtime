@@ -678,5 +678,15 @@ export const MAX_BURST_CYCLES = 10000;
  * any real effect and bounds the per-step burst walk. (F-2/S-6) */
 export const MAX_BURSTS = 32;
 
+/** Ceiling on the `keys` length of a curve track (`mode: "curve"`, and each of
+ * `randomBetweenCurves`'s `a`/`b`) and of a gradient track. `evalCurve`/
+ * `evalGradient` locate the active segment by a LINEAR scan, run per particle per
+ * track per frame, so key count is a direct per-frame cost multiplier: a 200k-key
+ * curve on a 2,000-particle pool measured 234 ms/frame against 0.2 ms for two keys.
+ * 64 matches the polyline point cap and is far past any authorable curve. The cap
+ * is the fix; the scan stays linear on purpose — a binary search would risk the
+ * determinism invariant for no authorable gain. (F-5) */
+export const MAX_TRACK_KEYS = 64;
+
 /** Current schema version this build understands. */
 export const CURRENT_SCHEMA_VERSION = 12;

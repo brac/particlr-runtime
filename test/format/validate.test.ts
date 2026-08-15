@@ -322,6 +322,114 @@ describe("validateParticle — track & gradient rules", () => {
     const bad = makeLayer({ overLifetime: { ...makeLayer().overLifetime, color: { keys: [{ t: 0, r: 2, g: 0, b: 0, a: 1 }] } } });
     expect(errPaths(makeDoc({ layers: [bad] }))).toContain("layers[0].overLifetime.color.keys[0].r");
   });
+
+  // F-5: evalCurve/evalGradient scan the key array linearly per particle per track
+  // per frame, so an unbounded array is a per-frame cost multiplier (a 200k-key curve
+  // measured 234 ms/frame on a 2,000-particle pool). MAX_TRACK_KEYS = 64.
+  const curveKeys = (n: number) => Array.from({ length: n }, (_, i) => ({ t: i / (n - 1), v: 1 }));
+  const gradientKeys = (n: number) => Array.from({ length: n }, (_, i) => ({ t: i / (n - 1), r: 1, g: 1, b: 1, a: 1 }));
+  const sizeCurve = (n: number) =>
+    makeLayer({ overLifetime: { ...makeLayer().overLifetime, size: { mode: "curve", keys: curveKeys(n) } } });
+
+  it("accepts a 64-key curve and rejects 65 (F-5)", () => {
+    expect(validateParticle(makeDoc({ layers: [sizeCurve(64)] })).ok).toBe(true);
+
+    const r = validateParticle(makeDoc({ layers: [sizeCurve(65)] }));
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      const issue = r.errors.find((e) => e.path === "layers[0].overLifetime.size.keys");
+      expect(issue?.code).toBe("too-many-curve-keys");
+      expect(issue?.message).toContain("64");
+    }
+  });
+
+  it("caps both randomBetweenCurves arms (F-5)", () => {
+    const rbc = (an: number, bn: number) =>
+      makeLayer({
+        overLifetime: {
+          ...makeLayer().overLifetime,
+          size: { mode: "randomBetweenCurves", a: curveKeys(an), b: curveKeys(bn) },
+        },
+      });
+    expect(validateParticle(makeDoc({ layers: [rbc(64, 64)] })).ok).toBe(true);
+    expect(errPaths(makeDoc({ layers: [rbc(65, 2)] }))).toContain("layers[0].overLifetime.size.a");
+    expect(errPaths(makeDoc({ layers: [rbc(2, 65)] }))).toContain("layers[0].overLifetime.size.b");
+  });
+
+  it("accepts a 64-key gradient and rejects 65 (F-5)", () => {
+    const grad = (n: number) =>
+      makeLayer({ overLifetime: { ...makeLayer().overLifetime, color: { keys: gradientKeys(n) } } });
+    expect(validateParticle(makeDoc({ layers: [grad(64)] })).ok).toBe(true);
+
+    const r = validateParticle(makeDoc({ layers: [grad(65)] }));
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      const issue = r.errors.find((e) => e.path === "layers[0].overLifetime.color.keys");
+      expect(issue?.code).toBe("too-many-gradient-keys");
+      expect(issue?.message).toContain("64");
+    }
+  });
+});
+
+// F-3: types.ts declares killOnCollide/minKillSpeed non-optional and neither is
+// `| null`, so COLLISION_NULLABLE_KEYS is empty and nothing backfills them on a doc
+// already at schemaVersion >= 10. An absent minKillSpeed made layerSim evaluate
+// `preImpactSpeed >= undefined` — always false — so an explicitly enabled
+// killOnCollide was a permanent silent no-op. Absent is now an error.
+describe("validateParticle — collision required fields (E38, F-3)", () => {
+  const withCollision = (col: Record<string, unknown>) =>
+    makeDoc({ layers: [makeLayer({ collision: col as never })] });
+  const full = (): Record<string, unknown> => ({
+    shape: { kind: "floor", y: 0 },
+    bounce: 0.5,
+    dampen: 0.2,
+    lifetimeLoss: 0,
+    killOnCollide: true,
+    minKillSpeed: 120,
+  });
+
+  it("accepts a collision carrying both fields", () => {
+    expect(validateParticle(withCollision(full())).ok).toBe(true);
+  });
+
+  it("rejects killOnCollide:true with no minKillSpeed (the silent no-op repro)", () => {
+    const col = full();
+    delete col.minKillSpeed;
+    const r = validateParticle(withCollision(col));
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      const issue = r.errors.find((e) => e.path === "layers[0].collision.minKillSpeed");
+      expect(issue?.code).toBe("missing-collision-field");
+      expect(issue?.message).toContain("minKillSpeed");
+    }
+  });
+
+  it("rejects an absent killOnCollide", () => {
+    const col = full();
+    delete col.killOnCollide;
+    const r = validateParticle(withCollision(col));
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.errors.find((e) => e.path === "layers[0].collision.killOnCollide")?.code).toBe("missing-collision-field");
+  });
+
+  it("rejects the bare pre-v10 collision that omits both", () => {
+    const col = full();
+    delete col.killOnCollide;
+    delete col.minKillSpeed;
+    expect(errPaths(withCollision(col)).sort()).toEqual([
+      "layers[0].collision.killOnCollide",
+      "layers[0].collision.minKillSpeed",
+    ]);
+  });
+
+  it("still type-checks the fields when present", () => {
+    expect(errPaths(withCollision({ ...full(), killOnCollide: "yes" }))).toContain("layers[0].collision.killOnCollide");
+    expect(errPaths(withCollision({ ...full(), minKillSpeed: -1 }))).toContain("layers[0].collision.minKillSpeed");
+  });
+
+  it("leaves collision:null unaffected", () => {
+    expect(validateParticle(makeDoc({ layers: [makeLayer({ collision: null })] })).ok).toBe(true);
+  });
 });
 
 describe("validateParticle — schemaVersion 3 feature modules", () => {
@@ -346,7 +454,9 @@ describe("validateParticle — schemaVersion 3 feature modules", () => {
   });
 
   it("does NOT warn 'unimplemented' for the collision module (implemented in M7)", () => {
-    const l = makeLayer({ collision: { shape: { kind: "floor", y: 100 }, bounce: 0.5, dampen: 0.1, lifetimeLoss: 0 } });
+    const l = makeLayer({
+      collision: { shape: { kind: "floor", y: 100 }, bounce: 0.5, dampen: 0.1, lifetimeLoss: 0, killOnCollide: false, minKillSpeed: 0 },
+    });
     const r = validateParticle(makeDoc({ layers: [l] }));
     expect(r.ok).toBe(true);
     expect(r.warnings.some((w) => w.code === "unimplemented" && w.path === "layers[0].collision")).toBe(false);
@@ -416,7 +526,7 @@ describe("validateParticle — schemaVersion 3 feature modules", () => {
 
   // collision
   it("validates collision shapes and unit params, hints on local space", () => {
-    const floor = { shape: { kind: "floor", y: 100 }, bounce: 0.5, dampen: 0.1, lifetimeLoss: 0 };
+    const floor = { shape: { kind: "floor", y: 100 }, bounce: 0.5, dampen: 0.1, lifetimeLoss: 0, killOnCollide: false, minKillSpeed: 0 };
     expect(validateParticle(withLayer({ collision: floor })).ok).toBe(true);
     expect(errPaths(withLayer({ collision: { ...floor, bounce: 2 } }))).toContain("layers[0].collision.bounce");
     expect(warns(withLayer({ collision: floor })).some((w) => w.path === "layers[0].collision")).toBe(true); // E20 local hint
