@@ -12,6 +12,8 @@ import {
   EASES,
   EMIT_FROM,
   FLIPBOOK_MODES,
+  MAX_BURST_CYCLES,
+  MAX_BURSTS,
   POLYLINE_DIRECTIONS,
   SIM_SPACES,
   SUB_TRIGGERS,
@@ -519,6 +521,10 @@ function checkEmission(ctx: Ctx, v: unknown, path: string): void {
   if (!Array.isArray(v.bursts)) {
     err(ctx, `${path}.bursts`, "bursts must be an array");
   } else {
+    // Bound the burst list like every peer collection (killZones ≤ 8, palette ≤
+    // 16): an unbounded list feeds the per-step burst walk in effect.ts. (F-2/S-6)
+    if (v.bursts.length > MAX_BURSTS)
+      err(ctx, `${path}.bursts`, `bursts may have at most ${MAX_BURSTS} entries`);
     v.bursts.forEach((b, i) => {
       const bp = `${path}.bursts[${i}]`;
       if (!isObject(b)) {
@@ -535,8 +541,10 @@ function checkEmission(ctx: Ctx, v: unknown, path: string): void {
       // present (migration injects cycles:1, interval:0, probability:1).
       let cycles = 1;
       if (b.cycles !== undefined) {
-        if (!isInt(b.cycles) || (b.cycles as number) < 1)
-          err(ctx, `${bp}.cycles`, "cycles must be an integer >= 1");
+        // Ceiling mirrors the count/maxParticles caps: the core's cycle loop runs
+        // once per cycle per step, so an uncapped value freezes the sim. (F-2/S-6)
+        if (!isInt(b.cycles) || (b.cycles as number) < 1 || (b.cycles as number) > MAX_BURST_CYCLES)
+          err(ctx, `${bp}.cycles`, `cycles must be an integer in [1, ${MAX_BURST_CYCLES}]`);
         else cycles = b.cycles as number;
       }
       if (b.interval !== undefined) {

@@ -3,6 +3,7 @@
 // effect clock, prewarm (E5), dt clamping (E1/E2), and isDone (E6). This is the
 // same code path the editor preview and the shipped runtime both use (L4).
 import type { Layer, ScalarTrack, ParticleDoc, Shape, SubEmitterRef, ScalarParamDef, ColorParamDef, RGBAColor } from "../format/types.js";
+import { MAX_BURST_CYCLES } from "../format/types.js";
 import { deriveLayerSeed, mulberry32 } from "./prng.js";
 import { evalCurve } from "./tracks.js";
 import { LayerSim } from "./layerSim.js";
@@ -772,7 +773,13 @@ export class Effect {
           // Default to the v2-equivalent single always-firing burst when a field
           // is absent (hand-built layers in tests; migrated docs always carry
           // cycles 1 / interval 0 / probability 1, so this is byte-identical).
-          const cycles = burst.cycles ?? 1;
+          // Clamp cycles exactly as `count` is clamped above: a validated doc has
+          // cycles <= MAX_BURST_CYCLES so this is a no-op (byte-identical output),
+          // but an unvalidated doc (hosts can build Effects without validating)
+          // can't spin the cycle loop for seconds per step. (F-2/S-6)
+          const rawCycles = burst.cycles ?? 1;
+          const cycles = Math.min(rawCycles, MAX_BURST_CYCLES);
+          if (rawCycles > cycles) ls.capped = true;
           const interval = burst.interval ?? 0;
           const prob = burst.probability ?? 1;
           // A burst repeats `cycles` times (schemaVersion 3, M4), cycle c's window

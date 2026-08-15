@@ -665,5 +665,18 @@ export const SUB_TRIGGERS: readonly SubTrigger[] = ["birth", "death", "collision
 export const ATTRACTOR_FALLOFFS: readonly AttractorFalloff[] = ["none", "linear", "smooth"];
 export const TRAIL_MODES: readonly TrailMode[] = ["perParticle", "connect"];
 
+/** Ceiling on a burst's repeat `cycles` (schemaVersion 3). Mirrors the burst
+ * `count` / `maxParticles` ceiling: the validator rejects a larger value and the
+ * core clamps the per-burst cycle loop to it so an UNVALIDATED doc (hosts may
+ * build Effects without validating) can't spin the sim for seconds per frame.
+ * A validated doc always has cycles <= this, so the clamp is a no-op there and
+ * output is byte-identical. (F-2/S-6) */
+export const MAX_BURST_CYCLES = 10000;
+
+/** Ceiling on `emission.bursts.length`. Every peer collection is capped (layers
+ * ≤ 8, killZones ≤ 8, palette ≤ 16, polyline points ≤ 64); 32 bursts is far past
+ * any real effect and bounds the per-step burst walk. (F-2/S-6) */
+export const MAX_BURSTS = 32;
+
 /** Current schema version this build understands. */
 export const CURRENT_SCHEMA_VERSION = 12;

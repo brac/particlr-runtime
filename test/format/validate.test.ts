@@ -151,6 +151,54 @@ describe("validateParticle — emission rules", () => {
     expect(paths).toContain("layers[0].emission.bursts[0].time");
     expect(paths).toContain("layers[0].emission.bursts[0].count");
   });
+
+  // F-2/S-6: burst.cycles and bursts.length must be bounded like every peer cap,
+  // else the core's per-cycle-per-burst emit loop freezes the sim for seconds.
+  const oneBurst = (over: Record<string, unknown>) =>
+    makeDoc({
+      layers: [
+        makeLayer({
+          emission: {
+            ...makeLayer().emission,
+            bursts: [{ time: 0, count: 1, spread: 0, cycles: 1, interval: 0.001, probability: 1, ...over }],
+          },
+        }),
+      ],
+    });
+
+  it("accepts cycles at the ceiling (10000)", () => {
+    expect(validateParticle(oneBurst({ cycles: 10000 })).ok).toBe(true);
+  });
+
+  it("rejects cycles above the ceiling (10001)", () => {
+    expect(errPaths(oneBurst({ cycles: 10001 }))).toContain("layers[0].emission.bursts[0].cycles");
+  });
+
+  it("rejects the audit repro cycles: 9007199254740991", () => {
+    const r = validateParticle(oneBurst({ cycles: 9007199254740991 }));
+    expect(r.ok).toBe(false);
+    expect(errPaths(oneBurst({ cycles: 9007199254740991 }))).toContain("layers[0].emission.bursts[0].cycles");
+  });
+
+  const nBursts = (n: number) =>
+    makeDoc({
+      layers: [
+        makeLayer({
+          emission: {
+            ...makeLayer().emission,
+            bursts: Array.from({ length: n }, () => ({ time: 0, count: 1, spread: 0, cycles: 1, interval: 0, probability: 1 })),
+          },
+        }),
+      ],
+    });
+
+  it("accepts a burst list at the ceiling (32 entries)", () => {
+    expect(validateParticle(nBursts(32)).ok).toBe(true);
+  });
+
+  it("rejects a burst list above the ceiling (33 entries)", () => {
+    expect(errPaths(nBursts(33))).toContain("layers[0].emission.bursts");
+  });
 });
 
 describe("validateParticle — shape rules", () => {
