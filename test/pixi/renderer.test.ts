@@ -592,3 +592,71 @@ describe.skipIf(!hasPresets)("PixiParticleRenderer — emitter placement (schema
     r.destroy();
   });
 });
+
+// R-2: after a `user:` texture finishes decoding, the trail ribbon must rebind
+// to the decoded sheet — before the fix, applyTexture repointed the sprites but
+// never the trail Mesh, so the ribbon sampled the circle-soft placeholder
+// forever. Under vitest's node env the v8 trail uses the headless fallback (a
+// plain textured mesh: mesh.shader === null, mesh.texture holds the binding), so
+// we read the bound source through mesh.texture; the real GL shader-resources
+// rebind (mesh.shader.resources.uTexture) runs under a DOM/GL context and is
+// covered by the golden lane, exactly like all other v8 trail GL shading.
+describe.skipIf(!hasPresets)("PixiParticleRenderer — trail texture rebinds on user-texture decode (R-2)", () => {
+  interface TrailMesh {
+    shader: { resources: { uTexture: unknown } } | null;
+    texture: Texture;
+  }
+  interface TrailProbe {
+    trail: { mesh: TrailMesh } | null;
+  }
+  const trailOf = (r: PixiParticleRenderer, i = 0): TrailProbe => (r as unknown as { views: TrailProbe[] }).views[i]!;
+  // The texture the ribbon actually samples, in either the real-shader path
+  // (resources.uTexture) or the headless fallback (mesh.texture.source).
+  const boundSource = (t: TrailProbe): unknown => {
+    const m = t.trail!.mesh;
+    return m.shader ? m.shader.resources.uTexture : m.texture.source;
+  };
+
+  it("rebinds the trail ribbon to the decoded texture (was stuck on the placeholder)", async () => {
+    const doc = loadDoc("comet"); // layer 0 "head" is a world-space trail layer
+    doc.layers[0]!.texture.ref = "user:trailtex";
+    doc.textures = { trailtex: "data:image/png;base64,PLACEHOLDER-trail" };
+    const fx = new Effect(doc, { seed: doc.seed });
+    const decoded = fakeTexture(128);
+    const r = new PixiParticleRenderer(fx, { loadTexture: async () => decoded });
+
+    // While the placeholder shows, the ribbon samples the 64px circle-soft.
+    const placeholderSource = boundSource(trailOf(r));
+    expect((placeholderSource as { width: number }).width).toBe(64);
+
+    await r.ready;
+
+    // RED pre-fix: still the placeholder. GREEN post-fix: the decoded sheet.
+    expect(boundSource(trailOf(r))).toBe(decoded.source);
+    expect(boundSource(trailOf(r))).not.toBe(placeholderSource);
+    r.destroy();
+  });
+
+  it("control: a built-in-texture trail is unaffected across the decode path", async () => {
+    const doc = loadDoc("comet"); // layer 0 trail keeps its built-in circle-soft
+    const fx = new Effect(doc, { seed: doc.seed });
+    const r = new PixiParticleRenderer(fx, { loadTexture: async () => fakeTexture(128) });
+    const before = boundSource(trailOf(r));
+    await r.ready; // no pending user decode ⇒ applyTexture never runs
+    expect(boundSource(trailOf(r))).toBe(before);
+    expect((before as { width: number }).width).toBe(64); // still the soft circle
+    r.destroy();
+  });
+
+  it("control: a user texture on a trail-less layer decodes without touching a trail", async () => {
+    const doc = loadDoc("comet"); // layer 1 "core-glow" has no trail
+    doc.layers[1]!.texture.ref = "user:noTrail";
+    doc.textures = { noTrail: "data:image/png;base64,PLACEHOLDER-notrail" };
+    const fx = new Effect(doc, { seed: doc.seed });
+    const r = new PixiParticleRenderer(fx, { loadTexture: async () => fakeTexture(128) });
+    expect(trailOf(r, 1).trail).toBeNull();
+    await r.ready; // guard: rebind is skipped for the absent trail, no crash
+    expect(trailOf(r, 1).trail).toBeNull();
+    r.destroy();
+  });
+});

@@ -41,7 +41,7 @@ import type { Effect } from "../core/effect.js";
 // (never copied — Codebase facts, PIXI7_PLAN). We import the pure pixel-math
 // generator here and wrap it in a v7 Texture below.
 import { generateBuiltinTexture, type TextureData } from "../pixi/textures.js";
-import { makeTrailView, syncTrailView, type TrailView } from "./trailMesh.js";
+import { makeTrailView, setTrailTexture, syncTrailView, type TrailView } from "./trailMesh.js";
 import { DissolveParticleContainer } from "./dissolveRenderer.js";
 
 export { generateBuiltinTexture, type TextureData };
@@ -559,5 +559,9 @@ export class PixiParticleRenderer {
     // No explicit static-upload flush is needed: the next sync() adds/removes
     // through addChild/removeChild, whose onChildrenChange flags the uvs
     // re-upload. (v7 has no v8-style pc.update().)
+    // The trail Mesh bound the placeholder texture as uSampler at construction;
+    // rebind it to the decoded texture so the ribbon samples the real sheet, not
+    // the soft circle. No-op-safe: layers without a trail skip this. (R-2)
+    if (view.trail) setTrailTexture(view.trail, tex);
   }
 }

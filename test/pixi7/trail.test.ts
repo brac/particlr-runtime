@@ -14,7 +14,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { Mesh, ParticleContainer, Shader } from "pixi.js";
+import { ALPHA_MODES, Mesh, ParticleContainer, SCALE_MODES, Shader, Texture } from "pixi.js";
 import { parseParticle, type ParticleDoc } from "../../src/index.js";
 import { Effect } from "../../src/core/effect.js";
 import { PixiParticleRenderer } from "../../src/pixi7/renderer.js";
@@ -145,6 +145,68 @@ describe("PixiParticleRenderer (v7) — connect ribbon (v9 M1)", () => {
     expect(v.trail!.mesh.size).toBe(geom.indexCount);
     expect(v.trail!.geometry.indexBuffer.data.length).toBe(geom.indexCount);
     expect(geom.positions.some((x) => x !== 0)).toBe(true);
+    r.destroy();
+  });
+});
+
+function fakeTexture(width: number): Texture {
+  return Texture.fromBuffer(new Uint8Array(width * width * 4), width, width, {
+    alphaMode: ALPHA_MODES.UNPACK,
+    scaleMode: SCALE_MODES.LINEAR,
+  });
+}
+
+// R-2: after a `user:` texture finishes decoding, the trail ribbon must rebind
+// its `uSampler` to the decoded texture. Before the fix, applyTexture repointed
+// the sprites but never the trail Mesh, so the ribbon sampled the circle-soft
+// placeholder forever. This file runs under jsdom, so the REAL v7 trail shader
+// exists and we can assert on shader.uniforms.uSampler directly.
+describe.skipIf(!hasPresets)("PixiParticleRenderer (v7) — trail texture rebinds on user-texture decode (R-2)", () => {
+  const samplerOf = (r: PixiParticleRenderer, i = 0): unknown => {
+    const shader = viewOf(r, i).trail!.mesh.shader as unknown as { uniforms: Record<string, unknown> };
+    return shader.uniforms.uSampler;
+  };
+
+  it("rebinds the trail ribbon's uSampler to the decoded texture", async () => {
+    const doc = loadDoc("comet"); // layer 0 "head" is a world-space trail layer
+    doc.layers[0]!.texture.ref = "user:trailtex";
+    doc.textures = { trailtex: "data:image/png;base64,PLACEHOLDER-trail" };
+    const fx = new Effect(doc, { seed: doc.seed });
+    const decoded = fakeTexture(128);
+    const r = new PixiParticleRenderer(fx, { loadTexture: async () => decoded });
+
+    // While the placeholder shows, uSampler is the 64px circle-soft.
+    const placeholder = samplerOf(r);
+    expect((placeholder as Texture).width).toBe(64);
+
+    await r.ready;
+
+    // RED pre-fix: still the placeholder. GREEN post-fix: the decoded texture.
+    expect(samplerOf(r)).toBe(decoded);
+    expect(samplerOf(r)).not.toBe(placeholder);
+    r.destroy();
+  });
+
+  it("control: a built-in-texture trail keeps its uSampler across the decode path", async () => {
+    const doc = loadDoc("comet"); // layer 0 trail keeps its built-in circle-soft
+    const fx = new Effect(doc, { seed: doc.seed });
+    const r = new PixiParticleRenderer(fx, { loadTexture: async () => fakeTexture(128) });
+    const before = samplerOf(r);
+    await r.ready; // no pending user decode ⇒ applyTexture never runs
+    expect(samplerOf(r)).toBe(before);
+    expect((before as Texture).width).toBe(64); // still the soft circle
+    r.destroy();
+  });
+
+  it("control: a user texture on a trail-less layer decodes without touching a trail", async () => {
+    const doc = loadDoc("comet"); // layer 1 "core-glow" has no trail
+    doc.layers[1]!.texture.ref = "user:noTrail";
+    doc.textures = { noTrail: "data:image/png;base64,PLACEHOLDER-notrail" };
+    const fx = new Effect(doc, { seed: doc.seed });
+    const r = new PixiParticleRenderer(fx, { loadTexture: async () => fakeTexture(128) });
+    expect(viewOf(r, 1).trail).toBeNull();
+    await r.ready; // guard: rebind is skipped for the absent trail, no crash
+    expect(viewOf(r, 1).trail).toBeNull();
     r.destroy();
   });
 });

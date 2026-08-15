@@ -21,7 +21,7 @@ import { computeRenderState, makeRenderBuffers, type LayerRenderBuffers } from "
 import { computeTrailGeometry, computeConnectGeometry, makeTrailGeometry } from "../core/trailGeometry.js";
 import type { Effect } from "../core/effect.js";
 import { generateBuiltinTexture, type TextureData } from "./textures.js";
-import { makeTrailView, syncTrailView, type TrailView } from "./trailMesh.js";
+import { makeTrailView, setTrailTexture, syncTrailView, type TrailView } from "./trailMesh.js";
 import { makeDissolveShader } from "./dissolveShader.js";
 
 const DEG2RAD = Math.PI / 180;
@@ -510,5 +510,9 @@ export class PixiParticleRenderer {
     const particleTex = sliced.frames ? sliced.frames[0]! : tex;
     for (const p of view.particles) p.texture = particleTex;
     view.pc.update();
+    // The trail Mesh bound the placeholder's source at construction; rebind it
+    // to the decoded texture so the ribbon samples the real sheet, not the soft
+    // circle. No-op-safe: layers without a trail skip this. (R-2)
+    if (view.trail) setTrailTexture(view.trail, tex);
   }
 }

@@ -156,6 +156,17 @@ export function makeTrailView(geom: TrailGeometry, texture: Texture, blend: BLEN
   return { mesh, geometry, positionBuffer, uvBuffer, colorBuffer, indexBuffer, geom };
 }
 
+/** Rebind the trail's texture to `texture` after an async user-texture decode.
+ * trailShader bound `uSampler` to the placeholder Texture at construction, so
+ * without this the ribbon keeps sampling the soft-circle placeholder forever.
+ * Rebinds only the `uSampler` uniform (the sole texture construction bound);
+ * geometry/blend/uAlpha are untouched. In the headless fallback the mesh has no
+ * shader (`mesh.shader` undefined), so there is nothing to rebind. */
+export function setTrailTexture(view: TrailView, texture: Texture): void {
+  const shader = view.mesh.shader as TrailShader | undefined;
+  if (shader) shader.uniforms.uSampler = texture;
+}
+
 /** Upload the current frame's vertex attributes and set the draw range to the
  * live index count. Called after computeTrailGeometry/computeConnectGeometry
  * fills `geom`. */
