@@ -157,8 +157,8 @@ describe("validateParticle — shape rules", () => {
   it("accepts every shape kind with its fields", () => {
     const shapes = [
       { kind: "point", emitFrom: "volume" },
-      { kind: "circle", radius: 10, emitFrom: "surface" },
-      { kind: "cone", direction: 0, spread: 20, radius: 5, emitFrom: "volume" },
+      { kind: "circle", radius: 10, innerRadius: 0, arc: 360, arcMode: "random", arcSpeed: 1, emitFrom: "surface" },
+      { kind: "cone", direction: 0, spread: 20, radius: 5, arcMode: "random", arcSpeed: 1, emitFrom: "volume" },
       { kind: "rect", width: 4, height: 2, emitFrom: "volume" },
       { kind: "edge", length: 8, emitFrom: "surface" },
     ] as const;
@@ -180,6 +180,55 @@ describe("validateParticle — shape rules", () => {
     expect(errPaths(makeDoc({ layers: [makeLayer({ shape: { kind: "circle", emitFrom: "volume" } as never })] }))).toContain(
       "layers[0].shape.radius",
     );
+  });
+
+  // F-1: the arc fields are in the circle's (and, for arcMode/arcSpeed, the cone's)
+  // `required` list in types.ts + particle.schema.json, but nothing backfills them
+  // for a doc already at schemaVersion >= 3 — an absent one used to validate clean
+  // and then sample as NaN. Absence is an error, one per field.
+  const shapeMissing = (full: Record<string, unknown>, field: string) => {
+    const shape = { ...full };
+    delete shape[field];
+    return validateParticle(makeDoc({ layers: [makeLayer({ shape: shape as never })] }));
+  };
+
+  it("errors when a circle omits innerRadius/arc/arcMode/arcSpeed (F-1)", () => {
+    const full = { kind: "circle", radius: 20, innerRadius: 0, arc: 360, arcMode: "random", arcSpeed: 1, emitFrom: "volume" };
+    expect(validateParticle(makeDoc({ layers: [makeLayer({ shape: full as never })] })).ok).toBe(true);
+    for (const field of ["innerRadius", "arc", "arcMode", "arcSpeed"]) {
+      const r = shapeMissing(full, field);
+      expect(r.ok).toBe(false);
+      if (r.ok) continue;
+      const issue = r.errors.find((e) => e.path === `layers[0].shape.${field}`);
+      expect(issue?.message).toContain(field);
+      expect(issue?.code).toBe("missing-shape-field");
+    }
+  });
+
+  it("errors when a cone omits arcMode/arcSpeed (F-1)", () => {
+    const full = { kind: "cone", direction: 0, spread: 20, radius: 5, arcMode: "random", arcSpeed: 1, emitFrom: "volume" };
+    expect(validateParticle(makeDoc({ layers: [makeLayer({ shape: full as never })] })).ok).toBe(true);
+    for (const field of ["arcMode", "arcSpeed"]) {
+      const r = shapeMissing(full, field);
+      expect(r.ok).toBe(false);
+      if (r.ok) continue;
+      const issue = r.errors.find((e) => e.path === `layers[0].shape.${field}`);
+      expect(issue?.message).toContain(field);
+      expect(issue?.code).toBe("missing-shape-field");
+    }
+  });
+
+  it("rejects the bare v2-style circle that used to spawn all-NaN particles (F-1)", () => {
+    const shape = { kind: "circle", radius: 50, emitFrom: "volume" };
+    const r = validateParticle(makeDoc({ layers: [makeLayer({ shape: shape as never })] }));
+    expect(r.ok).toBe(false);
+    if (!r.ok)
+      expect(r.errors.map((e) => e.path).sort()).toEqual([
+        "layers[0].shape.arc",
+        "layers[0].shape.arcMode",
+        "layers[0].shape.arcSpeed",
+        "layers[0].shape.innerRadius",
+      ]);
   });
 });
 

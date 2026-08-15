@@ -267,26 +267,41 @@ function checkGradient(ctx: Ctx, v: unknown, path: string): void {
   });
 }
 
-// Arc mode + speed (schemaVersion 3), shared by circle and cone. Validated when
-// present (migration injects them; a bare v2-style shape simply has no arc sweep).
-function checkArcModeSpeed(ctx: Ctx, v: Record<string, unknown>, path: string): void {
-  if (v.arcMode !== undefined) checkEnum(ctx, v.arcMode, ARC_MODES, `${path}.arcMode`);
-  if (v.arcSpeed !== undefined && checkNumber(ctx, v.arcSpeed, `${path}.arcSpeed`) && (v.arcSpeed as number) < 0)
+// A field the shape's `required` list names for this kind (types.ts + the generated
+// particle.schema.json). Nothing backfills the arc fields for a document already at
+// schemaVersion >= 3 — normalizeNullables only touches `| null` fields and
+// migrateShape2to3 never runs — so tolerating an absent one let a partial
+// (LLM-authored) shape validate clean and then sample as NaN, blanking the layer with
+// no diagnostic (F-1). Absent is an ERROR; returns whether there is a value to check.
+function requireShapeField(ctx: Ctx, v: Record<string, unknown>, key: string, path: string, kind: string): boolean {
+  if (v[key] !== undefined) return true;
+  err(ctx, `${path}.${key}`, `${key} is required on a ${kind} shape`, "missing-shape-field");
+  return false;
+}
+
+// Arc mode + speed (schemaVersion 3), shared by circle and cone — required on both.
+function checkArcModeSpeed(ctx: Ctx, v: Record<string, unknown>, path: string, kind: "circle" | "cone"): void {
+  if (requireShapeField(ctx, v, "arcMode", path, kind)) checkEnum(ctx, v.arcMode, ARC_MODES, `${path}.arcMode`);
+  if (
+    requireShapeField(ctx, v, "arcSpeed", path, kind) &&
+    checkNumber(ctx, v.arcSpeed, `${path}.arcSpeed`) &&
+    (v.arcSpeed as number) < 0
+  )
     err(ctx, `${path}.arcSpeed`, "arcSpeed must be >= 0");
 }
 
 // Circle donut + arc span (schemaVersion 3), plus the shared arc mode/speed.
 function checkArc(ctx: Ctx, v: Record<string, unknown>, path: string, radius: number): void {
-  if (v.innerRadius !== undefined && checkNumber(ctx, v.innerRadius, `${path}.innerRadius`)) {
+  if (requireShapeField(ctx, v, "innerRadius", path, "circle") && checkNumber(ctx, v.innerRadius, `${path}.innerRadius`)) {
     const inner = v.innerRadius as number;
     if (inner < 0) err(ctx, `${path}.innerRadius`, "innerRadius must be >= 0");
     else if (inner > radius) err(ctx, `${path}.innerRadius`, "innerRadius must be <= radius");
   }
-  if (v.arc !== undefined && checkNumber(ctx, v.arc, `${path}.arc`)) {
+  if (requireShapeField(ctx, v, "arc", path, "circle") && checkNumber(ctx, v.arc, `${path}.arc`)) {
     const arc = v.arc as number;
     if (arc <= 0 || arc > 360) err(ctx, `${path}.arc`, "arc must be in (0, 360]");
   }
-  checkArcModeSpeed(ctx, v, path);
+  checkArcModeSpeed(ctx, v, path, "circle");
 }
 
 // Emit-from-texture mask (schemaVersion 4). Structural problems (missing object,
@@ -346,7 +361,7 @@ function checkShape(ctx: Ctx, v: unknown, path: string): void {
       checkNumber(ctx, v.direction, `${path}.direction`);
       checkNumber(ctx, v.spread, `${path}.spread`);
       checkNumber(ctx, v.radius, `${path}.radius`);
-      checkArcModeSpeed(ctx, v, path);
+      checkArcModeSpeed(ctx, v, path, "cone");
       break;
     case "rect":
       checkNumber(ctx, v.width, `${path}.width`);
