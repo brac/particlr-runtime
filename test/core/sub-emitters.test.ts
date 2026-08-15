@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { LayerSim, Effect, deriveLayerSeed, mulberry32, type Layer, type SubEmitterRef } from "../../src/index.js";
+import { LayerSim, Effect, deriveLayerSeed, mulberry32, validateParticle, type Layer, type SubEmitterRef } from "../../src/index.js";
 import { makeLayer, makeDoc } from "../format/_helpers.js";
 import { stateHash, dtSequence } from "./_statehash.js";
 
@@ -372,6 +372,102 @@ describe("sub-emitters — ordinal survives swap-remove (M7 placeholder regressi
     expect(ev[9]).toBe(4);
     // Three survivors (ordinals 1,2,3) remain.
     expect(sim.count).toBe(3);
+  });
+});
+
+describe("sub-emitters — disabled child layers receive no event spawns (S-2)", () => {
+  // The audit repro: a non-looping doc whose parent bursts 5 particles (life 0.2s)
+  // and fires 3 children per death into a MUTED child (enabled:false). Pre-fix the
+  // 15 children spawn into a layer advance() never updates ⇒ immortal, so the child
+  // pool pins at 15, particleCount stays > 0, isDone never goes true and onDone never
+  // fires. Post-fix the ref is dropped at plan-build ⇒ child count stays 0, the parent
+  // drains, isDone flips true and onDone fires exactly once.
+  const buildRepro = (childEnabled: boolean) => {
+    const parent = makeLayer({
+      id: "p",
+      name: "p",
+      subEmitters: [sub("death", "c", 3)],
+      shape: { kind: "point", emitFrom: "volume" },
+      emission: emit({ bursts: [burst(5)], maxParticles: 16 }),
+      initial: init(0.2), // parent particles die ~step 12
+      overLifetime: ol(),
+    });
+    const child = childLayer("c", { enabled: childEnabled, initial: init(0.1), emission: emit({ maxParticles: 100 }) });
+    return makeDoc({ duration: 2, looping: false, layers: [parent, child] });
+  };
+
+  it("a muted child never accumulates children; the effect completes and onDone fires once", () => {
+    const doc = buildRepro(false);
+    // Editor-relevant: the muted-child doc validates clean (it did before and must continue to).
+    expect(validateParticle(doc).ok).toBe(true);
+    const fx = new Effect(doc, { seed: 1337 });
+    let onDoneCalls = 0;
+    fx.onDone = () => onDoneCalls++;
+    for (let i = 0; i < 600; i++) fx.step(1 / 60);
+    // RED pre-fix: child count 15, isDone false, onDone never fires.
+    expect(fx.layers[1]!.count).toBe(0);
+    expect(fx.layers[0]!.count).toBe(0); // parent drained
+    expect(fx.isDone).toBe(true);
+    expect(onDoneCalls).toBe(1);
+  });
+
+  it("enabled-child control: children spawn, drain, and the effect still completes (no drift)", () => {
+    const doc = buildRepro(true);
+    expect(validateParticle(doc).ok).toBe(true);
+    const fx = new Effect(doc, { seed: 1337 });
+    let onDoneCalls = 0;
+    fx.onDone = () => onDoneCalls++;
+    let peak = 0;
+    for (let i = 0; i < 600; i++) {
+      fx.step(1 / 60);
+      peak = Math.max(peak, fx.layers[1]!.count);
+    }
+    expect(peak).toBe(15); // 5 deaths × 3 children each spawned into the enabled child
+    expect(fx.layers[1]!.count).toBe(0); // children (life 0.1) drained by step 600
+    expect(fx.isDone).toBe(true);
+    expect(onDoneCalls).toBe(1);
+  });
+
+  it("an ENABLED sibling's stream is byte-identical whether or not a muted sibling shares the parent", () => {
+    // Two refs on one parent, both death-triggered: 'a' is enabled, 'b' is muted.
+    // Dropping 'b' must not perturb 'a' — the eventSeed derives from
+    // (parentLayerSeed, ordinal, eventCode), never the entry's index in `entries`.
+    const parentBody = (subs: SubEmitterRef[]): Layer =>
+      makeLayer({
+        id: "p",
+        name: "p",
+        subEmitters: subs,
+        shape: { kind: "point", emitFrom: "volume" },
+        emission: emit({ bursts: [burst(5)], maxParticles: 16 }),
+        initial: init(0.2),
+        overLifetime: ol(),
+      });
+    const childA = () => childLayer("a", { initial: init(5) });
+    const mutedB = () => childLayer("b", { enabled: false, initial: init(5) });
+    const withMuted = makeDoc({
+      duration: 2,
+      looping: false,
+      layers: [parentBody([sub("death", "a", 4), sub("death", "b", 4)]), childA(), mutedB()],
+    });
+    const noMuted = makeDoc({
+      duration: 2,
+      looping: false,
+      layers: [parentBody([sub("death", "a", 4)]), childA(), mutedB()],
+    });
+    const a = new Effect(withMuted, { seed: 1337 });
+    const b = new Effect(noMuted, { seed: 1337 });
+    for (let i = 0; i < 40; i++) {
+      a.step(1 / 60);
+      b.step(1 / 60);
+    }
+    const ca = a.layers[1]!;
+    const cb = b.layers[1]!;
+    expect(ca.count).toBe(cb.count);
+    expect(ca.count).toBeGreaterThan(0);
+    const n = ca.count;
+    expect(Array.from(ca.pool.x.slice(0, n))).toEqual(Array.from(cb.pool.x.slice(0, n)));
+    expect(Array.from(ca.pool.rand0.slice(0, n))).toEqual(Array.from(cb.pool.rand0.slice(0, n)));
+    expect(a.layers[2]!.count).toBe(0); // muted 'b' never received children
   });
 });
 

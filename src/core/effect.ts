@@ -236,6 +236,16 @@ export class Effect {
       for (const entry of subs) {
         const child = byId.get(entry.layerId);
         if (child === undefined || child === sim) continue; // validated out; guard
+        // S-2: a disabled child layer never updates (advance() skips ls.update for
+        // !enabled) and never emits on its own — so any event-child spawned into it
+        // would be immortal (created, never aged, never killed), pinning its pool at
+        // maxParticles forever and holding isDone false / onDone unfired. Drop the ref
+        // at plan-build time: `enabled` is static per Effect (the editor rebuilds the
+        // Effect on mute; runtime mutation is unsupported, S-1). Because each event's
+        // child stream is seeded from (parentLayerSeed, ordinal, eventCode) — never the
+        // entry's position in `entries` — and every entry gets its own fresh mulberry32,
+        // dropping a disabled entry cannot perturb any sibling ref's PRNG draws.
+        if (!child.layer.enabled) continue;
         const eventCode =
           entry.trigger === "birth" ? EVENT_BIRTH : entry.trigger === "death" ? EVENT_DEATH : EVENT_COLLISION;
         if (eventCode === EVENT_BIRTH) this.wantBirth[index] = true;
