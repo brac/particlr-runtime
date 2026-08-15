@@ -80,6 +80,10 @@ export class Effect {
   private stepStartY = 0;
   private stepEndX = 0;
   private stepEndY = 0;
+  // clampedDt / rawDt for the current step (S-5). Exactly 1 unless E1 clamped
+  // this step, and every consumer skips its multiply at 1, so a normal frame is
+  // bit-identical to before the fix.
+  private dtClampScale = 1;
 
   // Host attractor (schemaVersion 4, §0.3b). Parent-frame coordinates (same frame
   // as setEmitterPosition), converted per layer in advance() (E24). `attRadius`
@@ -520,6 +524,7 @@ export class Effect {
     this.pendingY = null;
     this.evx = 0;
     this.evy = 0;
+    this.dtClampScale = 1; // no step in flight ⇒ the S-5 scale is the identity
     this.stepStartX = this.stepEndX = this.ex;
     this.stepStartY = this.stepEndY = this.ey;
     this.sims.forEach((ls, i) => ls.reset(deriveLayerSeed(this.effectSeed, i)));
@@ -530,7 +535,15 @@ export class Effect {
 
   step(dt: number): void {
     dt *= this._timeScale; // host playback rate (this plan) — before E2/E1
-    if (dt <= 0) return; // E2 — timeScale 0 ⇒ hit-stop: clock frozen
+    // E2 — timeScale 0 ⇒ hit-stop: clock frozen. Written as `!(dt > 0)` rather
+    // than `dt <= 0` so NaN is rejected too (S-4): both `NaN <= 0` and
+    // `NaN > MAX_DT` are false, so a NaN dt used to slip past BOTH guards and
+    // integrate NaN into every live particle's position permanently (immortal
+    // NaN particles, isDone false forever). The negated form is bit-identical
+    // for every valid dt — it admits exactly the finite positives and +Infinity,
+    // and +Infinity is clamped to MAX_DT on the next line.
+    if (!(dt > 0)) return;
+    const rawDt = dt; // pre-clamp dt: the wall time the host actually asked for
     if (dt > MAX_DT) dt = MAX_DT; // E1 — clamp the SCALED dt (fast-forward can't defeat it)
     // Resolve the emitter's motion segment for this step (schemaVersion 2).
     const sx = this.ex;
@@ -541,8 +554,26 @@ export class Effect {
     this.stepStartY = sy;
     this.stepEndX = tx;
     this.stepEndY = ty;
-    this.evx = (tx - sx) / dt;
-    this.evy = (ty - sy) / dt;
+    // S-5: E1 clamps `dt` but the emitter still travels the FULL requested
+    // displacement this frame, so dividing it by the CLAMPED dt reported an
+    // emitter speed rawDt/MAX_DT × the real one — a 2000px move in a 0.5s stall
+    // launched inheritVelocity particles at 40000 px/s instead of 4000, and fed
+    // the same inflation to byEmitterSpeed and to sub-emitter inheritVelocity.
+    // Divide by the RAW dt instead: that is the emitter's true physical velocity
+    // over the wall-clock the host reported. When E1 did not clamp, `rawDt` IS
+    // `dt` (same double, same expression), so this is bit-identical on every
+    // normal frame and every golden.
+    this.evx = (tx - sx) / rawDt;
+    this.evy = (ty - sy) / rawDt;
+    // The rate-over-distance companion (S-5): `emitDistance` spawns `rate × arc
+    // length`, and the un-clamped arc dumped the whole stall's worth of
+    // particles into one frame (measured 200 vs the intended 20). Only the
+    // simulated fraction of the travel belongs to this step, so scale the arc by
+    // clampedDt/rawDt. The spawn positions still lerp across the WHOLE segment —
+    // the emitter really did pass through it, so the trail stays gap-free, just
+    // at the density the simulated time affords. Exactly 1 (and the multiply
+    // skipped entirely) whenever E1 did not clamp.
+    this.dtClampScale = dt === rawDt ? 1 : dt / rawDt;
     this.advance(dt);
     // Commit the emitter to the segment end; clear per-step motion state.
     this.ex = tx;
@@ -590,7 +621,21 @@ export class Effect {
       } else {
         ls.setHostAttractor(this.attX - this.stepEndX, this.attY - this.stepEndY, this.attStrength, this.attRadius);
       }
-      if (ls.layer.enabled) ls.update(dt);
+      // S-1/S-3: update() runs for EVERY layer, enabled or not — `enabled` gates
+      // emission (emitInterval/emitDistance) and rendering, never ageing. Skipping
+      // it froze a disabled layer's live particles (they never aged out, so
+      // particleCount stayed nonzero, isDone never went true and onDone never
+      // fired — a host that tears down in onDone leaked forever) AND left its
+      // birth/death/collision scratches uncleared, so processSubEmitters (which
+      // runs unconditionally below) replayed the previous step's events every
+      // frame forever. update() clears all three scratches at its top, so this
+      // one call fixes both. Behavior-neutral for every document: a layer that
+      // ships enabled:false never emits (emitInterval:751, emitDistance:906) and
+      // never receives sub-emitter children (S-2 drops the ref at plan-build), so
+      // its pool is always empty, and update() on an empty pool is a hoist-only no-op
+      // with zero PRNG draws. Only a host mutating layer.enabled mid-flight — the
+      // undocumented path S-1/S-3 need — can observe any difference.
+      ls.update(dt);
     }
     this.emit(dt);
     this.emitDistance(dt, tStart);
@@ -896,7 +941,11 @@ export class Effect {
   private emitDistance(dt: number, tStart: number): void {
     const dx = this.stepEndX - this.stepStartX;
     const dy = this.stepEndY - this.stepStartY;
-    const dist = Math.sqrt(dx * dx + dy * dy);
+    let dist = Math.sqrt(dx * dx + dy * dy);
+    // S-5: only the fraction of the emitter's travel that this (E1-clamped) step
+    // actually simulated may emit. `dtClampScale` is 1 on every unclamped frame,
+    // so the branch is skipped and `dist` keeps its exact pre-fix value.
+    if (this.dtClampScale !== 1) dist *= this.dtClampScale;
     if (dist <= EPS || this.prewarming) return;
     const duration = this.doc.duration;
     const tNorm = duration > 0 ? Math.min(tStart, duration) / duration : 0;
