@@ -8,8 +8,13 @@ import { stateHash, dtSequence } from "./_statehash.js";
 // order, imul vs *), the golden assertions here break — that is the protection.
 const SEED_MIX_ORDINAL = 0x9e3779b9;
 const SEED_MIX_EVENTCODE = 0x85ebca6b;
-const eventSeedOf = (parentLayerSeed: number, ordinal: number, eventCode: number): number =>
-  (parentLayerSeed ^ Math.imul(ordinal + 1, SEED_MIX_ORDINAL) ^ Math.imul(eventCode, SEED_MIX_EVENTCODE)) >>> 0;
+const SEED_MIX_REFINDEX = 0xc2b2ae35; // S-7
+const eventSeedOf = (parentLayerSeed: number, ordinal: number, eventCode: number, refIndex = 0): number =>
+  (parentLayerSeed ^
+    Math.imul(ordinal + 1, SEED_MIX_ORDINAL) ^
+    Math.imul(eventCode, SEED_MIX_EVENTCODE) ^
+    Math.imul(refIndex, SEED_MIX_REFINDEX)) >>>
+  0;
 
 const sub = (
   trigger: SubEmitterRef["trigger"],
@@ -63,9 +68,16 @@ function childLayer(id: string, over: Partial<Layer> = {}): Layer {
 
 describe("sub-emitters — child-stream seed formula (§0.2, M8)", () => {
   it("eventSeed golden values are stable (guards the mix constants against drift)", () => {
+    // refIndex 0 (the default) reproduces the PRE-S-7 goldens unchanged — that is the
+    // no-op property the amendment promises: `imul(0, k) === 0` and `x ^ 0 === x`.
     expect(eventSeedOf(deriveLayerSeed(1337, 0), 0, 2)).toBe(2514544726);
     expect(eventSeedOf(deriveLayerSeed(1337, 0), 5, 1)).toBe(816256260);
     expect(eventSeedOf(deriveLayerSeed(4242, 1), 3, 3)).toBe(1999188974);
+    expect(eventSeedOf(deriveLayerSeed(1337, 0), 0, 2, 0)).toBe(2514544726);
+    // refIndex ≥ 1 diverges, and distinct indices stay distinct (imul by an odd
+    // constant is injective mod 2^32).
+    expect(eventSeedOf(deriveLayerSeed(1337, 0), 0, 2, 1)).toBe(1465009763);
+    expect(eventSeedOf(deriveLayerSeed(1337, 0), 0, 2, 2)).toBe(277197884);
     // The derived stream's first draws are exactly mulberry32(eventSeed).
     const rng = mulberry32(2514544726);
     expect(rng()).toBeCloseTo(0.976087756222114, 15);
@@ -200,6 +212,162 @@ describe("sub-emitters — child stream independence (M8)", () => {
     expect(Array.from(ca.pool.x.slice(0, n))).toEqual(Array.from(cb.pool.x.slice(0, n)));
     expect(Array.from(ca.pool.velX.slice(0, n))).toEqual(Array.from(cb.pool.velX.slice(0, n)));
     expect(Array.from(ca.pool.rand0.slice(0, n))).toEqual(Array.from(cb.pool.rand0.slice(0, n)));
+  });
+});
+
+describe("sub-emitters — sibling refs are decorrelated (S-7)", () => {
+  // The audit repro, INVERTED. Pre-fix the eventSeed mixed only (parentLayerSeed,
+  // ordinal, eventCode), so two refs on ONE parent sharing a trigger drew a
+  // bit-identical stream: same angle, radius, life, speed, size, rotation, tint,
+  // flip bits — the canonical "on death spawn smoke AND sparks" fired both along
+  // exactly the same rays. Folding the ref's AUTHORED index in decorrelates them
+  // without touching determinism.
+
+  // Two structurally IDENTICAL children (only the id differs), spawned on a circle
+  // with a random direction so the shape draws actually reach x/y/velX.
+  const spread = (id: string): Layer =>
+    childLayer(id, {
+      initial: init(5, 60),
+      shape: { kind: "circle", radius: 30, innerRadius: 0, arc: 360, arcMode: "random", arcSpeed: 1, emitFrom: "volume" },
+    });
+  const twinParent = (subs: SubEmitterRef[]): Layer =>
+    makeLayer({
+      id: "p",
+      name: "p",
+      subEmitters: subs,
+      shape: { kind: "point", emitFrom: "volume" },
+      emission: emit({ bursts: [burst(4)], maxParticles: 16 }),
+      initial: init(0.2), // parents die ~step 12, four deaths ⇒ four events per ref
+      overLifetime: ol(),
+    });
+  const twinDoc = (probability = 1): ReturnType<typeof makeDoc> =>
+    makeDoc({
+      duration: 2,
+      looping: false,
+      layers: [twinParent([sub("death", "a", 4, probability), sub("death", "b", 4, probability)]), spread("a"), spread("b")],
+    });
+  const runTwins = (seed: number, steps = 40): Effect => {
+    const fx = new Effect(twinDoc(), { seed });
+    for (let i = 0; i < steps; i++) fx.step(1 / 60);
+    return fx;
+  };
+
+  it("two refs on one parent with the SAME trigger produce DIFFERENT child streams", () => {
+    const fx = runTwins(1337);
+    const a = fx.layers[1]!;
+    const b = fx.layers[2]!;
+    // Same number of children (the gate is open at probability 1) but different draws.
+    expect(a.count).toBe(b.count);
+    expect(a.count).toBeGreaterThan(0);
+    const n = a.count;
+    const ax = Array.from(a.pool.x.slice(0, n));
+    const bx = Array.from(b.pool.x.slice(0, n));
+    const ar = Array.from(a.pool.rand0.slice(0, n));
+    const br = Array.from(b.pool.rand0.slice(0, n));
+    expect(ax).not.toEqual(bx); // RED pre-fix: bit-identical
+    expect(ar).not.toEqual(br);
+    // Not just "some element differs" — EVERY spawn is independently drawn.
+    for (let i = 0; i < n; i++) expect(ar[i]).not.toBe(br[i]);
+  });
+
+  it("each decorrelated stream is still bit-stable across runs with the same seed", () => {
+    const one = runTwins(1337);
+    const two = runTwins(1337);
+    for (const li of [1, 2]) {
+      const x = one.layers[li]!;
+      const y = two.layers[li]!;
+      expect(x.count).toBe(y.count);
+      const n = x.count;
+      expect(Array.from(x.pool.x.slice(0, n))).toEqual(Array.from(y.pool.x.slice(0, n)));
+      expect(Array.from(x.pool.rand0.slice(0, n))).toEqual(Array.from(y.pool.rand0.slice(0, n)));
+    }
+    expect(stateHash(one)).toBe(stateHash(two));
+  });
+
+  it("the ref at index 1 draws from mulberry32(eventSeed with refIndex 1) — production uses the amended formula", () => {
+    // One parent particle (ordinal 0) dying at rest at the origin, two death refs.
+    const parent = makeLayer({
+      id: "p",
+      name: "p",
+      subEmitters: [sub("death", "a", 1), sub("death", "b", 1)],
+      shape: { kind: "point", emitFrom: "volume" },
+      emission: emit({ bursts: [burst(1)] }),
+      initial: init(0.2),
+      overLifetime: ol(),
+    });
+    const doc = makeDoc({ duration: 2, looping: false, layers: [parent, spread("a"), spread("b")] });
+    const fx = new Effect(doc, { seed: 1337 });
+    for (let i = 0; i < 40; i++) fx.step(1 / 60);
+    expect(fx.layers[1]!.count).toBe(1);
+    expect(fx.layers[2]!.count).toBe(1);
+
+    const parentSeed = deriveLayerSeed(1337, 0);
+    for (const [layerIndex, refIndex, id] of [
+      [1, 0, "a"],
+      [2, 1, "b"],
+    ] as const) {
+      const ref = new LayerSim(spread(id), deriveLayerSeed(999, 5)); // own seed irrelevant to spawnFrom
+      expect(ref.spawnFrom(mulberry32(eventSeedOf(parentSeed, 0, 2 /* death */, refIndex)), 0, 0, 0, 0)).toBe(true);
+      // Spawn-time invariants only: the live child has integrated ~28 steps of its
+      // launch velocity by now, so x/y have moved on; velocity is untouched (zero
+      // gravity/drag) and rand0/rand1 are the raw drawn uniforms.
+      const p = fx.layers[layerIndex]!.pool;
+      expect(p.rand0[0]).toBe(ref.pool.rand0[0]);
+      expect(p.rand1[0]).toBe(ref.pool.rand1[0]);
+      expect(p.velX[0]).toBe(ref.pool.velX[0]);
+      expect(p.velY[0]).toBe(ref.pool.velY[0]);
+    }
+  });
+
+  it("the probability gate is no longer all-or-nothing across siblings (seed 5, fixed expectation)", () => {
+    // probability 0.5 on BOTH refs, one parent particle ⇒ ONE death event ⇒ exactly
+    // one gate draw per ref. Pre-fix both refs drew the same number, so the counts
+    // were always (4,4) or (0,0) — never split. Seed 5 is a FIXED case where the two
+    // gates disagree (ref 0 blocked, ref 1 open); the assertion is exact, not
+    // statistical — the same seed always yields the same split.
+    const parent = makeLayer({
+      id: "p",
+      name: "p",
+      subEmitters: [sub("death", "a", 4, 0.5), sub("death", "b", 4, 0.5)],
+      shape: { kind: "point", emitFrom: "volume" },
+      emission: emit({ bursts: [burst(1)] }),
+      initial: init(0.2),
+      overLifetime: ol(),
+    });
+    const doc = makeDoc({ duration: 2, looping: false, layers: [parent, spread("a"), spread("b")] });
+    const fx = new Effect(doc, { seed: 5 });
+    for (let i = 0; i < 40; i++) fx.step(1 / 60);
+    expect([fx.layers[1]!.count, fx.layers[2]!.count]).toEqual([0, 4]);
+  });
+
+  it("a MUTED sibling at index 0 does not reseed the enabled ref at index 1 (S-2 interaction)", () => {
+    // The authored index is the seed input, so dropping ref 0 (its target is muted)
+    // must leave ref 1's stream byte-identical. Guards the complement of the S-2 test
+    // below, which pins the index-0 side.
+    const build = (firstEnabled: boolean) =>
+      makeDoc({
+        duration: 2,
+        looping: false,
+        layers: [
+          twinParent([sub("death", "a", 4), sub("death", "b", 4)]),
+          childLayer("a", { enabled: firstEnabled, initial: init(5) }),
+          spread("b"),
+        ],
+      });
+    const withMuted = new Effect(build(false), { seed: 1337 });
+    const withEnabled = new Effect(build(true), { seed: 1337 });
+    for (let i = 0; i < 40; i++) {
+      withMuted.step(1 / 60);
+      withEnabled.step(1 / 60);
+    }
+    const m = withMuted.layers[2]!;
+    const e = withEnabled.layers[2]!;
+    expect(m.count).toBe(e.count);
+    expect(m.count).toBeGreaterThan(0);
+    const n = m.count;
+    expect(Array.from(m.pool.x.slice(0, n))).toEqual(Array.from(e.pool.x.slice(0, n)));
+    expect(Array.from(m.pool.rand0.slice(0, n))).toEqual(Array.from(e.pool.rand0.slice(0, n)));
+    expect(withMuted.layers[1]!.count).toBe(0); // muted 'a' received nothing
   });
 });
 
@@ -431,7 +599,11 @@ describe("sub-emitters — disabled child layers receive no event spawns (S-2)",
   it("an ENABLED sibling's stream is byte-identical whether or not a muted sibling shares the parent", () => {
     // Two refs on one parent, both death-triggered: 'a' is enabled, 'b' is muted.
     // Dropping 'b' must not perturb 'a' — the eventSeed derives from
-    // (parentLayerSeed, ordinal, eventCode), never the entry's index in `entries`.
+    // (parentLayerSeed, ordinal, eventCode, AUTHORED refIndex), never the entry's
+    // index in the disabled-filtered `entries` list. 'a' is authored at index 0 in
+    // both docs, so its stream is byte-identical (and, refIndex 0 being a no-op,
+    // identical to the pre-S-7 stream too). The S-7 block above pins the mirror
+    // case: a muted sibling at index 0 not reseeding the enabled ref at index 1.
     const parentBody = (subs: SubEmitterRef[]): Layer =>
       makeLayer({
         id: "p",

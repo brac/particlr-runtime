@@ -13,10 +13,19 @@ import { LayerSim } from "./layerSim.js";
 const EVENT_BIRTH = 1;
 const EVENT_DEATH = 2;
 const EVENT_COLLISION = 3;
-// Golden constants of the child-stream seed mix (§0.2). Two odd 32-bit constants
-// (the golden-ratio and an xxHash prime) decorrelate the three inputs.
+// Golden constants of the child-stream seed mix (§0.2). Three odd 32-bit constants
+// (the golden-ratio and the two murmur3 finalizer primes) decorrelate the four inputs.
 const SEED_MIX_ORDINAL = 0x9e3779b9;
 const SEED_MIX_EVENTCODE = 0x85ebca6b;
+// S-7 (added after runtime 0.5.2; schemaVersion stays 12 — no document field
+// changes, only this derivation): the ref's own index in its parent's AUTHORED
+// `subEmitters` array. Without it, two refs on one parent sharing a trigger got a
+// bit-identical child stream — the canonical "on death spawn smoke AND sparks"
+// fired both along exactly the same rays, with an all-or-nothing probability gate.
+// `imul` by an odd constant is injective mod 2^32, so distinct refs get distinct
+// seeds; and imul(0, k) === 0 makes the XOR a NO-OP at index 0, so every ref that
+// is first in its array (i.e. every single-ref parent) keeps its pre-S-7 stream.
+const SEED_MIX_REFINDEX = 0xc2b2ae35;
 
 /** One resolved sub-emitter entry: the child sim it spawns into, its event code,
  * and the authored ref (count/probability/inheritVelocity). Resolved ONCE at
@@ -25,6 +34,11 @@ interface SubEntry {
   entry: SubEmitterRef;
   child: LayerSim;
   eventCode: number;
+  /** Index in the parent layer's ORIGINAL `subEmitters` array — never the index in
+   * this (disabled-filtered) `entries` list. S-2 drops muted refs at plan-build; if
+   * the seed keyed off the filtered position, muting one sibling would silently
+   * reseed every ref after it. Authored index keeps enabled siblings byte-stable. */
+  refIndex: number;
 }
 /** A parent layer that owns at least one resolvable sub-emitter entry. */
 interface ParentPlan {
@@ -237,7 +251,11 @@ export class Effect {
       const subs = sim.layer.subEmitters;
       if (subs === null || subs.length === 0) return;
       const entries: SubEntry[] = [];
-      for (const entry of subs) {
+      // Iterate by index, not by value: `refIndex` is the ref's AUTHORED position and
+      // is folded into the child-stream seed (S-7). Skipped refs below (unresolvable,
+      // self, disabled) leave a hole in `entries` but never shift a sibling's refIndex.
+      for (let refIndex = 0; refIndex < subs.length; refIndex++) {
+        const entry = subs[refIndex]!;
         const child = byId.get(entry.layerId);
         if (child === undefined || child === sim) continue; // validated out; guard
         // S-2: a disabled child layer never updates (advance() skips ls.update for
@@ -246,8 +264,9 @@ export class Effect {
         // maxParticles forever and holding isDone false / onDone unfired. Drop the ref
         // at plan-build time: `enabled` is static per Effect (the editor rebuilds the
         // Effect on mute; runtime mutation is unsupported, S-1). Because each event's
-        // child stream is seeded from (parentLayerSeed, ordinal, eventCode) — never the
-        // entry's position in `entries` — and every entry gets its own fresh mulberry32,
+        // child stream is seeded from (parentLayerSeed, ordinal, eventCode, AUTHORED
+        // refIndex) — `refIndex` counts positions in `subs`, NOT in the compacted
+        // `entries` below (S-7) — and every entry gets its own fresh mulberry32,
         // dropping a disabled entry cannot perturb any sibling ref's PRNG draws.
         if (!child.layer.enabled) continue;
         const eventCode =
@@ -255,7 +274,7 @@ export class Effect {
         if (eventCode === EVENT_BIRTH) this.wantBirth[index] = true;
         else if (eventCode === EVENT_DEATH) this.wantDeath[index] = true;
         else this.wantCollision[index] = true;
-        entries.push({ entry, child, eventCode });
+        entries.push({ entry, child, eventCode, refIndex });
       }
       if (entries.length > 0) {
         // I4 capture gate: this parent captures the six inherit floats onto every
@@ -663,7 +682,7 @@ export class Effect {
       // Event record stride (v9 I4): 11 when this parent captured the six inherit
       // floats, else the flat M8 quintuple (5). Constant per parent.
       const stride = parent.sim.captureInherit ? 11 : 5;
-      for (const { entry, child, eventCode } of parent.entries) {
+      for (const { entry, child, eventCode, refIndex } of parent.entries) {
         const scratch =
           eventCode === EVENT_BIRTH
             ? parent.sim.birthEvents
@@ -684,9 +703,18 @@ export class Effect {
           const evx = scratch[e + 2]!;
           const evy = scratch[e + 3]!;
           const ordinal = scratch[e + 4]!;
-          // Child-stream seed (§0.2): decorrelate by ordinal and event code.
+          // Child-stream seed (§0.2): decorrelate by ordinal, event code, and — S-7 —
+          // the ref's AUTHORED index, so two refs on this parent sharing a trigger no
+          // longer draw a bit-identical stream (same angle, radius, life, speed, size,
+          // rotation, tint, flip bits, and the same all-or-nothing probability gate).
+          // `imul(0, k) === 0`, so refIndex 0 is an exact no-op: a single-ref parent's
+          // stream is byte-identical to the pre-S-7 runtime.
           const eventSeed =
-            (parentLayerSeed ^ Math.imul(ordinal + 1, SEED_MIX_ORDINAL) ^ Math.imul(eventCode, SEED_MIX_EVENTCODE)) >>> 0;
+            (parentLayerSeed ^
+              Math.imul(ordinal + 1, SEED_MIX_ORDINAL) ^
+              Math.imul(eventCode, SEED_MIX_EVENTCODE) ^
+              Math.imul(refIndex, SEED_MIX_REFINDEX)) >>>
+            0;
           const rng = mulberry32(eventSeed);
           // Probability gate (§0.2): ONE draw iff probability !== 1; fires iff the
           // draw < probability. probability === 1 takes no draw (migration default).

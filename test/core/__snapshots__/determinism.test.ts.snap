@@ -30,7 +30,7 @@ exports[`preset snapshots (Gate 1) > dust-puff.prt state @60 steps is stable 1`]
 
 exports[`preset snapshots (Gate 1) > ember-field.prt state @60 steps is stable 1`] = `"9ff871a8"`;
 
-exports[`preset snapshots (Gate 1) > ember-pop.prt state @60 steps is stable 1`] = `"5ae22eee"`;
+exports[`preset snapshots (Gate 1) > ember-pop.prt state @60 steps is stable 1`] = `"2c3314ae"`;
 
 exports[`preset snapshots (Gate 1) > ember-shatter.prt state @60 steps is stable 1`] = `"991a120e"`;
 
