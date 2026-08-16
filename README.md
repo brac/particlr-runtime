@@ -115,6 +115,19 @@ This entry needs no `pixi.js` peer and runs in bare Node. The `./pixi` and
 `./pixi7` adapters continue to re-export `generateBuiltinTexture` for existing
 consumers, so nothing changes for Pixi users.
 
+## Stepping semantics
+
+`step(dt)` is host-driven and defensive (tightened in 0.6.0):
+
+- `dt` is first scaled by `timeScale`, then clamped to **1/20 s** so a tab
+  unhide or debugger pause cannot explode emitters. When the clamp engages,
+  emitter displacement for that step is scaled by `clampedDt/rawDt`, so a
+  moving emitter's world-space trail stays continuous instead of teleporting.
+- Zero, negative, and `NaN` dt are silent no-ops — a NaN never enters the
+  simulation. `+Infinity` is clamped like any large dt.
+- Playback is deterministic: same document + same seed + same dt sequence
+  produces the same frames.
+
 ## Going further
 
 `Effect` also has a movable emitter for trails (`setEmitterPosition`),
