@@ -1,0 +1,13 @@
+{
+  "//": "Emit config for the Three adapter only. Separate from tsconfig.build.json (which EXCLUDES src/three) so the adapter typechecks against three's own types while tsc emits `import ... from \"three\"` unchanged into dist/three. Same DOM lib + declaration settings as tsconfig.build.json. rootDir stays `src` so src/three/index.ts emits to dist/three/index.js. No `paths` override is needed here (unlike tsconfig.build-pixi7.json): `three` is installed under its real package name, not an aliased devDependency, so normal Node resolution already finds its bundled types.",
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "outDir": "dist",
+    "rootDir": "src",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true
+  },
+  "include": ["src/three"]
+}
