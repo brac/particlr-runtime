@@ -20,8 +20,10 @@ import {
 import type { Flipbook, ParticleDoc } from "../format/types.js";
 import { BUILTIN_TEXTURE_IDS, type BuiltinTextureId } from "../format/types.js";
 import { computeRenderState, makeRenderBuffers, type LayerRenderBuffers } from "../core/render.js";
+import { computeTrailGeometry, computeConnectGeometry, makeTrailGeometry } from "../core/trailGeometry.js";
 import type { Effect } from "../core/effect.js";
 import { makeSpriteMaterial } from "./materials.js";
+import { makeTrailView, setTrailTexture, syncTrailView, type ThreeTrailView } from "./trailMesh.js";
 import { builtinTexture, decodeDataUrlTexture, cachedUserTexture, cacheUserTexture } from "./textures.js";
 
 const DEG2RAD = Math.PI / 180;
@@ -51,6 +53,10 @@ interface LayerView {
   attrs: LayerAttrs;
   /** This layer's flipbook config (or null), carried for the async user-texture swap. */
   frames: Flipbook | null;
+  /** Per-particle or connect-mode trail ribbon (Task 8); null unless the layer
+   * has a trail module. Its Mesh is added to `root` BEFORE this layer's sprite
+   * mesh, so the ribbon renders under the sprites (Pixi renderer.ts:258 parity). */
+  trail: ThreeTrailView | null;
 }
 
 export interface ThreeParticleRendererOptions {
@@ -132,12 +138,31 @@ export class ThreeParticleRenderer {
       this.applyFlipbookUniforms(material, tex, fb);
       material.uniforms.uBillboard!.value = this._billboard ? 1 : 0;
 
+      const layerIndex = this.views.length;
+
+      // Trail ribbon (Task 8): build the mesh BEFORE the sprite mesh so it sits
+      // behind (renders under) this layer's sprites. Its geometry buffers ARE
+      // the core TrailGeometry arrays; sync() fills them via
+      // computeTrailGeometry/computeConnectGeometry. Blend mode is shared with
+      // the layer. Only trail layers add an extra child, so a trail-null
+      // document's child order is unchanged (Pixi renderer.ts:258-273 parity).
+      let trail: ThreeTrailView | null = null;
+      if (layer.trail !== null) {
+        // Connect mode: ONE ribbon of up to `max` points — makeTrailGeometry(1, max).
+        // Per-particle: `max` ribbons of `maxPoints`.
+        const trailGeom =
+          layer.trail.mode === "connect" ? makeTrailGeometry(1, max) : makeTrailGeometry(max, layer.trail.maxPoints);
+        trail = makeTrailView(trailGeom, tex, layer.blend);
+        trail.mesh.userData.particlrLayer = layerIndex;
+        this.root.add(trail.mesh);
+      }
+
       const mesh = new Mesh(geometry, material);
       mesh.frustumCulled = false;
-      mesh.userData.particlrLayer = this.views.length;
+      mesh.userData.particlrLayer = layerIndex;
       this.root.add(mesh);
 
-      const view: LayerView = { mesh, geometry, material, buffers: makeRenderBuffers(max), attrs, frames: layer.texture.frames };
+      const view: LayerView = { mesh, geometry, material, buffers: makeRenderBuffers(max), attrs, frames: layer.texture.frames, trail };
       this.views.push(view);
 
       if (resolved.pendingDataUrl !== undefined) {
@@ -173,6 +198,12 @@ export class ThreeParticleRenderer {
       // parent-frame coords.
       if (ls.layer.space === "world") view.mesh.position.set(0, 0, 0);
       else view.mesh.position.set(ex, -ey, 0);
+      // The trail mesh's vertices carry the same sim-frame coordinates as the
+      // particles, so it rides the emitter exactly like the sprite mesh.
+      if (view.trail !== null) {
+        if (ls.layer.space === "world") view.trail.mesh.position.set(0, 0, 0);
+        else view.trail.mesh.position.set(ex, -ey, 0);
+      }
 
       if (enabled && count > 0) {
         computeRenderState(ls, view.buffers);
@@ -207,6 +238,23 @@ export class ThreeParticleRenderer {
 
         this.uploadAttrs(attrs, count);
       }
+      // Trail ribbon geometry (Task 8): rebuild from the layer's ring buffers
+      // and update the mesh buffers + draw range. computeRenderState above
+      // filled view.buffers (the trail's null-color path reads each particle's
+      // current render RGBA from it); when the layer is disabled or empty
+      // there is no render state, so clear the ribbon to zero draws.
+      if (view.trail !== null) {
+        if (enabled && count > 0) {
+          // Connect mode builds ONE ribbon through the live particles' current
+          // positions; per-particle mode rebuilds each particle's own ring ribbon.
+          if (ls.layer.trail!.mode === "connect") computeConnectGeometry(ls, view.buffers, view.trail.geom);
+          else computeTrailGeometry(ls, view.buffers, view.trail.geom);
+        } else {
+          view.trail.geom.vertexCount = 0;
+          view.trail.geom.indexCount = 0;
+        }
+        syncTrailView(view.trail);
+      }
       view.geometry.instanceCount = enabled ? count : 0;
     }
   }
@@ -230,6 +278,11 @@ export class ThreeParticleRenderer {
       view.geometry.dispose();
       view.material.dispose();
       this.root.remove(view.mesh);
+      if (view.trail !== null) {
+        view.trail.mesh.geometry.dispose();
+        view.trail.mesh.material.dispose();
+        this.root.remove(view.trail.mesh);
+      }
     }
   }
 
@@ -281,6 +334,11 @@ export class ThreeParticleRenderer {
     if (this.destroyed) return;
     view.material.uniforms.uTexture!.value = tex;
     this.applyFlipbookUniforms(view.material, tex, view.frames);
+    // The trail mesh bound the placeholder's texture at construction; rebind
+    // it to the decoded texture so the ribbon samples the real sheet, not the
+    // soft circle. No-op-safe: layers without a trail skip this (Pixi
+    // renderer.ts applyTexture parity).
+    if (view.trail !== null) setTrailTexture(view.trail, tex);
   }
 
   /**
