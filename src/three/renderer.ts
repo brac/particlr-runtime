@@ -17,7 +17,7 @@ import {
   DynamicDrawUsage,
   type Texture,
 } from "three";
-import type { ParticleDoc } from "../format/types.js";
+import type { Flipbook, ParticleDoc } from "../format/types.js";
 import { BUILTIN_TEXTURE_IDS, type BuiltinTextureId } from "../format/types.js";
 import { computeRenderState, makeRenderBuffers, type LayerRenderBuffers } from "../core/render.js";
 import type { Effect } from "../core/effect.js";
@@ -25,14 +25,6 @@ import { makeSpriteMaterial } from "./materials.js";
 import { builtinTexture, decodeDataUrlTexture, cachedUserTexture, cacheUserTexture } from "./textures.js";
 
 const DEG2RAD = Math.PI / 180;
-
-// `Texture.image` is typed `unknown` (three's generic default) even though
-// every image this adapter produces — DataTexture pixels, decoded bitmaps —
-// carries width/height. A narrow local shape avoids `any` at the two call sites.
-function aspectOf(tex: Texture): number {
-  const image = tex.image as { width: number; height: number };
-  return image.height / image.width;
-}
 
 // Unit quad: two triangles, corners ±0.5, top-left-origin UV (v=0 at top —
 // matches flipY=false upload). Shared by every geometry (attributes are
@@ -57,6 +49,8 @@ interface LayerView {
   material: ReturnType<typeof makeSpriteMaterial>;
   buffers: LayerRenderBuffers;
   attrs: LayerAttrs;
+  /** This layer's flipbook config (or null), carried for the async user-texture swap. */
+  frames: Flipbook | null;
 }
 
 export interface ThreeParticleRendererOptions {
@@ -129,9 +123,13 @@ export class ThreeParticleRenderer {
       geometry.instanceCount = 0;
 
       const material = makeSpriteMaterial(tex, layer.blend);
-      // Task 7 wires the real flipbook cols/rows/aspect; this task sets the
-      // single-frame case from the resolved texture's own image dimensions.
-      material.uniforms.uAspect!.value = aspectOf(tex);
+      // Flipbook cols/rows/aspect: while a user sheet is still the built-in
+      // placeholder (pendingDataUrl set), slicing it would be wrong — stay at
+      // 1x1 whole-texture aspect until loadUserTextureInto swaps in the real
+      // sheet and grid (Pixi parity, renderer.ts:199 leaves `frames` null the
+      // same way).
+      const fb = resolved.pendingDataUrl === undefined ? layer.texture.frames : null;
+      this.applyFlipbookUniforms(material, tex, fb);
       material.uniforms.uBillboard!.value = this._billboard ? 1 : 0;
 
       const mesh = new Mesh(geometry, material);
@@ -139,7 +137,7 @@ export class ThreeParticleRenderer {
       mesh.userData.particlrLayer = this.views.length;
       this.root.add(mesh);
 
-      const view: LayerView = { mesh, geometry, material, buffers: makeRenderBuffers(max), attrs };
+      const view: LayerView = { mesh, geometry, material, buffers: makeRenderBuffers(max), attrs, frames: layer.texture.frames };
       this.views.push(view);
 
       if (resolved.pendingDataUrl !== undefined) {
@@ -282,6 +280,26 @@ export class ThreeParticleRenderer {
     cacheUserTexture(dataUrl, tex);
     if (this.destroyed) return;
     view.material.uniforms.uTexture!.value = tex;
-    view.material.uniforms.uAspect!.value = aspectOf(tex);
+    this.applyFlipbookUniforms(view.material, tex, view.frames);
+  }
+
+  /**
+   * Sizing rule (Pixi P4.1 parity): uAspect = frameH / frameW where frame =
+   * sheet dims / grid, so a particle renders `size` px wide and `size *
+   * uAspect` px tall. `fb === null` (no flipbook, or a still-placeholder user
+   * sheet) means a 1x1 grid — the whole texture is the frame.
+   */
+  private applyFlipbookUniforms(material: LayerView["material"], tex: Texture, fb: Flipbook | null): void {
+    const cols = fb ? fb.cols : 1;
+    const rows = fb ? fb.rows : 1;
+    // `Texture.image` is typed `unknown` (three's generic default) even
+    // though every image this adapter produces — DataTexture pixels, decoded
+    // bitmaps — carries width/height.
+    const image = tex.image as { width: number; height: number };
+    const frameW = image.width / cols;
+    const frameH = image.height / rows;
+    material.uniforms.uCols!.value = cols;
+    material.uniforms.uRows!.value = rows;
+    material.uniforms.uAspect!.value = frameH / frameW;
   }
 }
