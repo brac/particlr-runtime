@@ -22,7 +22,7 @@ import { BUILTIN_TEXTURE_IDS, type BuiltinTextureId } from "../format/types.js";
 import { computeRenderState, makeRenderBuffers, type LayerRenderBuffers } from "../core/render.js";
 import type { Effect } from "../core/effect.js";
 import { makeSpriteMaterial } from "./materials.js";
-import { builtinTexture, decodeDataUrlTexture } from "./textures.js";
+import { builtinTexture, decodeDataUrlTexture, cachedUserTexture, cacheUserTexture } from "./textures.js";
 
 const DEG2RAD = Math.PI / 180;
 
@@ -250,6 +250,12 @@ export class ThreeParticleRenderer {
       const name = ref.slice(5);
       const dataUrl = doc.textures?.[name];
       if (dataUrl) {
+        // Another instance may already have decoded this exact data URL
+        // (same doc reused, or a rebuilt preview) — resolve synchronously
+        // from cache instead of always flashing the placeholder (Pixi parity,
+        // renderer.ts:476-478).
+        const cached = cachedUserTexture(dataUrl);
+        if (cached) return { tex: cached };
         return { tex: builtinTexture("circle-soft"), pendingDataUrl: dataUrl };
       }
       // E10: missing embedded texture -> substitute the soft circle + warn.
@@ -269,6 +275,11 @@ export class ThreeParticleRenderer {
       this.warnings.push(`Texture "${ref}" could not be decoded; using the built-in soft circle.`);
       return;
     }
+    // Cache under the adapter-level map even when `loadTexture` is an
+    // injected/overridden loader, so a second renderer over the same data URL
+    // resolves synchronously (default `decodeDataUrlTexture` already does
+    // this internally; this covers every other loader too).
+    cacheUserTexture(dataUrl, tex);
     if (this.destroyed) return;
     view.material.uniforms.uTexture!.value = tex;
     view.material.uniforms.uAspect!.value = aspectOf(tex);

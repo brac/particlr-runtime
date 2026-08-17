@@ -86,6 +86,32 @@ export function dataUrlToBlob(dataUrl: string): Blob {
 }
 
 const USER_TEXTURES = new Map<string, Texture>();
+
+/**
+ * Synchronous cache lookup for an already-decoded user texture, honoring the
+ * live/disposed guard (same policy as `builtinTexture`/`decodeDataUrlTexture`).
+ * Lets a renderer's `resolveTexture` resolve a `user:` ref immediately when
+ * another instance already decoded the same data URL, instead of always
+ * showing the placeholder for one microtask (Pixi adapter parity,
+ * renderer.ts:476-478). Exported for adapter use and tests.
+ */
+export function cachedUserTexture(dataUrl: string): Texture | undefined {
+  const t = USER_TEXTURES.get(dataUrl);
+  return live(t) ? t : undefined;
+}
+
+/**
+ * Populate the shared user-texture cache. Callers using the default
+ * `decodeDataUrlTexture` loader get this for free (it caches internally);
+ * this is for adapters that accept an injected/overridden loader (test
+ * doubles, alternate decode strategies) so THEIR decoded textures are cached
+ * too, matching Pixi's renderer-level cache (renderer.ts:497) rather than a
+ * cache that only ever sees the default loader's output.
+ */
+export function cacheUserTexture(dataUrl: string, tex: Texture): void {
+  USER_TEXTURES.set(dataUrl, tex);
+}
+
 export async function decodeDataUrlTexture(dataUrl: string): Promise<Texture> {
   const cached = USER_TEXTURES.get(dataUrl);
   if (live(cached)) return cached;
