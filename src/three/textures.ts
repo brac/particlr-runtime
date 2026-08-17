@@ -109,6 +109,14 @@ export function cachedUserTexture(dataUrl: string): Texture | undefined {
  * cache that only ever sees the default loader's output.
  */
 export function cacheUserTexture(dataUrl: string, tex: Texture): void {
+  // `markDisposable` must run for EVERY texture this cache hands out later via
+  // `cachedUserTexture`'s `live()` guard — otherwise a texture from an
+  // injected loader (the exact case this function exists for) never flips
+  // `userData.particlrDisposed` on `.dispose()`, and `live()` hands it out
+  // forever even after the caller disposed it. Calling `markDisposable` twice
+  // on a texture that already has it (the default `decodeDataUrlTexture`
+  // path) just registers a second listener that sets the same flag — harmless.
+  markDisposable(tex);
   USER_TEXTURES.set(dataUrl, tex);
 }
 

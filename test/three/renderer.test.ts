@@ -168,6 +168,31 @@ describe.skipIf(!hasPresets)("ThreeParticleRenderer — sprite parity", () => {
     r2.destroy();
   });
 
+  it("user texture cache: a disposed cached texture (from an injected loader) is never handed out again", async () => {
+    const doc = loadDoc("rain");
+    doc.layers[0]!.texture.ref = "user:disposable";
+    doc.textures = { disposable: "data:image/png;base64,PLACEHOLDER-disposecache" };
+    const fx = new Effect(doc, { seed: doc.seed });
+    const firstTex = fakeTexture(128);
+    const r = new ThreeParticleRenderer(fx, { loadTexture: async () => firstTex });
+    await r.ready; // firstTex is now cached under the data URL
+    r.destroy();
+    firstTex.dispose(); // must flip userData.particlrDisposed via the cache's dispose hook
+    expect(firstTex.userData.particlrDisposed).toBe(true);
+
+    // A fresh renderer over the same data URL, with a loader returning a
+    // DIFFERENT texture. Since the cached entry is now disposed, resolution
+    // must NOT be synchronous from cache — it must show the placeholder
+    // first, then swap in the new decode once ready.
+    const fx2 = new Effect(structuredClone(doc), { seed: doc.seed });
+    const secondTex = fakeTexture(256);
+    const r2 = new ThreeParticleRenderer(fx2, { loadTexture: async () => secondTex });
+    expect((meshOf(r2).material as any).uniforms.uTexture.value.image.width).toBe(64); // placeholder, not the disposed 128px texture
+    await r2.ready;
+    expect((meshOf(r2).material as any).uniforms.uTexture.value.image.width).toBe(256);
+    r2.destroy();
+  });
+
   it("destroy() disposes geometries and materials but never the texture object itself", () => {
     const fx = new Effect(loadDoc("fireball"), { seed: 1 });
     const r = new ThreeParticleRenderer(fx);
