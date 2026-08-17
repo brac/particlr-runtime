@@ -7,7 +7,7 @@
 // and the final write is straight RGB re-premultiplied by the eroded alpha,
 // same as the plain sprite fragment when d=1 (byte-identical, same guarantee
 // Pixi documents at dissolveShader.ts:88-90).
-import { RawShaderMaterial, type Texture } from "three";
+import { RawShaderMaterial, DoubleSide, type Texture } from "three";
 import type { BlendMode, DissolveConfig } from "../format/types.js";
 import { spriteVertexGl, applyBlend } from "./materials.js";
 import { dissolveNoiseTexture } from "./textures.js";
@@ -73,6 +73,7 @@ export function makeDissolveMaterial(texture: Texture, blend: BlendMode, cfg: Di
       uEdgeWidth: { value: cfg.edgeWidth },
       uEdgeColor: { value: edge ? [edge.r, edge.g, edge.b, edge.a] : [0, 0, 0, 0] },
     },
+    side: DoubleSide, // never FrontSide — see materials.ts, above makeSpriteMaterial
   });
   applyBlend(mat, blend);
   return mat;

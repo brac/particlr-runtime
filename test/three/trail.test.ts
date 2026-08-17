@@ -1,11 +1,21 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { Mesh } from "three";
+import { Mesh, DoubleSide, DataTexture, RGBAFormat, UnsignedByteType } from "three";
 import { parseParticle } from "../../src/index.js";
 import { Effect } from "../../src/core/effect.js";
 import { ThreeParticleRenderer } from "../../src/three/renderer.js";
+import { makeTrailView } from "../../src/three/trailMesh.js";
+import { makeTrailGeometry } from "../../src/core/trailGeometry.js";
 import { presetsDir, hasPresets } from "../_presets.js";
+
+describe("trail material", () => {
+  it("never backface-culls (DoubleSide) — same winding/randomFlip reasons as the sprite material", () => {
+    const tex = new DataTexture(new Uint8Array(4), 1, 1, RGBAFormat, UnsignedByteType);
+    const view = makeTrailView(makeTrailGeometry(1, 8), tex, "normal");
+    expect(view.mesh.material.side).toBe(DoubleSide);
+  });
+});
 
 // comet is the per-particle-ribbon preset (tests/golden golden.spec.ts M9 note).
 describe.skipIf(!hasPresets)("three trails", () => {

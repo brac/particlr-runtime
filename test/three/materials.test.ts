@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   CustomBlending, AddEquation, OneFactor, ZeroFactor,
   OneMinusSrcAlphaFactor, OneMinusSrcColorFactor, DstColorFactor, DataTexture,
-  RGBAFormat, UnsignedByteType,
+  RGBAFormat, UnsignedByteType, DoubleSide,
 } from "three";
 import { makeSpriteMaterial, applyBlend, spriteVertexGl, spriteFragmentGl } from "../../src/three/materials.js";
 
@@ -44,5 +44,8 @@ describe("sprite material", () => {
   });
   it("outputs premultiplied alpha (rgb * a in the final write)", () => {
     expect(spriteFragmentGl).toMatch(/gl_FragColor\s*=\s*vec4\(\s*rgb\s*\*\s*a\s*,\s*a\s*\)/);
+  });
+  it("never backface-culls (DoubleSide) — quad winding + per-instance randomFlip can't support FrontSide", () => {
+    expect(makeSpriteMaterial(tex(), "normal").side).toBe(DoubleSide);
   });
 });

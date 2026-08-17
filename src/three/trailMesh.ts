@@ -4,7 +4,7 @@
 // names (aTrailPos vec2, aTrailUV, aTrailColor) — three's injected built-ins
 // are bypassed entirely by RawShaderMaterial. Draw range follows indexCount;
 // frustumCulled = false (geometry changes every frame).
-import { Mesh, BufferGeometry, BufferAttribute, RawShaderMaterial, DynamicDrawUsage, type Texture } from "three";
+import { Mesh, BufferGeometry, BufferAttribute, RawShaderMaterial, DynamicDrawUsage, DoubleSide, type Texture } from "three";
 import type { BlendMode } from "../format/types.js";
 import type { TrailGeometry } from "../core/trailGeometry.js";
 import { applyBlend } from "./materials.js";
@@ -52,6 +52,7 @@ export function makeTrailView(geom: TrailGeometry, texture: Texture, blend: Blen
     vertexShader: trailVertexGl,
     fragmentShader: trailFragmentGl,
     uniforms: { uTexture: { value: texture } },
+    side: DoubleSide, // never FrontSide — see materials.ts, above makeSpriteMaterial
   });
   applyBlend(material, blend);
   const mesh = new Mesh(geometry, material);

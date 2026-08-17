@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { Mesh } from "three";
+import { Mesh, DoubleSide } from "three";
 import { parseParticle } from "../../src/index.js";
 import { Effect } from "../../src/core/effect.js";
 import { ThreeParticleRenderer } from "../../src/three/renderer.js";
@@ -23,6 +23,10 @@ describe("dissolve material", () => {
     const cfg: DissolveConfig = { frequency: 1, scroll: { x: 0, y: 0 }, edgeWidth: 0, edgeColor: null };
     const m = makeDissolveMaterial(builtinTexture("smoke"), "add", cfg);
     expect(Array.from(m.uniforms.uEdgeColor!.value)).toEqual([0, 0, 0, 0]);
+  });
+  it("never backface-culls (DoubleSide) — same winding/randomFlip reasons as the sprite material", () => {
+    const cfg: DissolveConfig = { frequency: 1, scroll: { x: 0, y: 0 }, edgeWidth: 0, edgeColor: null };
+    expect(makeDissolveMaterial(builtinTexture("smoke"), "add", cfg).side).toBe(DoubleSide);
   });
   it("fragment implements the 0.3c erosion: endpoint-exact threshold + alpha = texA * d", () => {
     for (const s of ["smoothstep(t, t + ew, n)", "(1.0 - a) * (1.0 + uEdgeWidth) - uEdgeWidth", "texel.a * d"]) {

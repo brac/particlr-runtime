@@ -14,8 +14,27 @@
 //                offset is applied in VIEW space after transforming the
 //                instance center, so every particle faces the camera. This is
 //                the "~15 lines of view-matrix handling" V2 priced in.
-import { RawShaderMaterial, CustomBlending, AddEquation, OneFactor, ZeroFactor, OneMinusSrcAlphaFactor, OneMinusSrcColorFactor, DstColorFactor, type Material, type Texture, type BlendingSrcFactor, type BlendingDstFactor } from "three";
+import { RawShaderMaterial, CustomBlending, AddEquation, OneFactor, ZeroFactor, OneMinusSrcAlphaFactor, OneMinusSrcColorFactor, DstColorFactor, DoubleSide, type Material, type Texture, type BlendingSrcFactor, type BlendingDstFactor } from "three";
 import type { BlendMode } from "../format/types.js";
+
+// Every adapter material (sprite here, dissolve in dissolveMaterial.ts, trail
+// ribbon in trailMesh.ts) is built with `side: DoubleSide`. Three reasons,
+// and backface culling can never be safely re-enabled for any of them:
+//  (a) the shared unit quad (QUAD_POS/QUAD_INDEX, renderer.ts) is wound CW
+//      under this adapter's y-up view convention, so with the default
+//      FrontSide it is back-face-culled from the idiomatic Three camera
+//      placement (camera pulled back on +Z, looking at the origin) — and,
+//      in billboard mode, from EVERY camera position, since the billboard
+//      branch reconstructs the quad directly in view space every frame
+//      using the same winding.
+//  (b) even if the base winding were flipped to fix (a), the randomFlip
+//      feature negates aFlip's corner axes PER INSTANCE (spriteVertexGl
+//      above) — an odd number of flipped axes inverts that instance's
+//      winding relative to its unflipped siblings in the same draw call,
+//      so no single `side` short of DoubleSide can be correct for a
+//      randomFlip layer.
+//  (c) Pixi never culls (2D scene graph, no concept of face winding) — so
+//      DoubleSide is also the Pixi-parity behavior, not just a workaround.
 
 export const spriteVertexGl = `precision highp float;
 uniform mat4 modelViewMatrix;
@@ -103,6 +122,7 @@ export function makeSpriteMaterial(texture: Texture, blend: BlendMode): RawShade
       uAspect: { value: 1 },
       uBillboard: { value: 0 },
     },
+    side: DoubleSide, // see the comment above the imports
   });
   applyBlend(mat, blend);
   return mat;
