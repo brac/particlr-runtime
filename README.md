@@ -96,6 +96,124 @@ frame where v8 spends ~0.1 ms. Both are far under a 60 fps budget; at typical
 2D-game particle counts this is not a limiting factor, but if you are pushing
 tens of thousands of particles, v8 is the faster target.
 
+## Three.js
+
+A second rasterizer for the same 2D simulation, `@particlr/runtime/three`.
+The host gets a `THREE.Group` (`view.root`) it places in its own scene; the
+effect renders on that object's local XY plane, with an optional billboard
+mode that faces the camera every frame.
+
+```sh
+npm install @particlr/runtime three
+```
+
+```ts
+import { WebGLRenderer, Scene, PerspectiveCamera, Vector3 } from "three";
+import { parseParticle, Effect } from "@particlr/runtime";
+import { ThreeParticleRenderer } from "@particlr/runtime/three";
+
+const renderer = new WebGLRenderer({ antialias: true });
+renderer.setSize(innerWidth, innerHeight);
+document.body.appendChild(renderer.domElement);
+const scene = new Scene();
+const camera = new PerspectiveCamera(50, innerWidth / innerHeight, 1, 10000);
+camera.position.set(0, 300, 900);
+camera.lookAt(0, 0, 0);
+
+const doc = parseParticle(await (await fetch("boom.prt")).text()).doc!;
+const fx = new Effect(doc, { seed: 1337 });
+const view = new ThreeParticleRenderer(fx, { billboard: true });
+view.root.position.copy(new Vector3(0, 200, 0)); // where the effect plays
+scene.add(view.root);
+
+function frame(now: number): void {
+  fx.step(1 / 60);   // advance the simulation
+  view.sync();       // draw it
+  renderer.render(scene, camera);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+```
+
+That's the whole integration; see `samples/three-game/src/main.ts` for a
+click-to-spawn host with resize handling and one-shot teardown.
+
+### Options
+
+| Option | Type | Default | Notes |
+|---|---|---|---|
+| `billboard` | `boolean` | `false` | `false`: quads stay in the group's local XY plane. `true`: the corner offset is applied in view space after transforming the instance center, so every particle faces the camera regardless of the group's orientation. Live-settable (`view.billboard = true`). |
+| `loadTexture` | `(dataUrl: string) => Promise<Texture>` | browser decode via `createImageBitmap` | Overrides async user-texture loading — useful in Node/test environments without a DOM `Image`/`createImageBitmap`. |
+
+### Blend table (normative)
+
+Every `.prt` blend mode maps to a fixed `RawShaderMaterial` blend-function
+tuple. This table is the single source of truth — it is unit-tested
+verbatim in `test/three/materials.test.ts`.
+
+| `.prt` blend | blending | blendSrc | blendDst | blendEquation |
+|---|---|---|---|---|
+| `normal` | CustomBlending | OneFactor | OneMinusSrcAlphaFactor | AddEquation |
+| `add` | CustomBlending | OneFactor | OneFactor | AddEquation |
+| `multiply` | CustomBlending | DstColorFactor | OneMinusSrcAlphaFactor | AddEquation |
+| `screen` | CustomBlending | OneFactor | OneMinusSrcColorFactor | AddEquation |
+| `erase` | CustomBlending | ZeroFactor | OneMinusSrcAlphaFactor | AddEquation |
+
+`erase` is destination-out, exactly as the editor thumbnails model it. Every
+tuple assumes a premultiplied source: textures upload straight alpha, and
+the fragment shader multiplies `texel × tint` in straight alpha then writes
+premultiplied output (`vec4(rgb·a, a)`).
+
+### Coordinate mapping
+
+The sim is 2D screen-space, **y-down**, with rotation in degrees,
+**clockwise-positive** (Pixi conventions). Three is y-up, CCW-positive. The
+adapter maps sim space to the group's local space as `position: (x, y) →
+(x, -y)` and `angle: aAngle = -velAngleDegrees · π/180` (radians, negated),
+so an effect authored in the editor reads upright and un-mirrored on the
+plane. A particle renders `size` px wide and `size × frameAspect` px tall
+(`frameAspect = frameHeight / frameWidth`), matching the Pixi adapter's
+sizing rule.
+
+### What it is not
+
+This is **not a 3D particle sim**. Positions stay `(x, y)`; the `.prt`
+document is unchanged; there are no 3D emission shapes, no 3D forces, and no
+depth interaction between particles and the rest of your scene beyond
+standard alpha-blended draw order (V2_DESIGN Part 1). If your effect needs a
+camera-facing plane, use `billboard: true`; if it needs true 3D particles,
+this adapter is not that — place a plane where you want the effect and treat
+it as a 2D layer in a 3D world, the same way a sprite-based VFX plane works
+in any 3D engine.
+
+### Mesh tags
+
+Every layer's `Mesh` carries `mesh.userData.particlrLayer` (the layer's
+index in the document) so a host can find/inspect a specific layer's draw
+call. A layer with a trail adds an extra `Mesh` for the ribbon, tagged with
+both `userData.particlrLayer` (same index) and `userData.particlrTrail =
+true`.
+
+### Differences from the Pixi adapter
+
+- **Float color precision.** Attributes carry the float tint/alpha values
+  straight from `LayerRenderBuffers` — no 8-bit quantization (Pixi's `tint`
+  is a packed 8-bit-per-channel color). Raster goldens are per-adapter
+  (Three-vs-Three across commits), so this divergence from Pixi's output is
+  expected, not a bug.
+- **Flipbook and dissolve-noise UV windowing, not texture swapping.** Pixi
+  swaps per-particle frame textures; the Three adapter is one instanced
+  draw per layer, so the vertex shader computes a UV window into the whole
+  sheet/noise tile from a per-instance `aFrame` attribute instead.
+- **No color-space or tone-mapping participation.** Materials are
+  `RawShaderMaterial`, so three injects no attribute declarations and
+  applies no color-space transform or tone mapping — output matches Pixi's
+  un-color-managed pipeline.
+- **Textures are never disposed by the adapter.** Built-in and user
+  textures are cached at module scope for the page's lifetime, same policy
+  as the Pixi adapter; `view.destroy()` disposes geometries and materials
+  only.
+
 ## Builtin textures without Pixi
 
 The five builtin textures (`circle-soft`, `circle-hard`, `square`, `spark`,
