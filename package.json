@@ -1,6 +1,6 @@
 {
   "name": "@particlr/runtime",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Framework-agnostic particle simulation core + Pixi v8/v7 and Three.js adapters for the .prt format.",
   "license": "MIT",
   "type": "module",
