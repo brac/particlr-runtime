@@ -31,7 +31,11 @@ const DEG2RAD = Math.PI / 180;
 
 // Unit quad: two triangles, corners ±0.5, top-left-origin UV (v=0 at top —
 // matches flipY=false upload). Shared by every geometry (attributes are
-// read-only base data).
+// read-only base data). Sharing means `destroy()`'s `geometry.dispose()`
+// releases these attributes' underlying GL buffers too — but since the data
+// is static and identical for every layer, three's renderer just re-uploads
+// it lazily on the next frame that touches a live geometry using them, so
+// disposing one layer's geometry never corrupts another's draw.
 const QUAD_POS = new BufferAttribute(new Float32Array([-0.5, 0.5, 0, 0.5, 0.5, 0, 0.5, -0.5, 0, -0.5, -0.5, 0]), 3);
 const QUAD_UV = new BufferAttribute(new Float32Array([0, 0, 1, 0, 1, 1, 0, 1]), 2);
 const QUAD_INDEX = new BufferAttribute(new Uint16Array([0, 1, 2, 0, 2, 3]), 1);
@@ -44,6 +48,10 @@ interface LayerAttrs {
   stretch: InstancedBufferAttribute;
   angle: InstancedBufferAttribute;
   flip: InstancedBufferAttribute;
+  /** The same seven attributes as a list, built once at construction so
+   * uploadAttrs (called every sync()) doesn't allocate a fresh array literal
+   * every frame. */
+  list: InstancedBufferAttribute[];
 }
 
 interface LayerView {
@@ -119,7 +127,9 @@ export class ThreeParticleRenderer {
         stretch: makeInstancedAttr(max, 1),
         angle: makeInstancedAttr(max, 1),
         flip: makeInstancedAttr(max, 1),
+        list: [],
       };
+      attrs.list = [attrs.instPos, attrs.size, attrs.color, attrs.frame, attrs.stretch, attrs.angle, attrs.flip];
       geometry.setAttribute("aInstPos", attrs.instPos);
       geometry.setAttribute("aSize", attrs.size);
       geometry.setAttribute("aColor", attrs.color);
@@ -281,7 +291,7 @@ export class ThreeParticleRenderer {
   }
 
   private uploadAttrs(attrs: LayerAttrs, count: number): void {
-    for (const attr of [attrs.instPos, attrs.size, attrs.color, attrs.frame, attrs.stretch, attrs.angle, attrs.flip]) {
+    for (const attr of attrs.list) {
       const range = count * attr.itemSize;
       if (typeof attr.addUpdateRange === "function") attr.addUpdateRange(0, range);
       attr.needsUpdate = true;

@@ -1,7 +1,7 @@
 {
   "name": "@particlr/runtime",
   "version": "0.6.0",
-  "description": "Framework-agnostic particle simulation core + Pixi v8 and Pixi v7 adapters for the .prt format.",
+  "description": "Framework-agnostic particle simulation core + Pixi v8/v7 and Three.js adapters for the .prt format.",
   "license": "MIT",
   "type": "module",
   "homepage": "https://particlr.com",
@@ -24,7 +24,9 @@
     "2d",
     "webgl",
     "webgpu",
-    "animation"
+    "animation",
+    "three",
+    "threejs"
   ],
   "main": "./dist/index.js",
   "module": "./dist/index.js",

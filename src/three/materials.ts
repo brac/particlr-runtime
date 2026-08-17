@@ -13,7 +13,15 @@
 //   uBillboard — 0: quad lives in the group's local XY plane; 1: the corner
 //                offset is applied in VIEW space after transforming the
 //                instance center, so every particle faces the camera. This is
-//                the "~15 lines of view-matrix handling" V2 priced in.
+//                the "~15 lines of view-matrix handling" V2 priced in. The
+//                corner offset is computed in local units but added AFTER
+//                modelViewMatrix already transformed the instance center, so
+//                root.scale (folded into modelViewMatrix) would scale
+//                positions but not particle size unless corrected — the
+//                billboard branch rescales the offset by the model-view
+//                basis length (`length(modelViewMatrix[0].xyz)`) to restore
+//                it. Uniform group scale only; non-uniform group scale is
+//                not supported in billboard mode.
 import { RawShaderMaterial, CustomBlending, AddEquation, OneFactor, ZeroFactor, OneMinusSrcAlphaFactor, OneMinusSrcColorFactor, DstColorFactor, DoubleSide, type Material, type Texture, type BlendingSrcFactor, type BlendingDstFactor } from "three";
 import type { BlendMode } from "../format/types.js";
 
@@ -72,6 +80,7 @@ void main() {
 
   if (uBillboard > 0.5) {
     vec4 center = modelViewMatrix * vec4(aInstPos, 0.0, 1.0);
+    p *= length(modelViewMatrix[0].xyz);
     gl_Position = projectionMatrix * vec4(center.xy + p, center.z, center.w);
   } else {
     gl_Position = projectionMatrix * modelViewMatrix * vec4(aInstPos + p, 0.0, 1.0);
@@ -111,17 +120,33 @@ export function applyBlend(mat: Material, blend: BlendMode): void {
   mat.depthWrite = false;
 }
 
+/**
+ * The five base sprite uniforms (uTexture/uCols/uRows/uAspect/uBillboard)
+ * every adapter material needs, filled identically by the renderer
+ * regardless of which fragment shader (plain sprite or dissolve) is bound.
+ * Shared so dissolveMaterial.ts doesn't re-declare this literal.
+ */
+export function makeSpriteUniforms(texture: Texture): {
+  uTexture: { value: Texture };
+  uCols: { value: number };
+  uRows: { value: number };
+  uAspect: { value: number };
+  uBillboard: { value: number };
+} {
+  return {
+    uTexture: { value: texture },
+    uCols: { value: 1 },
+    uRows: { value: 1 },
+    uAspect: { value: 1 },
+    uBillboard: { value: 0 },
+  };
+}
+
 export function makeSpriteMaterial(texture: Texture, blend: BlendMode): RawShaderMaterial {
   const mat = new RawShaderMaterial({
     vertexShader: spriteVertexGl,
     fragmentShader: spriteFragmentGl,
-    uniforms: {
-      uTexture: { value: texture },
-      uCols: { value: 1 },
-      uRows: { value: 1 },
-      uAspect: { value: 1 },
-      uBillboard: { value: 0 },
-    },
+    uniforms: makeSpriteUniforms(texture),
     side: DoubleSide, // see the comment above the imports
   });
   applyBlend(mat, blend);

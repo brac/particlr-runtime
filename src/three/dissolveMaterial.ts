@@ -9,7 +9,7 @@
 // Pixi documents at dissolveShader.ts:88-90).
 import { RawShaderMaterial, DoubleSide, type Texture } from "three";
 import type { BlendMode, DissolveConfig } from "../format/types.js";
-import { spriteVertexGl, applyBlend } from "./materials.js";
+import { spriteVertexGl, applyBlend, makeSpriteUniforms } from "./materials.js";
 import { dissolveNoiseTexture } from "./textures.js";
 
 export const dissolveFragmentGl = `precision highp float;
@@ -58,11 +58,7 @@ export function makeDissolveMaterial(texture: Texture, blend: BlendMode, cfg: Di
     vertexShader: spriteVertexGl,
     fragmentShader: dissolveFragmentGl,
     uniforms: {
-      uTexture: { value: texture },
-      uCols: { value: 1 },
-      uRows: { value: 1 },
-      uAspect: { value: 1 },
-      uBillboard: { value: 0 },
+      ...makeSpriteUniforms(texture),
       uDissolveNoise: { value: dissolveNoiseTexture() },
       uTime: { value: 0 },
       uFrequency: { value: cfg.frequency },

@@ -24,6 +24,7 @@ import {
   generateDissolveNoise,
   type TextureData,
 } from "../texgen/index.js";
+export type { TextureData };
 
 function markDisposable(t: Texture): void {
   t.addEventListener("dispose", () => {

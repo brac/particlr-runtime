@@ -2,8 +2,9 @@
 
 [![CI](https://github.com/brac/particlr-runtime/actions/workflows/ci.yml/badge.svg)](https://github.com/brac/particlr-runtime/actions/workflows/ci.yml)
 
-Plays `.prt` particle effects in PixiJS v8 (and PixiJS v7, via a separate
-subpath — see below). Design effects visually in the
+Plays `.prt` particle effects in PixiJS v8 and PixiJS v7 (each via a
+subpath), and in Three.js (also via a subpath — see below). Design effects
+visually in the
 [particlr editor](https://particlr.com), export a `.prt` file, play it
 back with this package. The editor previews through this exact runtime, and
 playback is deterministic (same document + seed ⇒ same frames) — so what you
@@ -142,7 +143,7 @@ click-to-spawn host with resize handling and one-shot teardown.
 
 | Option | Type | Default | Notes |
 |---|---|---|---|
-| `billboard` | `boolean` | `false` | `false`: quads stay in the group's local XY plane. `true`: the corner offset is applied in view space after transforming the instance center, so every particle faces the camera regardless of the group's orientation. Live-settable (`view.billboard = true`). |
+| `billboard` | `boolean` | `false` | `false`: quads stay in the group's local XY plane. `true`: the corner offset is applied in view space after transforming the instance center, so every particle faces the camera regardless of the group's orientation. Applies to sprite quads only — trail ribbons are not billboarded and always stay in the group's local plane, even with `billboard: true`. Live-settable (`view.billboard = true`). |
 | `loadTexture` | `(dataUrl: string) => Promise<Texture>` | browser decode via `createImageBitmap` | Overrides async user-texture loading — useful in Node/test environments without a DOM `Image`/`createImageBitmap`. |
 
 ### Blend table (normative)
@@ -204,7 +205,14 @@ true`.
 - **Flipbook and dissolve-noise UV windowing, not texture swapping.** Pixi
   swaps per-particle frame textures; the Three adapter is one instanced
   draw per layer, so the vertex shader computes a UV window into the whole
-  sheet/noise tile from a per-instance `aFrame` attribute instead.
+  sheet/noise tile from a per-instance `aFrame` attribute instead. Concrete
+  consequence for a layer that combines a flipbook with dissolve: the Three
+  adapter samples the dissolve noise at the per-frame WINDOWED uv (already
+  offset/scaled to the flipbook cell), whereas Pixi's dissolve shader samples
+  at the raw SHEET uv — so the erosion pattern shifts per flipbook frame in
+  Three but not in Pixi. This does not fail any test (raster goldens are
+  per-adapter, never cross-compared); it is a visual difference between
+  adapters.
 - **No color-space or tone-mapping participation.** Materials are
   `RawShaderMaterial`, so three injects no attribute declarations and
   applies no color-space transform or tone mapping — output matches Pixi's

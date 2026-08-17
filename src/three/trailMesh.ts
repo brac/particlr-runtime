@@ -1,3 +1,9 @@
+// Trail ribbon is NOT billboarded: the vertex shader below has no uBillboard
+// branch, unlike spriteVertexGl (materials.ts). A ribbon always renders in
+// the group's local XY plane, even when the renderer's `billboard` option is
+// on for sprite quads. Billboarding a ribbon-as-a-plane is a possible
+// follow-up (README "Three.js" Options table documents the current limit).
+//
 // Trail ribbon for the Three adapter (port template: src/pixi/trailMesh.ts).
 // One Mesh per trail layer whose BufferGeometry attributes ARE the core
 // TrailGeometry typed arrays (write-through). Attributes use adapter-owned
