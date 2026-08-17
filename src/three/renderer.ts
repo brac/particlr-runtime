@@ -23,6 +23,7 @@ import { computeRenderState, makeRenderBuffers, type LayerRenderBuffers } from "
 import { computeTrailGeometry, computeConnectGeometry, makeTrailGeometry } from "../core/trailGeometry.js";
 import type { Effect } from "../core/effect.js";
 import { makeSpriteMaterial } from "./materials.js";
+import { makeDissolveMaterial } from "./dissolveMaterial.js";
 import { makeTrailView, setTrailTexture, syncTrailView, type ThreeTrailView } from "./trailMesh.js";
 import { builtinTexture, decodeDataUrlTexture, cachedUserTexture, cacheUserTexture } from "./textures.js";
 
@@ -128,7 +129,12 @@ export class ThreeParticleRenderer {
       geometry.setAttribute("aFlip", attrs.flip);
       geometry.instanceCount = 0;
 
-      const material = makeSpriteMaterial(tex, layer.blend);
+      // Dissolve (Task 9): a layer with a non-null dissolve module gets the
+      // erosion material instead of the plain sprite material. Every other
+      // wiring path (flipbook uniforms, blend, billboard, texture swap) is
+      // identical — sync() below additionally drives uTime for these layers.
+      const material =
+        layer.dissolve !== null ? makeDissolveMaterial(tex, layer.blend, layer.dissolve) : makeSpriteMaterial(tex, layer.blend);
       // Flipbook cols/rows/aspect: while a user sheet is still the built-in
       // placeholder (pendingDataUrl set), slicing it would be wrong — stay at
       // 1x1 whole-texture aspect until loadUserTextureInto swaps in the real
@@ -197,6 +203,15 @@ export class ThreeParticleRenderer {
       const view = this.views[i]!;
       const enabled = ls.layer.enabled;
       const count = enabled ? ls.count : 0;
+
+      // Dissolve (Task 9): advance the erosion clock. uTime = effect.time, so
+      // the scroll is a pure function of the deterministic clock (exact under
+      // scrub and golden replay) — Pixi parity, renderer.ts:316. Done every
+      // frame regardless of count: the field scrolls even while the layer is
+      // momentarily empty.
+      if (ls.layer.dissolve !== null) {
+        view.material.uniforms.uTime!.value = this.effect.time;
+      }
 
       // Per-layer mesh placement (schemaVersion 2). A local layer rides the
       // emitter (its particles carry effect-local coords, negated y); a world
