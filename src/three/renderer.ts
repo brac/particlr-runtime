@@ -140,9 +140,15 @@ export class ThreeParticleRenderer {
 
       const layerIndex = this.views.length;
 
-      // Trail ribbon (Task 8): build the mesh BEFORE the sprite mesh so it sits
-      // behind (renders under) this layer's sprites. Its geometry buffers ARE
-      // the core TrailGeometry arrays; sync() fills them via
+      // Trail ribbon (Task 8): construct the mesh BEFORE the sprite mesh. Both
+      // are transparent (applyBlend sets material.transparent = true), so
+      // three's WebGLRenderer paints them via its transparent-object sort
+      // (renderOrder, then camera depth, then Object3D.id as the tiebreak for
+      // coplanar quads at equal depth) — NOT scene-graph child order. Building
+      // the trail mesh first gives it the lower Object3D.id, so it paints
+      // under this layer's sprites at equal depth; a future refactor must not
+      // assume `root.add` order alone controls paint order. Its geometry
+      // buffers ARE the core TrailGeometry arrays; sync() fills them via
       // computeTrailGeometry/computeConnectGeometry. Blend mode is shared with
       // the layer. Only trail layers add an extra child, so a trail-null
       // document's child order is unchanged (Pixi renderer.ts:258-273 parity).

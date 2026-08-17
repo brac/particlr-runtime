@@ -3,3 +3,4 @@
 // (V2_DESIGN Part 1): NOT a 3D particle sim.
 export { ThreeParticleRenderer, type ThreeParticleRendererOptions } from "./renderer.js";
 export { builtinTexture, textureFromData } from "./textures.js";
+export { makeTrailView, syncTrailView, type ThreeTrailView } from "./trailMesh.js";
