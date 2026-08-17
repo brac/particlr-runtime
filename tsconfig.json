@@ -6,5 +6,5 @@
     "noEmit": true,
     "types": []
   },
-  "include": ["src/format", "src/core", "src/index.ts"]
+  "include": ["src/format", "src/core", "src/texgen", "src/index.ts"]
 }

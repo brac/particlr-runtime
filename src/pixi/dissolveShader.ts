@@ -32,7 +32,7 @@ import {
   Texture,
 } from "pixi.js";
 import type { DissolveConfig } from "../format/types.js";
-import { generateDissolveNoise } from "./textures.js";
+import { generateDissolveNoise } from "../texgen/index.js";
 
 // --- Forked shader sources (exported for the canary test) ------------------
 

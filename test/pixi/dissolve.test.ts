@@ -4,7 +4,7 @@ import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { GpuProgram, ParticleContainer, UniformGroup } from "pixi.js";
 import { dissolveVertexGl, dissolveFragmentGl, dissolveWgsl } from "../../src/pixi/dissolveShader.js";
-import { generateDissolveNoise, dissolveNoiseValue } from "../../src/pixi/textures.js";
+import { generateDissolveNoise, dissolveNoiseValue } from "../../src/texgen/index.js";
 import { parseParticle } from "../../src/index.js";
 import { Effect } from "../../src/core/effect.js";
 import { PixiParticleRenderer } from "../../src/pixi/renderer.js";

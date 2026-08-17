@@ -37,10 +37,10 @@ import { decodeBase64, IMAGE_DATA_URL_RE } from "../format/base64.js";
 import { computeRenderState, makeRenderBuffers, type LayerRenderBuffers } from "../core/render.js";
 import { computeTrailGeometry, computeConnectGeometry, makeTrailGeometry } from "../core/trailGeometry.js";
 import type { Effect } from "../core/effect.js";
-// textures.ts has zero pixi imports and is SHARED as-is with the v8 adapter
+// texgen/index.ts has zero pixi imports and is SHARED as-is with the v8 adapter
 // (never copied — Codebase facts, PIXI7_PLAN). We import the pure pixel-math
 // generator here and wrap it in a v7 Texture below.
-import { generateBuiltinTexture, type TextureData } from "../pixi/textures.js";
+import { generateBuiltinTexture, type TextureData } from "../texgen/index.js";
 import { makeTrailView, setTrailTexture, syncTrailView, type TrailView } from "./trailMesh.js";
 import { DissolveParticleContainer } from "./dissolveRenderer.js";
 
