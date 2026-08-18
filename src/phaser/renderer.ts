@@ -28,6 +28,7 @@ import {
   type TrailGeometry,
 } from "../core/trailGeometry.js";
 import { makeTrailScratch, submitTrailStrips, type StripBatchLike, type TrailScratch } from "./trailStrip.js";
+import { registerDissolveHandler } from "./dissolveBatch.js";
 import type { Mat2D } from "./quadMath.js";
 
 /**
@@ -349,6 +350,21 @@ export class PhaserParticleRenderer {
 
       const go = new ParticlrLayer(opts.scene);
       if (webgl) go.setBlendMode(blendIndex);
+
+      // Dissolve: swap this GO's batch handler for a per-layer subclass that
+      // compiles the erosion into the quad shader. The handler reads
+      // `effect.time` through `owner` at flush time, so `sync()` writes
+      // nothing. Ribbons are deliberately untouched — dissolve does not erode
+      // a trail (validator warning E25), and the strip batcher is a different
+      // node entirely.
+      if (webgl && layer.dissolve !== null) {
+        const node = registerDissolveHandler(opts.scene, this.views.length, {
+          dissolve: layer.dissolve,
+          owner: effect,
+        });
+        if (node !== null) go.setRenderNodeRole("BatchHandler", node);
+      }
+
       this.gameObject.add(go);
 
       // While a user sheet is still the built-in placeholder, slicing it would

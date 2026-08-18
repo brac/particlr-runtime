@@ -80,6 +80,24 @@ export function makeFakeStripHandler() {
   };
 }
 
+/**
+ * A `ParticlrDissolveBatch` double. The real subclass extends
+ * `BatchHandlerQuad`, whose constructor demands a live WebGL context
+ * (index buffers, VAOs, a ProgramManager), so the fake manager NEVER invokes
+ * the registered constructor — it hands back this stand-in instead, exactly
+ * as `getNode("BatchHandlerQuad")` hands back `makeFakeQuadHandler()`.
+ */
+export function makeFakeDissolveHandler(name: string) {
+  const calls: unknown[][] = [];
+  return {
+    name,
+    calls,
+    batch(...args: unknown[]) {
+      calls.push(args);
+    },
+  };
+}
+
 export type FakeScene = Awaited<ReturnType<typeof makeFakeScene>>;
 
 /**
@@ -109,25 +127,50 @@ export async function makeFakeScene() {
     willRender: () => true,
   };
 
+  // Custom render nodes registered through the manager, in registration order.
+  const registeredNodes: string[] = [];
+  const customNodes = new Map<string, ReturnType<typeof makeFakeDissolveHandler>>();
+
+  const renderNodes = {
+    registeredNodes,
+    hasNode: (name: string) =>
+      customNodes.has(name) || name === "BatchHandlerQuad" || name === "BatchHandlerStrip",
+    addNode(name: string, _node: unknown) {
+      if (renderNodes.hasNode(name)) throw new Error(`node ${name} already exists.`);
+      registeredNodes.push(name);
+      customNodes.set(name, makeFakeDissolveHandler(name));
+    },
+    /** Real Phaser stores the constructor and instantiates it on the first
+     * `getNode`; this double records the registration and skips construction. */
+    addNodeConstructor(name: string, _ctor: unknown) {
+      if (renderNodes.hasNode(name)) throw new Error(`node constructor ${name} already exists.`);
+      registeredNodes.push(name);
+      customNodes.set(name, makeFakeDissolveHandler(name));
+    },
+    getNode: (name: string) => {
+      if (name === "BatchHandlerQuad") return quadHandler;
+      if (name === "BatchHandlerStrip") return stripHandler;
+      return customNodes.get(name) ?? null;
+    },
+  };
+
   const renderer = {
     blendModes,
     addBlendMode(func: number[], equation: number) {
       blendModes.push({ func, equation });
       return blendModes.length - 2; // mirrors Phaser 4.2.1's off-by-one
     },
-    renderNodes: {
-      getNode: (name: string) => {
-        if (name === "BatchHandlerQuad") return quadHandler;
-        if (name === "BatchHandlerStrip") return stripHandler;
-        return null;
-      },
-    },
+    renderNodes,
   };
 
   const scene = {
     events,
     quadHandler,
     stripHandler,
+    /** Names passed to `renderNodes.addNode`/`addNodeConstructor`, in order. */
+    registeredNodes,
+    /** The double standing in for a registered custom node, by name. */
+    customNode: (name: string) => customNodes.get(name) ?? null,
     textures,
     sys: {
       events,
