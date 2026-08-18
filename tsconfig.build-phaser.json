@@ -1,0 +1,13 @@
+{
+  "//": "Emit config for the Phaser adapter only. Separate from tsconfig.build.json (which EXCLUDES src/phaser) so the adapter typechecks against phaser's bundled types while tsc emits `import ... from \"phaser\"` unchanged into dist/phaser. rootDir stays `src` so src/phaser/index.ts emits to dist/phaser/index.js.",
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "outDir": "dist",
+    "rootDir": "src",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true
+  },
+  "include": ["src/phaser"]
+}
