@@ -17,7 +17,7 @@ import {
   builtinKey,
   ensureBuiltinTexture,
   decodeUserTexture,
-  userTextureKey,
+  cachedUserTexture,
   type PhaserTextureManagerLike,
 } from "./textures.js";
 import { submitLayerQuads, type FrameInfo, type QuadBatchLike } from "./submit.js";
@@ -300,10 +300,9 @@ export class PhaserParticleRenderer {
         // Another instance may already have decoded this exact data URL
         // (same doc reused, or a rebuilt preview) — resolve synchronously
         // from the TextureManager instead of always flashing the placeholder
-        // (pixi/three parity, mirrors `cachedUserTexture` in textures.ts but
-        // through `this.tm`'s richer `LayerTextureLike`-returning `get`).
-        const key = userTextureKey(dataUrl);
-        if (this.tm.exists(key)) return { texture: this.tm.get(key) };
+        // (pixi/three parity).
+        const cached = cachedUserTexture(this.tm, dataUrl);
+        if (cached) return { texture: cached };
         return { texture: this.builtin("circle-soft"), pendingDataUrl: dataUrl };
       }
       // E10: missing embedded texture -> substitute the soft circle + warn.

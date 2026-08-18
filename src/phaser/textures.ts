@@ -85,8 +85,16 @@ export function userTextureKey(dataUrl: string): string {
  * already decoded the same data URL, instead of always showing the
  * placeholder for one microtask (pixi/three parity,
  * `src/pixi/renderer.ts:476-478`).
+ *
+ * Generic over the manager's `get` return type so a caller with a richer
+ * `TextureManagerLike` (e.g. `src/phaser/renderer.ts`'s `get(key):
+ * LayerTextureLike`) gets that richer type back, not the minimal
+ * `PhaserTextureLike` — no cast needed at the call site.
  */
-export function cachedUserTexture(tm: PhaserTextureManagerLike, dataUrl: string): PhaserTextureLike | null {
+export function cachedUserTexture<T extends PhaserTextureLike>(
+  tm: { exists(key: string): boolean; get(key: string): T },
+  dataUrl: string,
+): T | null {
   const key = userTextureKey(dataUrl);
   return tm.exists(key) ? tm.get(key) : null;
 }
