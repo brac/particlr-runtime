@@ -367,8 +367,14 @@ export class PhaserParticleRenderer {
           owner: effect,
         });
         if (node !== null) {
-          go.setRenderNodeRole("BatchHandler", node);
+          // Claim the name BEFORE assigning the role. `setRenderNodeRole`
+          // resolves the name through `RenderNodeManager.getNode`, which
+          // CONSTRUCTS the handler eagerly (and can throw — a shader that fails
+          // to compile). Pushing first means `destroy()` still hands the name
+          // back for reuse on that path instead of burning it for the Game's
+          // lifetime.
           this.dissolveNodes.push(node);
+          go.setRenderNodeRole("BatchHandler", node);
         }
       }
 
@@ -457,10 +463,21 @@ export class PhaserParticleRenderer {
     // the renderer does.
     for (const node of this.dissolveNodes) releaseDissolveHandler(this.scene, node);
     this.dissolveNodes.length = 0;
+    // Drop the layer views too: each one owns maxParticles-sized render buffers
+    // (and a trail's geometry + scratch), which would otherwise stay reachable
+    // from a destroyed renderer for as long as the host holds it.
+    this.views.length = 0;
     // Destroys the layer children with it. Textures are NEVER destroyed:
     // built-ins and decoded user sheets are shared page-lifetime cache entries
     // in the TextureManager (same stance as every other adapter).
-    this.gameObject.destroy();
+    //
+    // `isDestroyed` is checked because this can be REENTRANT: the plugin's
+    // `this.add.particlr(...)` sugar hooks the GameObject's DESTROY event to
+    // call `destroy()`, and Phaser emits that event from INSIDE
+    // `GameObject.destroy()` — before it clears `this.scene`, so its own
+    // already-destroyed guard would not catch the second call and it would run
+    // its whole teardown twice.
+    if (!(this.gameObject as { isDestroyed?: boolean }).isDestroyed) this.gameObject.destroy();
   }
 
   // --- textures ------------------------------------------------------------

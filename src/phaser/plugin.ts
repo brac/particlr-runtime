@@ -97,6 +97,17 @@ export function registerParticlr(): void {
       const fx = new Effect(doc, { seed: opts?.seed ?? 1337 });
       const view = new PhaserParticleRenderer(fx, { scene: this.scene, autoStep: opts?.autoStep });
       view.gameObject.setPosition(x, y);
+      // The sugar route hands the host a GameObject, not the renderer, so the
+      // GameObject's own lifetime has to be the teardown trigger: destroying it
+      // (directly, via `container.destroy()`, or by a scene shutdown that
+      // destroys the display list) releases the scene UPDATE listener and the
+      // dissolve render-node names. Without this, `this.add.particlr(...)`
+      // would leak a per-frame listener on every scene restart.
+      // `PhaserParticleRenderer.destroy()` is idempotent and skips a GameObject
+      // that is already being destroyed, so this is safe when the host ALSO
+      // holds the renderer (via `gameObject.particlr.view`) and calls
+      // `view.destroy()` itself — in either order.
+      view.gameObject.once(Phaser.GameObjects.Events.DESTROY, () => view.destroy());
       (view.gameObject as unknown as { particlr: { fx: Effect; view: PhaserParticleRenderer } }).particlr = {
         fx,
         view,

@@ -130,13 +130,3 @@ export function decodeUserTexture(tm: PhaserTextureManagerLike, dataUrl: string)
   cache.set(dataUrl, p);
   return p;
 }
-
-/** Pixel dimensions of a Phaser texture, structural-minimal accessor. */
-export interface PhaserTextureSizeLike {
-  source: [{ width: number; height: number }];
-}
-
-export function texSize(tex: PhaserTextureSizeLike): { width: number; height: number } {
-  const src = tex.source[0];
-  return { width: src.width, height: src.height };
-}

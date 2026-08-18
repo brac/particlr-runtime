@@ -182,6 +182,32 @@ describe("dissolve", () => {
     expect(pendingDissolveLayerRef(scene as never, "particlr-dissolve-0")).toBeNull();
   });
 
+  it("releases a node whose eager construction failed, without re-running it", async () => {
+    // `setRenderNodeRole` resolves the name through `getNode`, which CONSTRUCTS
+    // the handler — and can throw (a shader that will not compile). The name is
+    // claimed before that call, so `destroy()` still hands it back; the release
+    // path must then not re-enter `getNode`, which would re-run and re-throw the
+    // failed construction out of `destroy()`.
+    const { releaseDissolveHandler } = await loadDissolve();
+    let getNodeCalls = 0;
+    const manager = {
+      addNodeConstructor() {},
+      // Real Phaser only files a node under `_nodes[name]` after the
+      // constructor returns, so `hasNode(name, true)` stays false for one that
+      // threw — while `hasNode(name)` stays true, because the constructor entry
+      // is never deleted.
+      hasNode: (_name: string, constructed?: boolean) => !constructed,
+      getNode: () => {
+        getNodeCalls++;
+        throw new Error("shader failed to compile");
+      },
+    };
+    const scene = { sys: { renderer: { renderNodes: manager } } };
+
+    expect(() => releaseDissolveHandler(scene as never, "particlr-dissolve-0")).not.toThrow();
+    expect(getNodeCalls).toBe(0);
+  });
+
   it("registers nothing for a document with no dissolve layer", async () => {
     const PhaserParticleRenderer = await loadRenderer();
     const scene = await makeFakeScene();
@@ -275,7 +301,9 @@ describe("dissolve", () => {
     expect(dissolveUniformValues(DISSOLVE, 7)).toEqual({
       uParticlrNoise: 7,
       uParticlrFrequency: 4,
-      uParticlrScroll: [0.1, -0.05],
+      // y negated: the authored scroll is top-down-v, the quad's uv is
+      // bottom-up (see dissolveUniformValues).
+      uParticlrScroll: [0.1, 0.05],
       uParticlrEdgeWidth: 0.15,
       uParticlrEdgeColor: [1, 0.5, 0.1, 1],
     });

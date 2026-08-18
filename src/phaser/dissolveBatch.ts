@@ -150,6 +150,9 @@ const FRAGMENT_PROCESS = `
 float prtA = outTint.a;
 float prtTexA = prtA > 0.0 ? fragColor.a / prtA : 0.0;
 vec3 prtStraight = fragColor.a > 0.0 ? fragColor.rgb / fragColor.a : vec3(0.0);
+// outTexCoord's v is BOTTOM-UP (quadMath.frameUV), so uParticlrScroll arrives
+// with its y already negated by dissolveUniformValues — without that the
+// erosion would scroll opposite to pixi/three.
 float prtN = texture2D(uParticlrNoise, outTexCoord * uParticlrFrequency + uParticlrTime * uParticlrScroll).r;
 float prtEw = max(uParticlrEdgeWidth, 1e-4);
 float prtT = (1.0 - prtA) * (1.0 + uParticlrEdgeWidth) - uParticlrEdgeWidth;
@@ -191,7 +194,18 @@ export function dissolveUniformValues(
   return {
     uParticlrNoise: noiseUnit,
     uParticlrFrequency: cfg.frequency,
-    uParticlrScroll: [cfg.scroll.x, cfg.scroll.y],
+    // Y IS NEGATED — the double-flip chain, in one place. The core's
+    // `dissolve.scroll` is authored in the TOP-DOWN v convention every sibling
+    // adapter samples in (v grows downward across the sprite), but the noise is
+    // sampled at `outTexCoord`, which `quadMath.frameUV` emits BOTTOM-UP
+    // (v = 1 at the quad's top) because that is what Phaser's own texture space
+    // requires. Feeding the authored y straight through therefore scrolls the
+    // erosion pattern the wrong way: measured on a static-sprite probe at
+    // `scroll.y = -0.12`, the pattern travelled UP 8 px/s in Phaser where Pixi
+    // travelled DOWN 8 px/s. Negating y once, here, cancels the uv flip and
+    // restores the sibling adapters' direction. x needs no such fix: `frameUV`
+    // leaves u top-down/left-right.
+    uParticlrScroll: [cfg.scroll.x, -cfg.scroll.y],
     uParticlrEdgeWidth: cfg.edgeWidth,
     uParticlrEdgeColor: e ? [e.r, e.g, e.b, e.a] : [0, 0, 0, 0],
   };
@@ -529,6 +543,13 @@ export function releaseDissolveHandler(scene: Phaser.Scene, name: string): void 
   // constructing it — the box its retained constructor closure reads from.
   const box = state.pending.get(name);
   if (box !== undefined) box.current = null;
+  // `hasNode(name, true)` — CONSTRUCTED only. `getNode` instantiates on demand,
+  // so an unconditional call here would (a) build a handler for a node the
+  // renderer never got to use and (b) re-run — and re-throw — a construction
+  // that already failed once (a shader that will not compile), turning
+  // `destroy()` into a throw. An unconstructed node holds no Effect reference
+  // anyway: emptying the box above is the whole of its cleanup.
+  if (!manager.hasNode(name, true)) return;
   const node = manager.getNode(name) as DissolveNodeLike | null;
   if (node !== null && typeof node.setLayerRef === "function") node.setLayerRef(IDLE_LAYER_REF);
 }

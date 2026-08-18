@@ -270,6 +270,12 @@ need the `Effect` and the renderer afterwards.
 (`FileTypesManager` and `GameObjectFactory.prototype`), so calling it before any
 `Game` exists is fine, and calling it twice is a no-op.
 
+**Teardown.** Destroying the returned GameObject tears the renderer down with it
+— `container.destroy()`, or a scene shutdown that destroys the display list,
+releases the scene UPDATE listener and any dissolve render nodes. Nothing else
+to remember on this route. Hosts using the class route below own that step
+themselves: call `view.destroy()`.
+
 ### The class route (host-driven stepping)
 
 Skip the sugar when you want the cross-adapter R4 surface — `.gameObject`,

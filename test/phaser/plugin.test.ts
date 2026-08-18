@@ -4,6 +4,8 @@
 // golden lane's job (see plugin.ts's header comment).
 import { describe, it, expect, beforeAll } from "vitest";
 import { installPhaserCanvasStub } from "./_phaserEnv.js";
+import { makeFakeScene, makeEffectDoc } from "./_fakes.js";
+import { parseParticle } from "../../src/index.js";
 
 beforeAll(() => installPhaserCanvasStub());
 
@@ -49,5 +51,39 @@ describe("registerParticlr", () => {
     expect(() => particlr.call(fakeThis, "typo-key", 0, 0)).toThrowError(
       /no loaded document for key "typo-key".*this\.load\.particlr\("typo-key", url\)/s,
     );
+  });
+
+  it("tears the renderer down when the GameObject it returned is destroyed", async () => {
+    // The sugar route never hands the host a renderer, so the GameObject's
+    // lifetime has to be the teardown trigger: `container.destroy()` — or a
+    // scene shutdown destroying the display list — must release the per-frame
+    // UPDATE listener. Same probe as renderer.test.ts's auto-step test.
+    const Phaser = (await import("phaser")).default;
+    const { registerParticlr } = await import("../../src/phaser/plugin.js");
+    registerParticlr();
+
+    const scene = await makeFakeScene();
+    const parsed = parseParticle(JSON.stringify(makeEffectDoc(1)));
+    expect(parsed.ok).toBe(true);
+    const factoryThis = {
+      scene: { ...scene, cache: { json: { get: () => parsed.doc } } },
+      displayList: { add: <T,>(go: T): T => go },
+    };
+
+    const particlr = (Phaser.GameObjects.GameObjectFactory.prototype as Record<string, unknown>)
+      .particlr as (this: unknown, key: string, x: number, y: number) => Phaser.GameObjects.Container;
+
+    const go = particlr.call(factoryThis, "fx", 10, 20);
+    // autoStep defaults on, so the renderer is holding a scene UPDATE listener.
+    expect(scene.events.listenerCount("update")).toBe(1);
+
+    go.destroy();
+    expect(scene.events.listenerCount("update")).toBe(0);
+    // The reentrancy the hook creates (destroy -> DESTROY -> view.destroy() ->
+    // gameObject.destroy()) must not run Phaser's teardown twice, and a host
+    // that also calls `view.destroy()` afterwards must still be a no-op.
+    const view = (go as unknown as { particlr: { view: { destroy(): void } } }).particlr.view;
+    expect(() => view.destroy()).not.toThrow();
+    expect(scene.events.listenerCount("update")).toBe(0);
   });
 });
