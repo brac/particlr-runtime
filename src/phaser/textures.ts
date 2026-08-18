@@ -78,7 +78,14 @@ export function decodeUserTexture(tm: PhaserTextureManagerLike, dataUrl: string)
   if (hit !== undefined) return hit;
 
   const p = (async () => {
-    const bitmap = await createImageBitmap(dataUrlToBlob(dataUrl));
+    // imageOrientation "none": bitmap keeps file row order (no EXIF
+    // auto-rotate). premultiplyAlpha "none": avoids a double-premultiply
+    // round-trip that fringes semi-transparent edges. Same options as
+    // src/three/textures.ts's decodeDataUrlTexture.
+    const bitmap = await createImageBitmap(dataUrlToBlob(dataUrl), {
+      imageOrientation: "none",
+      premultiplyAlpha: "none",
+    });
     const canvas = document.createElement("canvas");
     canvas.width = bitmap.width;
     canvas.height = bitmap.height;

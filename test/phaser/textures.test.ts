@@ -33,6 +33,12 @@ function fakeTM(): PhaserTextureManagerLike & { added: string[] } {
   };
 }
 
+// Captures the options passed to the createImageBitmap stub so the test can
+// assert the implementation forwards them (imageOrientation/premultiplyAlpha
+// — dropping them would auto-rotate EXIF images and double-premultiply
+// semi-transparent edges).
+let lastBitmapOptions: ImageBitmapOptions | undefined;
+
 beforeAll(() => {
   // jsdom implements HTMLCanvasElement but not a real 2D context — install
   // the shared hand-rolled test double (same one Task 2+ use for Phaser's
@@ -41,11 +47,10 @@ beforeAll(() => {
   // jsdom has no createImageBitmap — stub it with a fake bitmap the
   // implementation only needs to draw to a canvas.
   if (typeof globalThis.createImageBitmap !== "function") {
-    vi.stubGlobal("createImageBitmap", async () => ({
-      width: 1,
-      height: 1,
-      close() {},
-    }));
+    vi.stubGlobal("createImageBitmap", async (_blob: Blob, options?: ImageBitmapOptions) => {
+      lastBitmapOptions = options;
+      return { width: 1, height: 1, close() {} };
+    });
   }
 });
 
@@ -72,5 +77,6 @@ describe("phaser texture layer", () => {
     expect(a).toBe(b);
     expect(tm.added).toHaveLength(1);
     expect(tm.added[0]!.startsWith("particlr:user:")).toBe(true);
+    expect(lastBitmapOptions).toEqual({ imageOrientation: "none", premultiplyAlpha: "none" });
   });
 });
