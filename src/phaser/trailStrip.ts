@@ -37,6 +37,12 @@
 //   - COLOUR PACKING: it calls `getTintAppendFloatAlpha(colors[i/2],
 //     alphas[i/2] * alpha)`, i.e. `colors` is a Uint24 **0xRRGGBB** word and the
 //     alpha rides the separate float array — NOT a packed ABGR/RGBA word.
+//   - OVERFLOW THROWS: `vertices.length/4 > instancesPerBatch` raises. That
+//     limit is `min(config.instancesPerBatch || renderer.config.batchSize ||
+//     32768, 32768)` instances (BatchHandler.js:81-84) — i.e. the HOST's
+//     `render.batchSize` (Phaser default 16384) usually binds long before the
+//     65536-vertex index ceiling. A host that lowers batchSize must not crash
+//     us, so `emit` drops an over-long ribbon (see `instancesPerBatch` below).
 //   - Strips are linked inside one batch by degenerate triangles that the
 //     handler inserts itself (it repeats the previous last vertex and our first
 //     vertex when `instanceCount > 0`), so consecutive calls need no padding
@@ -53,6 +59,14 @@ import { to255 } from "./submit.js";
  * module needs. Structural, so the unit test drives it with a capture double.
  */
 export interface StripBatchLike {
+  /**
+   * The handler's per-batch instance capacity (2 vertices per instance).
+   * `min(render.batchSize ?? 16384, 32768)` on the real node — HOST
+   * CONFIGURABLE, so it can be far below the hardware ceiling. `batchStrip`
+   * THROWS on a strip larger than this, so it is read (when present) to drop
+   * the ribbon instead. Optional: a double need not model it.
+   */
+  instancesPerBatch?: number;
   batchStrip(
     drawingContext: unknown,
     src: unknown,
@@ -70,41 +84,38 @@ export interface StripBatchLike {
 
 /**
  * Per-layer submission scratch: the four arrays `batchStrip` reads, sized once
- * for the longest ribbon the layer can produce. `batchStrip` needs an array
- * whose LENGTH is the ribbon, so the exact-length views are memoised on the
- * last ribbon size seen — ribbons within a layer overwhelmingly share a length
- * (saturated per-particle rings; connect mode has a single ribbon), so steady
- * state allocates nothing at all.
+ * for the longest ribbon the layer can produce. `batchStrip` derives the strip
+ * from `vertices.length`, so each call needs a view cut to that ribbon exactly.
+ * Those views are cached BY VERTEX COUNT in sparse arrays — a single last-n
+ * cache would thrash, because a continuously-emitting layer's ribbons are
+ * different lengths within the same frame. The index space is small (a
+ * per-particle ribbon is at most `2 * maxPoints` = 64 vertices, the validator
+ * caps `maxPoints` at 32; connect mode has one ribbon), so after the first few
+ * frames every length is cached and submission allocates nothing.
  */
 export interface TrailScratch {
   readonly verts: Float32Array;
   readonly uv: Float32Array;
   readonly colors: Uint32Array;
   readonly alphas: Float32Array;
-  /** Vertex count the cached views below are cut to (0 = none yet). */
-  n: number;
-  vView: Float32Array;
-  uvView: Float32Array;
-  cView: Uint32Array;
-  aView: Float32Array;
+  /** Exact-length views, indexed by ribbon vertex count (sparse). */
+  readonly vViews: Float32Array[];
+  readonly uvViews: Float32Array[];
+  readonly cViews: Uint32Array[];
+  readonly aViews: Float32Array[];
 }
 
 /** `maxVerts` = the most vertices ONE ribbon of this layer can hold. */
 export function makeTrailScratch(maxVerts: number): TrailScratch {
-  const verts = new Float32Array(maxVerts * 2);
-  const uv = new Float32Array(maxVerts * 2);
-  const colors = new Uint32Array(maxVerts);
-  const alphas = new Float32Array(maxVerts);
   return {
-    verts,
-    uv,
-    colors,
-    alphas,
-    n: 0,
-    vView: verts.subarray(0, 0),
-    uvView: uv.subarray(0, 0),
-    cView: colors.subarray(0, 0),
-    aView: alphas.subarray(0, 0),
+    verts: new Float32Array(maxVerts * 2),
+    uv: new Float32Array(maxVerts * 2),
+    colors: new Uint32Array(maxVerts),
+    alphas: new Float32Array(maxVerts),
+    vViews: [],
+    uvViews: [],
+    cViews: [],
+    aViews: [],
   };
 }
 
@@ -118,13 +129,13 @@ const TINT_MODE_MULTIPLY = 0;
  */
 const GO_ALPHA = 1;
 
+/** Fill (once) and return the cached exact-length views for an `n`-vertex ribbon. */
 function views(s: TrailScratch, n: number): void {
-  if (s.n === n) return;
-  s.n = n;
-  s.vView = s.verts.subarray(0, n * 2);
-  s.uvView = s.uv.subarray(0, n * 2);
-  s.cView = s.colors.subarray(0, n);
-  s.aView = s.alphas.subarray(0, n);
+  if (s.vViews[n] !== undefined) return;
+  s.vViews[n] = s.verts.subarray(0, n * 2);
+  s.uvViews[n] = s.uv.subarray(0, n * 2);
+  s.cViews[n] = s.colors.subarray(0, n);
+  s.aViews[n] = s.alphas.subarray(0, n);
 }
 
 /**
@@ -180,6 +191,13 @@ function emit(
   // the same geometry), but a mis-sized layer must drop the ribbon, not write
   // out of bounds.
   if (n < 2 || n > cap) return;
+  // A strip larger than the handler's batch capacity THROWS inside
+  // `batchStrip`. That capacity comes from the host's `render.batchSize`
+  // (Phaser default 16384 instances, capped at 32768), so a host that lowers
+  // it plus a long connect ribbon would crash the render pass. Drop the ribbon
+  // instead: the other adapters degrade rather than throw, and so must this one.
+  const limit = handler.instancesPerBatch;
+  if (limit !== undefined && n / 2 > limit) return;
   views(s, n);
 
   const pos = geom.positions;
@@ -208,10 +226,10 @@ function emit(
     src,
     calcMatrix,
     glTexture,
-    s.vView,
-    s.uvView,
-    s.cView,
-    s.aView,
+    s.vViews[n]!,
+    s.uvViews[n]!,
+    s.cViews[n]!,
+    s.aViews[n]!,
     GO_ALPHA,
     TINT_MODE_MULTIPLY,
     renderOptions,

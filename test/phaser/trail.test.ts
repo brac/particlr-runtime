@@ -137,6 +137,24 @@ describe("submitTrailStrips", () => {
     expect(h.calls).toHaveLength(1);
   });
 
+  it("drops a ribbon that would overflow the handler's batch capacity instead of throwing", () => {
+    // The real `batchStrip` THROWS above `instancesPerBatch` (2 verts per
+    // instance), and that limit follows the host's `render.batchSize`, so a
+    // small-batch host must degrade, not crash.
+    const geom = twoRibbonFixture(); // two ribbons of 4 verts = 2 instances each
+    const scratch = makeTrailScratch(64);
+
+    const tight = capture() as ReturnType<typeof capture> & { instancesPerBatch?: number };
+    tight.instancesPerBatch = 1;
+    submitTrailStrips(tight, null, null, null, null, geom, scratch, {});
+    expect(tight.calls).toHaveLength(0);
+
+    const roomy = capture() as ReturnType<typeof capture> & { instancesPerBatch?: number };
+    roomy.instancesPerBatch = 2;
+    submitTrailStrips(roomy, null, null, null, null, geom, scratch, {});
+    expect(roomy.calls).toHaveLength(2);
+  });
+
   it("reuses the scratch buffers across ribbons and across frames", () => {
     const geom = twoRibbonFixture();
     const h = capture();
@@ -235,6 +253,43 @@ describe("PhaserParticleRenderer trails", () => {
     scene.stripHandler.calls.length = 0;
     trailGo.renderWebGLStep(null as never, trailGo as never, drawingContext as never, null as never);
     expect(scene.stripHandler.calls).toHaveLength(0);
+    view.destroy();
+  });
+
+  it("recovers the SAME ribbon boundaries emitStrip wrote, over a real stepped sim", async () => {
+    // The hand-authored fixtures above encode the same assumption the boundary
+    // walk does, so they cannot catch a change in `emitStrip`'s index
+    // emission (mitering, joins, a different winding). This drives the real
+    // core geometry and cross-checks the walk against the sim's own ribbon
+    // count and vertex total.
+    const PhaserParticleRenderer = await loadRenderer();
+    const scene = await makeFakeScene();
+    const fx = effectFrom(trailDoc("perParticle"));
+    const view = new PhaserParticleRenderer(fx, { scene: scene as never, autoStep: false });
+    const trail = (
+      view.gameObject.list as Array<{ view: { trail: { geom: TrailGeometry; scratch: never } } }>
+    )[0]!.view.trail;
+    const h = capture();
+    let mostRibbons = 0;
+
+    for (let frame = 0; frame < 30; frame++) {
+      fx.step(1 / 60);
+      view.sync(); // fills trail.geom via computeTrailGeometry
+      h.calls.length = 0;
+      submitTrailStrips(h, null, null, null, null, trail.geom, trail.scratch, {});
+
+      // The sim's own answer: one ribbon per particle holding >= 2 points.
+      const pool = fx.layers[0]!.pool as unknown as { count: number; trail: { len: ArrayLike<number> } };
+      let ribbons = 0;
+      for (let i = 0; i < pool.count; i++) if (pool.trail.len[i]! >= 2) ribbons++;
+      mostRibbons = Math.max(mostRibbons, ribbons);
+
+      expect(h.calls).toHaveLength(ribbons);
+      expect(h.calls.reduce((sum, c) => sum + c.verts, 0)).toBe(trail.geom.vertexCount);
+    }
+
+    // Non-vacuous: the run really did exercise the multi-ribbon split.
+    expect(mostRibbons).toBeGreaterThan(1);
     view.destroy();
   });
 
