@@ -63,7 +63,8 @@ const uv = new Float32Array(4);
 /** Multiply mode — BatchHandlerQuad's default tint mode. */
 const TINT_MODE_MULTIPLY = 0;
 
-function to255(v: number): number {
+/** 0..1 float channel -> clamped 0..255 byte. Shared with `trailStrip.ts`. */
+export function to255(v: number): number {
   const n = Math.round(v * 255);
   return n < 0 ? 0 : n > 255 ? 255 : n;
 }

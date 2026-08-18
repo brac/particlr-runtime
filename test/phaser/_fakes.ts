@@ -68,6 +68,18 @@ export function makeFakeQuadHandler() {
   };
 }
 
+/** A BatchHandlerStrip double: records every submitted ribbon. */
+export function makeFakeStripHandler() {
+  const calls: unknown[][] = [];
+  return {
+    name: "BatchHandlerStrip",
+    calls,
+    batchStrip(...args: unknown[]) {
+      calls.push(args);
+    },
+  };
+}
+
 export type FakeScene = Awaited<ReturnType<typeof makeFakeScene>>;
 
 /**
@@ -80,6 +92,7 @@ export async function makeFakeScene() {
   const Phaser = (await import("phaser")).default;
   const events = new Phaser.Events.EventEmitter();
   const quadHandler = makeFakeQuadHandler();
+  const stripHandler = makeFakeStripHandler();
   const textures = makeFakeTextureManager();
 
   // Phaser reserves indices 0..27 for its native blend modes; a custom mode is
@@ -103,13 +116,18 @@ export async function makeFakeScene() {
       return blendModes.length - 2; // mirrors Phaser 4.2.1's off-by-one
     },
     renderNodes: {
-      getNode: (name: string) => (name === "BatchHandlerQuad" ? quadHandler : null),
+      getNode: (name: string) => {
+        if (name === "BatchHandlerQuad") return quadHandler;
+        if (name === "BatchHandlerStrip") return stripHandler;
+        return null;
+      },
     },
   };
 
   const scene = {
     events,
     quadHandler,
+    stripHandler,
     textures,
     sys: {
       events,

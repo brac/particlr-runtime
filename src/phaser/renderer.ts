@@ -21,6 +21,13 @@ import {
   type PhaserTextureManagerLike,
 } from "./textures.js";
 import { submitLayerQuads, type FrameInfo, type QuadBatchLike } from "./submit.js";
+import {
+  computeConnectGeometry,
+  computeTrailGeometry,
+  makeTrailGeometry,
+  type TrailGeometry,
+} from "../core/trailGeometry.js";
+import { makeTrailScratch, submitTrailStrips, type StripBatchLike, type TrailScratch } from "./trailStrip.js";
 import type { Mat2D } from "./quadMath.js";
 
 /**
@@ -55,6 +62,16 @@ export interface PhaserParticleRendererOptions {
   loadTexture?: (dataUrl: string) => Promise<LayerTextureLike>;
 }
 
+/** The ribbon half of a trail layer. Its GO shares the `LayerView` with the
+ * particle GO, so the async texture swap reaches both with no rebinding. */
+interface TrailView {
+  go: ParticlrTrailLayer;
+  /** Core geometry, refilled every `sync()`; `indexCount` is the draw range. */
+  geom: TrailGeometry;
+  /** Submission scratch, sized for the longest single ribbon of this layer. */
+  scratch: TrailScratch;
+}
+
 interface LayerView {
   go: ParticlrLayer;
   /** The layer's simulation — a stable reference for this Effect's lifetime. */
@@ -63,6 +80,8 @@ interface LayerView {
   /** Recomputed when an async user texture swaps in. */
   frame: FrameInfo;
   texture: LayerTextureLike;
+  /** null unless the layer carries a trail module. */
+  trail: TrailView | null;
 }
 
 /**
@@ -72,6 +91,11 @@ interface LayerView {
  * the runtime takes `[key, value]` pairs — hence the cast.
  */
 const NODE_MAP = new Phaser.Structs.Map<string, string>([["BatchHandler", "BatchHandlerQuad"]] as unknown as string[]);
+
+/** Same role, the strip batcher: ribbons go through Phaser's Rope path. */
+const TRAIL_NODE_MAP = new Phaser.Structs.Map<string, string>([
+  ["BatchHandler", "BatchHandlerStrip"],
+] as unknown as string[]);
 
 /** Component mixins this GO needs. `Texture` is deliberately absent: the layer
  * owns its texture, so `renderFlags` stays at the all-set default. */
@@ -182,6 +206,90 @@ const COMPONENTS = Phaser.GameObjects.Components as unknown as Record<string, ob
 /** Scratch transform, reused every submit (single-threaded render pass). */
 const M: Mat2D = { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 };
 
+/** Same component set as `ParticlrLayer` — see the mixin note above. */
+export interface ParticlrTrailLayer
+  extends Phaser.GameObjects.Components.Alpha,
+    Phaser.GameObjects.Components.BlendMode,
+    Phaser.GameObjects.Components.Depth,
+    Phaser.GameObjects.Components.RenderNodes,
+    Phaser.GameObjects.Components.ScrollFactor,
+    Phaser.GameObjects.Components.Transform,
+    Phaser.GameObjects.Components.Visible {}
+
+/**
+ * The ribbon GameObject of a trail layer. It shares its `LayerView` with the
+ * layer's `ParticlrLayer`, so it always samples the layer's CURRENT texture
+ * (nothing to rebind when an async user sheet swaps in) and it is added to the
+ * container BEFORE that GO, so the ribbon paints under the sprites.
+ *
+ * Like `ParticlrLayer.renderWebGL`, this is invoked UNBOUND — every access
+ * goes through `src`.
+ */
+export class ParticlrTrailLayer extends Phaser.GameObjects.GameObject {
+  /** Assigned by the renderer immediately after construction. */
+  view!: LayerView;
+  /** ONE persistent options object — `BatchHandlerStrip` flushes the batch
+   * whenever these fields change (inherited from `BatchHandlerQuad`). */
+  private readonly _renderOptions = { multiTexturing: true, lighting: null, smoothPixelArt: null };
+
+  constructor(scene: Phaser.Scene) {
+    super(scene, "ParticlrTrailLayer");
+    this.initRenderNodes(TRAIL_NODE_MAP as unknown as Map<string, string>);
+  }
+
+  renderWebGL(
+    _renderer: Phaser.Renderer.WebGL.WebGLRenderer,
+    src: ParticlrTrailLayer,
+    drawingContext: Phaser.Renderer.WebGL.DrawingContext,
+    parentMatrix: Phaser.GameObjects.Components.TransformMatrix | null,
+  ): void {
+    const camera = drawingContext.camera;
+    if (camera === null) return;
+    camera.addToRenderList(src);
+
+    const view = src.view;
+    const trail = view.trail;
+    // sync() zeroes the counts for a disabled or empty layer, so this one test
+    // covers "nothing to draw" for every reason.
+    if (trail === null || trail.geom.indexCount === 0) return;
+
+    // `getNode` returns null for an unregistered node, so this guard is a
+    // nullish check, not the `=== undefined` the quad path can get away with.
+    const handler = ((src.customRenderNodes as { BatchHandler?: StripBatchLike }).BatchHandler ??
+      (src.defaultRenderNodes as { BatchHandler?: StripBatchLike }).BatchHandler) as StripBatchLike | null | undefined;
+    if (handler === undefined || handler === null) return;
+
+    // Passed straight through: `batchStrip` transforms every vertex itself
+    // (trailStrip.ts finding B), so no Mat2D copy happens on this path.
+    const calc = Phaser.GameObjects.GetCalcMatrix(src, camera, parentMatrix ?? undefined).calc;
+
+    submitTrailStrips(
+      handler,
+      drawingContext,
+      src,
+      calc,
+      view.texture.get().source.glTexture,
+      trail.geom,
+      trail.scratch,
+      src._renderOptions,
+    );
+  }
+
+  renderCanvas(): void {
+    /* Canvas renderer is unsupported (spec: WebGL only). */
+  }
+}
+
+(Phaser as unknown as { Class: { mixin(ctor: unknown, mixins: object[]): void } }).Class.mixin(ParticlrTrailLayer, [
+  COMPONENTS.Alpha!,
+  COMPONENTS.BlendMode!,
+  COMPONENTS.Depth!,
+  COMPONENTS.RenderNodes!,
+  COMPONENTS.ScrollFactor!,
+  COMPONENTS.Transform!,
+  COMPONENTS.Visible!,
+]);
+
 export class PhaserParticleRenderer {
   /** The display object the host adds to its Scene. */
   readonly gameObject: Phaser.GameObjects.Container;
@@ -219,8 +327,28 @@ export class PhaserParticleRenderer {
     for (const ls of effect.layers) {
       const layer = ls.layer;
       const resolved = this.resolveTexture(layer.texture.ref, effect.doc);
+      const blendIndex = webgl ? phaserBlendIndex(renderer, layer.blend) : 0;
+
+      // Ribbons first: Container renders its children in list order, so the
+      // trail GO must be added BEFORE the particle GO to paint under it (the
+      // same order rule the Pixi and Three adapters hold).
+      let trail: TrailView | null = null;
+      if (layer.trail !== null) {
+        const max = layer.emission.maxParticles;
+        const connect = layer.trail.mode === "connect";
+        // Connect mode is ONE ribbon of up to `max` points; per-particle mode
+        // is `max` ribbons of `maxPoints`. Same arity as the Three adapter.
+        const geom = connect ? makeTrailGeometry(1, max) : makeTrailGeometry(max, layer.trail.maxPoints);
+        // The scratch only ever holds one ribbon at a time: 2 verts per point.
+        const scratch = makeTrailScratch((connect ? max : layer.trail.maxPoints) * 2);
+        const tgo = new ParticlrTrailLayer(opts.scene);
+        if (webgl) tgo.setBlendMode(blendIndex);
+        this.gameObject.add(tgo);
+        trail = { go: tgo, geom, scratch };
+      }
+
       const go = new ParticlrLayer(opts.scene);
-      if (webgl) go.setBlendMode(phaserBlendIndex(renderer, layer.blend));
+      if (webgl) go.setBlendMode(blendIndex);
       this.gameObject.add(go);
 
       // While a user sheet is still the built-in placeholder, slicing it would
@@ -233,8 +361,10 @@ export class PhaserParticleRenderer {
         buffers: makeRenderBuffers(layer.emission.maxParticles),
         frame: frameInfoFor(resolved.texture, frames),
         texture: resolved.texture,
+        trail,
       };
       go.view = view;
+      if (trail !== null) trail.go.view = view;
       this.views.push(view);
 
       if (resolved.pendingDataUrl !== undefined) {
@@ -266,7 +396,27 @@ export class PhaserParticleRenderer {
       // its GO sits at the container origin; a local layer rides the emitter.
       if (ls.layer.space === "world") view.go.setPosition(0, 0);
       else view.go.setPosition(ex, ey);
-      if (ls.layer.enabled && ls.count > 0) computeRenderState(ls, view.buffers);
+      const live = ls.layer.enabled && ls.count > 0;
+      if (live) computeRenderState(ls, view.buffers);
+
+      // Trail ribbons carry the same sim-frame coordinates as the particles, so
+      // the ribbon GO rides the emitter exactly like the particle GO. The
+      // geometry is rebuilt from the frame that `computeRenderState` just wrote
+      // (the trail's null-colour path reads each particle's render RGBA from
+      // it); with no render state there is nothing to draw, so zero the counts
+      // rather than leave a stale ribbon on screen.
+      const trail = view.trail;
+      if (trail !== null) {
+        if (ls.layer.space === "world") trail.go.setPosition(0, 0);
+        else trail.go.setPosition(ex, ey);
+        if (live) {
+          if (ls.layer.trail!.mode === "connect") computeConnectGeometry(ls, view.buffers, trail.geom);
+          else computeTrailGeometry(ls, view.buffers, trail.geom);
+        } else {
+          trail.geom.vertexCount = 0;
+          trail.geom.indexCount = 0;
+        }
+      }
     }
   }
 
@@ -335,7 +485,10 @@ export class PhaserParticleRenderer {
     if (this.destroyed) return;
     view.texture = texture;
     view.frame = frameInfoFor(texture, frames);
-    // Task 7: rebind trail texture here
+    // No trail rebinding needed: `ParticlrTrailLayer` shares this `LayerView`
+    // and reads `view.texture` at submit time, so the ribbon picks up the
+    // decoded sheet on the next frame (Pixi/Three both have to rebind because
+    // their ribbon owns a material of its own).
   }
 }
 
