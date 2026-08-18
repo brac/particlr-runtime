@@ -2,8 +2,8 @@
 
 [![CI](https://github.com/brac/particlr-runtime/actions/workflows/ci.yml/badge.svg)](https://github.com/brac/particlr-runtime/actions/workflows/ci.yml)
 
-Plays `.prt` particle effects in PixiJS v8 and PixiJS v7 (each via a
-subpath), and in Three.js (also via a subpath — see below). Design effects
+Plays `.prt` particle effects in PixiJS v8 and PixiJS v7, in Three.js, and in
+Phaser 4 (each via its own subpath — see below). Design effects
 visually in the
 [particlr editor](https://particlr.com), export a `.prt` file, play it
 back with this package. The editor previews through this exact runtime, and
@@ -221,6 +221,156 @@ true`.
   textures are cached at module scope for the page's lifetime, same policy
   as the Pixi adapter; `view.destroy()` disposes geometries and materials
   only.
+
+## Phaser 4
+
+`@particlr/runtime/phaser` renders the same 2D simulation as a native Phaser
+citizen: a `Phaser.GameObjects.Container` on the scene's display list, batched
+through Phaser's own quad batcher. Phaser 4 only — `phaser` is an optional
+peerDependency pinned to `">=4.2 <5"`, and the adapter is developed and
+golden-tested against **phaser 4.2.1**. (Phaser 3's pipeline API shares nothing
+with v4's RenderNode API; a v3 backend would be a second renderer, and v3 is
+frozen at 3.90.0.)
+
+```sh
+npm install @particlr/runtime phaser
+```
+
+### Quick start (plugin sugar)
+
+`registerParticlr()` adds two Phaser-native calls: `this.load.particlr(key, url)`
+in `preload`, and `this.add.particlr(key, x, y)` in `create`. The `.prt` fetch
+runs inside Phaser's own `LoaderPlugin` — runtime code never fetches.
+
+```ts
+import Phaser from "phaser";
+import { registerParticlr } from "@particlr/runtime/phaser";
+
+registerParticlr(); // once, before new Phaser.Game — idempotent, no import side effects
+
+class Demo extends Phaser.Scene {
+  preload(): void {
+    this.load.particlr("boom", "assets/boom.prt");
+  }
+  create(): void {
+    this.add.particlr("boom", 400, 300);
+  }
+}
+
+new Phaser.Game({ type: Phaser.WEBGL, width: 800, height: 600, scene: Demo });
+```
+
+That's the whole integration; see `samples/phaser-game/src/main.ts` for a
+click-to-spawn host. `this.add.particlr` takes an options object as its fourth
+argument — `{ seed?: number, autoStep?: boolean }`, `seed` defaulting to `1337` —
+and returns the Container, whose `particlr` property holds `{ fx, view }` if you
+need the `Effect` and the renderer afterwards.
+
+`registerParticlr()` writes only to Phaser's static registries
+(`FileTypesManager` and `GameObjectFactory.prototype`), so calling it before any
+`Game` exists is fine, and calling it twice is a no-op.
+
+### The class route (host-driven stepping)
+
+Skip the sugar when you want the cross-adapter R4 surface — `.gameObject`,
+`.warnings`, `.ready`, `.sync()`, `.destroy()` — and deterministic, host-driven
+stepping. `autoStep: false` leaves the scene UPDATE event unhooked, so nothing
+advances until the host calls `step()` itself; every golden test runs this way.
+
+```ts
+import Phaser from "phaser";
+import { parseParticle, Effect } from "@particlr/runtime";
+import { PhaserParticleRenderer } from "@particlr/runtime/phaser";
+
+class Demo extends Phaser.Scene {
+  private fx!: Effect;
+  private view!: PhaserParticleRenderer;
+
+  async create(): Promise<void> {
+    const doc = parseParticle(await (await fetch("assets/boom.prt")).text()).doc!;
+    this.fx = new Effect(doc, { seed: 1337 });
+    this.view = new PhaserParticleRenderer(this.fx, { scene: this, autoStep: false });
+    this.view.gameObject.setPosition(400, 300); // where the effect plays
+    this.add.existing(this.view.gameObject);    // the class route does not add itself
+  }
+
+  override update(_time: number, deltaMs: number): void {
+    this.fx.step(deltaMs / 1000); // advance the simulation
+    this.view.sync();             // draw it
+  }
+}
+```
+
+### Options
+
+| Option | Type | Default | Notes |
+|---|---|---|---|
+| `scene` | `Phaser.Scene` | — | Required. The scene whose TextureManager, renderer, and UPDATE event the view uses. |
+| `autoStep` | `boolean` | `true` | `true`: the view hooks `Phaser.Scenes.Events.UPDATE`, converts Phaser's delta ms to seconds, steps, and syncs — add it to a scene and it plays. `false`: nothing advances until the host calls `step()` and `sync()`. |
+| `loadTexture` | `(dataUrl: string) => Promise<Texture>` | browser decode via `createImageBitmap` | Overrides async user-texture loading — useful in Node/test environments without a DOM `Image`/`createImageBitmap`. |
+
+Either way, `step(dt)` clamps to `maxDt` internally, so a hidden tab's catch-up
+delta cannot explode emitters (see "Stepping semantics" below).
+
+### Blend table (normative)
+
+Every `.prt` blend mode maps to a fixed Phaser blend slot. This table is the
+single source of truth — it is unit-tested in `test/phaser/blendModes.test.ts`
+and visually smoke-tested in the raster golden lane.
+
+| particlr | Phaser mode | GL config | Note |
+|---|---|---|---|
+| `normal` | `NORMAL` (0) | `FUNC_ADD`; `ONE, ONE_MINUS_SRC_ALPHA` | premultiplied |
+| `add` | **custom slot** via `addBlendMode` | `FUNC_ADD`; `ONE, ONE` | Phaser's built-in `ADD` (1) is `ONE, DST_ALPHA` — differs on non-opaque targets; we register our own |
+| `multiply` | `MULTIPLY` (2) | `FUNC_ADD`; `DST_COLOR, ONE_MINUS_SRC_ALPHA` | matches |
+| `screen` | `SCREEN` (3) | `FUNC_ADD`; `ONE, ONE_MINUS_SRC_COLOR` | matches |
+| `erase` | `ERASE` (17) | `FUNC_REVERSE_SUBTRACT`; `ZERO, ONE_MINUS_SRC_ALPHA` | `dst·(1−srcA) − 0` ≡ destination-out; equivalent to our `AddEquation; ZERO, ONE_MINUS_SRC_ALPHA` |
+
+The custom `add` slot is registered once per renderer and reused; `erase` is
+destination-out, exactly as the editor thumbnails model it.
+
+### Coordinate mapping
+
+Phaser is y-down with clockwise-positive rotation, the same as Pixi, so pool
+`x`/`y` pass through with no axis flip and no angle negation (unlike the Three
+adapter). A particle renders `size × stretch` px wide and
+`size × (frameHeight / frameWidth)` px tall, matching the Pixi adapter's sizing
+rule. Phaser's texture space is bottom-up, so the adapter emits bottom-up frame
+UVs — flipbook frame 0 is the top-left tile on screen, the same as everywhere
+else.
+
+### Textures
+
+Decoded textures are registered in the scene's `TextureManager` under namespaced
+keys: `particlr:builtin:<id>` for the five built-ins, `particlr:user:<hash>` for
+embedded user sheets, `particlr:dissolve-noise` for the dissolve noise tile.
+Nothing else in your game collides with them, and nothing under that prefix is
+yours to manage — the cache is page-lifetime and the adapter never destroys a
+texture (same policy as the Pixi and Three adapters). `view.destroy()` tears down
+the GameObjects and releases the layer's dissolve render nodes only.
+
+A user texture that is still decoding renders the built-in `circle-soft`
+placeholder and swaps in when ready; `view.ready` resolves after every swap. An
+unknown texture ref pushes an E10 warning onto `view.warnings` and falls back to
+`circle-soft`.
+
+### Feature parity and limits
+
+Full parity with the Pixi and Three adapters — sprites, flipbooks, trails
+(including connect ribbons), sub-emitter rendering, and dissolve (a
+`BatchHandlerQuad` subclass carrying the shared erosion shader). Two limits worth
+knowing:
+
+- **WebGL only.** Phaser 4's Canvas renderer can express neither the blend table
+  nor the quad batch path, and Canvas is deprecated in v4. On a Canvas game the
+  view pushes a warning onto `view.warnings` and renders nothing. Build the game
+  with `type: Phaser.WEBGL` (or `Phaser.AUTO` on a WebGL-capable browser).
+- **GameObject alpha is a no-op on particles.** Setting `alpha` on
+  `view.gameObject` (or on a layer GameObject) does not fade the effect: the
+  batch submission writes each particle's own tint and alpha out of the
+  simulation buffers and ignores the display-object alpha it inherits. To fade a
+  whole effect, animate it in the document or through `Effect`'s parameters, not
+  through the GameObject.
 
 ## Builtin textures without Pixi
 
