@@ -126,11 +126,14 @@ describe("submitLayerQuads", () => {
     const l = fakeLayer(false);
     l.buffers.frame[0] = 3;
     submitLayerQuads(h, null, null, l as never, l.buffers, I, { aspect: 1, cols: 2, rows: 2 }, {}, packTint);
-    // args: 8 corners, then texX, texY, texW, texH.
+    // args: 8 corners, then texX, texY, texW, texH. Frame 3 of a 2x2 sheet is
+    // col 1, row 1 — the BOTTOM-right tile in image space. V is bottom-up and
+    // texH negative (Phaser's own Frame convention; see quadMath.frameUV), so
+    // that tile's top edge is v = 1 - 1*0.5 = 0.5 and it extends DOWN to v = 0.
     const a = h.calls[0]!;
     expect(a[8]).toBeCloseTo(0.5);
     expect(a[9]).toBeCloseTo(0.5);
     expect(a[10]).toBeCloseTo(0.5);
-    expect(a[11]).toBeCloseTo(0.5);
+    expect(a[11]).toBeCloseTo(-0.5);
   });
 });

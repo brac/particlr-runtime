@@ -50,13 +50,21 @@ describe("computeParticleQuad", () => {
   });
 });
 
+// V is BOTTOM-UP and the window height is NEGATIVE: Phaser's Textures.Frame
+// computes `v0 = 1 - cy/th` with `v1 - v0 < 0`, so every Phaser texture samples
+// with v=0 at the bottom of the source image (see frameUV's doc comment). The
+// expectations below are the top edge of the window in that space.
 describe("frameUV", () => {
   it("whole texture when 1x1", () => {
     frameUV(uv, 0, 1, 1);
-    expect(Array.from(uv)).toEqual([0, 0, 1, 1]);
+    expect(Array.from(uv)).toEqual([0, 1, 1, -1]);
   });
-  it("row-major window", () => {
-    frameUV(uv, 5, 4, 2); // frame 5 in 4x2 grid: col 1, row 1
-    expect(Array.from(uv)).toEqual([0.25, 0.5, 0.25, 0.5]);
+  it("row-major window, v mirrored", () => {
+    frameUV(uv, 5, 4, 2); // frame 5 in 4x2 grid: col 1, row 1 (the BOTTOM row)
+    expect(Array.from(uv)).toEqual([0.25, 0.5, 0.25, -0.5]);
+  });
+  it("frame 0 is the TOP-left tile of the sheet", () => {
+    frameUV(uv, 0, 4, 4); // top edge v=1, bottom edge v=0.75 — the image's top row
+    expect(Array.from(uv)).toEqual([0, 1, 0.25, -0.25]);
   });
 });

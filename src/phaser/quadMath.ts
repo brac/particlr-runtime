@@ -70,11 +70,31 @@ export function computeParticleQuad(
   out[7] = rx * m.b + ry * m.d + m.ty;
 }
 
+/**
+ * Flipbook window for `frame`, in the coordinates `BatchHandlerQuad.batch`
+ * expects: `(texX, texY, texWidth, texHeight)` where `texY` pairs with the
+ * quad's TOP vertices and the bottom vertices get `texY + texHeight`.
+ *
+ * **V IS BOTTOM-UP.** Phaser's own `Textures.Frame` computes its UVs as
+ * `u0 = cx/tw`, `v0 = 1 - cy/th`, `u1 = (cx+cw)/tw`, `v1 = 1 - (cy+ch)/th`
+ * (`node_modules/phaser/src/textures/Frame.js` `updateUVs`) — i.e. every
+ * Phaser texture samples with v=0 at the BOTTOM of the source image, and a
+ * frame's height (`v1 - v0`) is NEGATIVE. So a top-down `row * vh` window,
+ * which is what the sibling adapters use, samples the vertically mirrored
+ * image: with a 4x4 sheet, frame 0 lands on the sheet's BOTTOM-left tile and
+ * each tile draws upside down. That is invisible for the built-in textures
+ * (all vertically symmetric) and shows up the moment a real sheet is used —
+ * `presets/blast-anim.prt` played its 16 frames in reverse.
+ *
+ * Mirroring v here (rather than at the quad) keeps the flip at the single
+ * point where texture space is entered, so the quad math, the flip bitmask and
+ * the rotation all stay in one screen-space convention.
+ */
 export function frameUV(out: Float32Array, frame: number, cols: number, rows: number): void {
   const uw = 1 / cols;
   const vh = 1 / rows;
   out[0] = (frame % cols) * uw;
-  out[1] = Math.floor(frame / cols) * vh;
+  out[1] = 1 - Math.floor(frame / cols) * vh;
   out[2] = uw;
-  out[3] = vh;
+  out[3] = -vh;
 }
