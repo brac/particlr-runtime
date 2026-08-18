@@ -9,10 +9,10 @@
 //   - positions: 2 floats/vertex (sim frame, y-down — same frame the quads use,
 //     so NO axis flip is needed for Phaser); uvs: 2 floats/vertex (u = t along
 //     the trail, v = 0/1 across, TOP-DOWN — which is NOT Phaser's texture
-//     convention; see the KNOWN BUG note at the uv copy in `copyRibbon`);
-//     colors: 4 FLOATS/vertex (r,g,b,a straight
-//     alpha, 0..1); indices: Uint32; `vertexCount`/`indexCount` are the live
-//     prefix written this frame — the buffers themselves are worst-case sized.
+//     convention; see the KNOWN BUG note at the uv copy in `emit`); colors:
+//     4 FLOATS/vertex (r,g,b,a straight alpha, 0..1); indices: Uint32;
+//     `vertexCount`/`indexCount` are the live prefix written this frame — the
+//     buffers themselves are worst-case sized.
 //   - Layout: `emitStrip` writes 2 vertices per trail POINT, +normal first then
 //     −normal, points ordered head (newest, t=0) -> tail. Ribbons are packed
 //     back to back into the same buffers; a ribbon of `len` points occupies
