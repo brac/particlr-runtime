@@ -27,4 +27,22 @@ describe("registerParticlr", () => {
     Phaser.Loader.FileTypesManager.install(installed as unknown as Phaser.Loader.LoaderPlugin);
     expect(typeof installed.particlr).toBe("function");
   });
+
+  it("the add factory throws a helpful error for an unloaded/misspelled key, not a bare TypeError", async () => {
+    const Phaser = (await import("phaser")).default;
+    const { registerParticlr } = await import("../../src/phaser/plugin.js");
+
+    registerParticlr();
+
+    const particlr = (Phaser.GameObjects.GameObjectFactory.prototype as Record<string, unknown>)
+      .particlr as (this: unknown, key: string, x: number, y: number) => unknown;
+
+    // A minimal `this` — the guard fires before anything else in the factory
+    // touches `this`, so nothing beyond `scene.cache.json.get` is needed.
+    const fakeThis = { scene: { cache: { json: { get: () => undefined } } } };
+
+    expect(() => particlr.call(fakeThis, "typo-key", 0, 0)).toThrowError(
+      /no loaded document for key "typo-key".*this\.load\.particlr\("typo-key", url\)/s,
+    );
+  });
 });

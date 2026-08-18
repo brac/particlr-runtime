@@ -49,7 +49,10 @@ class ParticlrFile extends Phaser.Loader.FileTypes.JSONFile {
     try {
       parsed = parseParticle(this.xhrLoader!.responseText);
     } catch (err) {
-      console.warn(`particlr: "${this.key}" is not valid JSON`, err);
+      // The try wraps parseParticle's whole migrate/normalize/validate
+      // pipeline, not just JSON.parse — keep the message accurate for any
+      // throw source in that chain, not just malformed JSON.
+      console.warn(`particlr: "${this.key}" could not be parsed as a .prt document`, err);
       this.onProcessError();
       return;
     }
@@ -85,6 +88,12 @@ export function registerParticlr(): void {
       opts?: { autoStep?: boolean; seed?: number },
     ) {
       const doc = this.scene.cache.json.get(key);
+      if (doc === undefined) {
+        throw new Error(
+          `particlr: no loaded document for key "${key}". Did you forget ` +
+            `this.load.particlr("${key}", url) in preload, or is the key misspelled?`,
+        );
+      }
       const fx = new Effect(doc, { seed: opts?.seed ?? 1337 });
       const view = new PhaserParticleRenderer(fx, { scene: this.scene, autoStep: opts?.autoStep });
       view.gameObject.setPosition(x, y);
