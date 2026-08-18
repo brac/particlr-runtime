@@ -137,6 +137,8 @@ export async function makeFakeScene() {
   // Custom render nodes registered through the manager, in registration order.
   const registeredNodes: string[] = [];
   const customNodes = new Map<string, ReturnType<typeof makeFakeDissolveHandler>>();
+  /** Mirrors Phaser's `_nodeConstructors`: entries are added, never removed. */
+  const nodeConstructors = new Map<string, unknown>();
 
   const renderNodes = {
     registeredNodes,
@@ -147,16 +149,30 @@ export async function makeFakeScene() {
       registeredNodes.push(name);
       customNodes.set(name, makeFakeDissolveHandler(name));
     },
-    /** Real Phaser stores the constructor and instantiates it on the first
-     * `getNode`; this double records the registration and skips construction. */
-    addNodeConstructor(name: string, _ctor: unknown) {
+    /**
+     * Real Phaser stores the constructor in `_nodeConstructors[name]`,
+     * instantiates it on the first `getNode`, files the instance under
+     * `_nodes[name]` — and **never deletes the constructor entry**. That
+     * retention is modelled faithfully here (`nodeConstructors` is only ever
+     * added to) because it is the mechanism behind a whole class of leak: a
+     * closure registered here is pinned for the Game's life.
+     *
+     * What is NOT modelled is the construction itself — a real
+     * `ParticlrDissolveBatch` needs a live WebGL context — so `getNode` hands
+     * back a stand-in, exactly as it does for `"BatchHandlerQuad"`. Tests that
+     * need the constructor's effects invoke it themselves via
+     * `scene.nodeConstructor(name)`.
+     */
+    addNodeConstructor(name: string, ctor: unknown) {
       if (renderNodes.hasNode(name)) throw new Error(`node constructor ${name} already exists.`);
       registeredNodes.push(name);
+      nodeConstructors.set(name, ctor);
       customNodes.set(name, makeFakeDissolveHandler(name));
     },
     getNode: (name: string) => {
       if (name === "BatchHandlerQuad") return quadHandler;
       if (name === "BatchHandlerStrip") return stripHandler;
+      // NB: the constructor entry deliberately survives this call.
       return customNodes.get(name) ?? null;
     },
   };
@@ -178,6 +194,9 @@ export async function makeFakeScene() {
     registeredNodes,
     /** The double standing in for a registered custom node, by name. */
     customNode: (name: string) => customNodes.get(name) ?? null,
+    /** The constructor Phaser would retain forever under `name`. Tests invoke
+     * it directly, since the double never constructs (see addNodeConstructor). */
+    nodeConstructor: (name: string) => nodeConstructors.get(name) ?? null,
     textures,
     sys: {
       events,

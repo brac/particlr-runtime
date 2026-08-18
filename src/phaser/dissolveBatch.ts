@@ -87,9 +87,15 @@
 //      `addNode` THROWS on a duplicate name; `addNodeConstructor` throws too,
 //      and `getNode` lazily constructs from the registered constructor and
 //      calls `addNode` itself. `hasNode(name)` is true for either. We register
-//      a CONSTRUCTOR (a closure over the layer ref + noise texture), because
-//      `new ctor(manager)` returning an object is legal JS and it keeps
-//      construction — which needs live GL — out of the registration call.
+//      a CONSTRUCTOR, because `new ctor(manager)` returning an object is legal
+//      JS and it keeps construction — which needs live GL — out of the
+//      registration call.
+//      **There is no `removeNode`, and `_nodeConstructors[name]` is never
+//      deleted** (nor is there a manager teardown), so BOTH the node and the
+//      closure that built it are retained for the Game's whole life. Hence the
+//      two mechanisms in this file that keep that from being a leak: released
+//      node names are recycled (`RegistryState`), and the closure captures a
+//      one-shot BOX rather than the layer ref itself (`RegistryState.pending`).
 //      `GameObjects.Components.RenderNodes.setRenderNodeRole(role, name)`
 //      resolves the name through `manager.getNode(name)` and stores the node
 //      in `customRenderNodes[role]`, which is exactly what
@@ -346,13 +352,37 @@ interface DissolveNodeLike {
 interface RegistryState {
   free: string[];
   next: number;
+  /**
+   * The one-shot boxes handed to `addNodeConstructor`, by node name.
+   *
+   * `RenderNodeManager.getNode` constructs from `_nodeConstructors[name]`,
+   * stores the instance in `_nodes`, and **never deletes the constructor
+   * entry** — there is no manager teardown either, so the closure passed to
+   * `addNodeConstructor` is retained for the Game's whole life. A closure that
+   * captured the layer ref by value would therefore pin the Effect and its sim
+   * pools forever, one per high-water-mark slot, and `setLayerRef` could not
+   * undo it (it only reassigns the instance field; the capture is untouched).
+   *
+   * So the closure captures a BOX, and empties it as its first act. After the
+   * one construction — or after `releaseDissolveHandler`, whichever comes
+   * first — the retained closure holds nothing but a null box. The map keeps
+   * at most one emptied box per slot, which is what makes the invariant
+   * probe-able (`pendingDissolveLayerRef`).
+   */
+  pending: Map<string, LayerRefBox>;
 }
+
+/** Mutable carrier: see `RegistryState.pending`. */
+interface LayerRefBox {
+  current: DissolveLayerRef | null;
+}
+
 const REGISTRIES = new WeakMap<object, RegistryState>();
 
 function registryFor(manager: RenderNodeManagerLike): RegistryState {
   let state = REGISTRIES.get(manager as object);
   if (state === undefined) {
-    state = { free: [], next: 0 };
+    state = { free: [], next: 0, pending: new Map() };
     REGISTRIES.set(manager as object, state);
   }
   return state;
@@ -439,13 +469,43 @@ export function registerDissolveHandler(
   // A constructor, not an instance: `getNode` instantiates it on first use, so
   // registration itself never touches GL (and the test double can substitute a
   // stand-in without constructing a real BatchHandlerQuad).
+  //
+  // The closure captures a one-shot BOX, never the layer ref itself: Phaser
+  // keeps `_nodeConstructors[name]` forever (see `RegistryState.pending`), so a
+  // by-value capture would pin this Effect and its sim pools for the Game's
+  // life no matter what `destroy()` did. Emptying the box is the FIRST thing
+  // the constructor does, so the severance holds even if construction throws.
+  // (`noiseGlTexture` stays captured by value — it is the shared, procedurally
+  // generated, never-destroyed noise tile, page-lifetime by design.)
+  const box: LayerRefBox = { current: layerRef };
+  state.pending.set(name, box);
   manager.addNodeConstructor(name, function (
     m: Phaser.Renderer.WebGL.RenderNodes.RenderNodeManager,
   ): ParticlrDissolveBatch {
-    return new ParticlrDissolveBatch(m, layerRef, noiseGlTexture);
+    const ref = box.current;
+    box.current = null;
+    // `ref` is null only if the renderer was destroyed before Phaser ever
+    // constructed the node; the inert ref keeps that path from resurrecting it.
+    return new ParticlrDissolveBatch(m, ref ?? IDLE_LAYER_REF, noiseGlTexture);
   });
 
   return name;
+}
+
+/**
+ * The layer ref a registered-but-not-yet-constructed node constructor is still
+ * holding, or `null` once it has been consumed (or released, or never
+ * registered).
+ *
+ * Exported as an invariant probe rather than as API: Phaser never deletes a
+ * node constructor, so this returning non-null for a destroyed renderer's node
+ * would mean a permanently retained Effect — exactly the leak the box exists
+ * to prevent.
+ */
+export function pendingDissolveLayerRef(scene: Phaser.Scene, name: string): DissolveLayerRef | null {
+  const manager = managerOf(scene);
+  if (manager === null) return null;
+  return REGISTRIES.get(manager as object)?.pending.get(name)?.current ?? null;
 }
 
 /**
@@ -464,6 +524,11 @@ export function releaseDissolveHandler(scene: Phaser.Scene, name: string): void 
   const state = registryFor(manager);
   if (state.free.indexOf(name) !== -1) return;
   state.free.push(name);
+  // Two places can still be holding the Effect, and both must let go: the
+  // constructed handler's field, and — if Phaser never got round to
+  // constructing it — the box its retained constructor closure reads from.
+  const box = state.pending.get(name);
+  if (box !== undefined) box.current = null;
   const node = manager.getNode(name) as DissolveNodeLike | null;
   if (node !== null && typeof node.setLayerRef === "function") node.setLayerRef(IDLE_LAYER_REF);
 }

@@ -138,6 +138,50 @@ describe("dissolve", () => {
     expect((node.layerRef as { owner: unknown }).owner).toBe(second);
   });
 
+  it("empties the constructor's layer-ref box on first construction, even if construction throws", async () => {
+    // Phaser NEVER deletes `_nodeConstructors[name]`, so the closure handed to
+    // `addNodeConstructor` is retained for the Game's whole life. If it
+    // captured the layer ref by value it would pin the Effect and its sim
+    // pools forever, and `setLayerRef` could not undo it. The closure captures
+    // a one-shot box instead, and empties it BEFORE constructing — so the
+    // severance holds even though the real handler cannot be built here.
+    const PhaserParticleRenderer = await loadRenderer();
+    const { pendingDissolveLayerRef } = await loadDissolve();
+    const scene = await makeFakeScene();
+    const doc = makeEffectDoc(1);
+    doc.layers[0]!.dissolve = DISSOLVE;
+    const fx = effectFrom(doc);
+    new PhaserParticleRenderer(fx, { scene: scene as never, autoStep: false });
+
+    const name = "particlr-dissolve-0";
+    // The constructor entry survives `getNode`, as it does in real Phaser.
+    expect(scene.nodeConstructor(name)).toBeTypeOf("function");
+    // Before construction the box still holds this effect's layer ref.
+    expect(pendingDissolveLayerRef(scene as never, name)?.owner).toBe(fx);
+
+    const Ctor = scene.nodeConstructor(name) as new (m: unknown) => unknown;
+    // Constructing a real BatchHandlerQuad without a GL context throws — the
+    // point is that the box is emptied first, so the throw cannot strand it.
+    expect(() => new Ctor(scene.sys.renderer.renderNodes)).toThrow();
+    expect(pendingDissolveLayerRef(scene as never, name)).toBeNull();
+  });
+
+  it("empties the box on destroy too, for a node Phaser never got round to constructing", async () => {
+    const PhaserParticleRenderer = await loadRenderer();
+    const { pendingDissolveLayerRef } = await loadDissolve();
+    const scene = await makeFakeScene();
+    const doc = makeEffectDoc(1);
+    doc.layers[0]!.dissolve = DISSOLVE;
+    const fx = effectFrom(doc);
+    const view = new PhaserParticleRenderer(fx, { scene: scene as never, autoStep: false });
+
+    expect(pendingDissolveLayerRef(scene as never, "particlr-dissolve-0")?.owner).toBe(fx);
+    view.destroy();
+    // Nothing the manager retains — instance field or constructor closure —
+    // still points at the destroyed effect.
+    expect(pendingDissolveLayerRef(scene as never, "particlr-dissolve-0")).toBeNull();
+  });
+
   it("registers nothing for a document with no dissolve layer", async () => {
     const PhaserParticleRenderer = await loadRenderer();
     const scene = await makeFakeScene();
