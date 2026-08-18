@@ -13,7 +13,13 @@ import type { LayerSim } from "../core/layerSim.js";
 import type { Flipbook, ParticleDoc } from "../format/types.js";
 import { BUILTIN_TEXTURE_IDS, type BuiltinTextureId } from "../format/types.js";
 import { phaserBlendIndex, type PhaserBlendRegistry } from "./blendModes.js";
-import { builtinKey, ensureBuiltinTexture, decodeUserTexture, type PhaserTextureManagerLike } from "./textures.js";
+import {
+  builtinKey,
+  ensureBuiltinTexture,
+  decodeUserTexture,
+  userTextureKey,
+  type PhaserTextureManagerLike,
+} from "./textures.js";
 import { submitLayerQuads, type FrameInfo, type QuadBatchLike } from "./submit.js";
 import type { Mat2D } from "./quadMath.js";
 
@@ -290,7 +296,16 @@ export class PhaserParticleRenderer {
     }
     if (ref.startsWith("user:")) {
       const dataUrl = doc.textures?.[ref.slice(5)];
-      if (dataUrl) return { texture: this.builtin("circle-soft"), pendingDataUrl: dataUrl };
+      if (dataUrl) {
+        // Another instance may already have decoded this exact data URL
+        // (same doc reused, or a rebuilt preview) — resolve synchronously
+        // from the TextureManager instead of always flashing the placeholder
+        // (pixi/three parity, mirrors `cachedUserTexture` in textures.ts but
+        // through `this.tm`'s richer `LayerTextureLike`-returning `get`).
+        const key = userTextureKey(dataUrl);
+        if (this.tm.exists(key)) return { texture: this.tm.get(key) };
+        return { texture: this.builtin("circle-soft"), pendingDataUrl: dataUrl };
+      }
       // E10: missing embedded texture -> substitute the soft circle + warn.
       this.warnings.push(`Texture "${ref}" is missing; using the built-in soft circle.`);
     } else {
@@ -321,6 +336,7 @@ export class PhaserParticleRenderer {
     if (this.destroyed) return;
     view.texture = texture;
     view.frame = frameInfoFor(texture, frames);
+    // Task 7: rebind trail texture here
   }
 }
 

@@ -38,6 +38,14 @@ describe("phaser canary (pinned 4.2.x)", () => {
     expect(typeof Phaser.GameObjects.Components.BlendMode).toBe("object");
     expect(typeof Phaser.GameObjects.GetCalcMatrix).toBe("function");
 
+    // `Phaser.Class.mixin` (Task 5): undocumented in phaser's bundled d.ts
+    // (reached via a cast in renderer.ts) but the load-bearing mechanism that
+    // installs the component accessors — `Alpha`/`BlendMode`/`Transform`/etc
+    // — onto `ParticlrLayer`'s prototype as real `{ get, set }` properties
+    // rather than descriptor-literal values. A future Phaser bump that renames
+    // or drops it must fail HERE, not as a NaN deep inside a render frame.
+    expect(typeof (Phaser as unknown as { Class?: { mixin?: unknown } }).Class?.mixin).toBe("function");
+
     // Loader + factory registration (Task 9).
     expect(typeof Phaser.Loader.FileTypesManager.register).toBe("function");
     expect(typeof Phaser.Loader.FileTypes.JSONFile).toBe("function");

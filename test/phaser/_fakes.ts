@@ -123,6 +123,11 @@ export async function makeFakeScene() {
         return go;
       },
     },
+    /** Register a fake decoded texture directly into the fake TextureManager,
+     * for tests that inject a `loadTexture` resolving to a known-size sheet. */
+    addFakeTexture(key: string, width: number, height: number): FakeTexture {
+      return textures.addUint8Array(key, new Uint8Array(0), width, height)!;
+    },
   };
 
   return scene;

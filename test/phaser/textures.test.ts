@@ -7,6 +7,7 @@ import {
   builtinKey,
   ensureBuiltinTexture,
   decodeUserTexture,
+  cachedUserTexture,
   type PhaserTextureManagerLike,
 } from "../../src/phaser/textures.js";
 import { installPhaserCanvasStub } from "./_phaserEnv.js";
@@ -78,5 +79,14 @@ describe("phaser texture layer", () => {
     expect(tm.added).toHaveLength(1);
     expect(tm.added[0]!.startsWith("particlr:user:")).toBe(true);
     expect(lastBitmapOptions).toEqual({ imageOrientation: "none", premultiplyAlpha: "none" });
+  });
+
+  it("cachedUserTexture resolves synchronously once decoded, null before", async () => {
+    const tm = fakeTM();
+    const url =
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+    expect(cachedUserTexture(tm, url)).toBeNull();
+    const decoded = await decodeUserTexture(tm, url);
+    expect(cachedUserTexture(tm, url)).toBe(decoded);
   });
 });

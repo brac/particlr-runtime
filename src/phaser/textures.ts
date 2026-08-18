@@ -66,6 +66,31 @@ function dataUrlToBlob(dataUrl: string): Blob {
   return new Blob([bytes as Uint8Array<ArrayBuffer>], { type: m[1]!.toLowerCase() });
 }
 
+/**
+ * The deterministic TextureManager key a decoded user data URL lands under.
+ * Exported so callers can probe for an already-decoded texture without going
+ * through the async decode path (`cachedUserTexture`).
+ */
+export function userTextureKey(dataUrl: string): string {
+  return `particlr:user:${fnv1a(dataUrl)}`;
+}
+
+/**
+ * Synchronous cache lookup for an already-decoded user texture. Unlike the
+ * three/pixi adapters (which hold a module-scope `Map<dataUrl, Texture>`),
+ * Phaser's TextureManager itself is the durable per-manager store — the
+ * decoded texture lives under `userTextureKey(dataUrl)` for the manager's
+ * lifetime, so a lookup is just `tm.exists`/`tm.get`. Lets a renderer's
+ * `resolveTexture` resolve a `user:` ref immediately when another instance
+ * already decoded the same data URL, instead of always showing the
+ * placeholder for one microtask (pixi/three parity,
+ * `src/pixi/renderer.ts:476-478`).
+ */
+export function cachedUserTexture(tm: PhaserTextureManagerLike, dataUrl: string): PhaserTextureLike | null {
+  const key = userTextureKey(dataUrl);
+  return tm.exists(key) ? tm.get(key) : null;
+}
+
 const userCaches = new WeakMap<PhaserTextureManagerLike, Map<string, Promise<PhaserTextureLike>>>();
 
 export function decodeUserTexture(tm: PhaserTextureManagerLike, dataUrl: string): Promise<PhaserTextureLike> {
@@ -90,7 +115,7 @@ export function decodeUserTexture(tm: PhaserTextureManagerLike, dataUrl: string)
     canvas.width = bitmap.width;
     canvas.height = bitmap.height;
     canvas.getContext("2d")!.drawImage(bitmap as unknown as CanvasImageSource, 0, 0);
-    const key = `particlr:user:${fnv1a(dataUrl)}`;
+    const key = userTextureKey(dataUrl);
     if (tm.exists(key)) return tm.get(key);
     return tm.addCanvas(key, canvas) ?? tm.get(key);
   })();

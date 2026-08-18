@@ -8,13 +8,24 @@
 // canvas-2D probe throws before `installPhaserCanvasStub()` runs. Static
 // imports hoist, so the adapter module is pulled in with a dynamic
 // `await import(...)` inside each test (see `_phaserEnv.ts`).
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, vi } from "vitest";
 import { makeFakeScene, makeEffectDoc } from "./_fakes.js";
 import { installPhaserCanvasStub } from "./_phaserEnv.js";
 import { parseParticle, Effect } from "../../src/index.js";
 import type { ParticleDoc } from "../../src/index.js";
 
-beforeAll(() => installPhaserCanvasStub());
+beforeAll(() => {
+  installPhaserCanvasStub();
+  // jsdom has no createImageBitmap — stub it so the real `decodeUserTexture`
+  // path (used by the synchronous-cache-hit test below) can run.
+  if (typeof globalThis.createImageBitmap !== "function") {
+    vi.stubGlobal("createImageBitmap", async (_blob: Blob, _options?: ImageBitmapOptions) => ({
+      width: 1,
+      height: 1,
+      close() {},
+    }));
+  }
+});
 
 async function loadRenderer() {
   return (await import("../../src/phaser/renderer.js")).PhaserParticleRenderer;
@@ -136,6 +147,34 @@ describe("PhaserParticleRenderer", () => {
     (go as unknown as { setAlpha(v: number): void }).setAlpha(0.5);
     expect(go.alpha).toBeCloseTo(0.5);
     view.destroy();
+  });
+
+  it("resolves an already-decoded user texture synchronously on a second renderer (no placeholder flash)", async () => {
+    const PhaserParticleRenderer = await loadRenderer();
+    const scene = await makeFakeScene();
+    const doc = makeEffectDoc(1);
+    doc.textures = {
+      sheet:
+        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+    };
+    doc.layers[0]!.texture = { ref: "user:sheet", frames: null };
+    const fx1 = effectFrom(doc);
+    const first = new PhaserParticleRenderer(fx1, { scene: scene as never, autoStep: false });
+    await first.ready; // real decodeUserTexture registers the texture on `scene.sys.textures`
+    first.destroy();
+
+    const loadTexture = vi.fn(async () => {
+      throw new Error("must not be called — the second renderer should hit the sync cache");
+    });
+    const fx2 = effectFrom(doc);
+    const second = new PhaserParticleRenderer(fx2, { scene: scene as never, autoStep: false, loadTexture });
+
+    // Resolved synchronously, before any microtask — no placeholder pending.
+    expect(loadTexture).not.toHaveBeenCalled();
+    const go = (second.gameObject.list as Array<{ view: { texture: { key: string } } }>)[0]!;
+    expect(go.view.texture.key.startsWith("particlr:user:")).toBe(true);
+    expect(go.view.texture.key).not.toBe("particlr:builtin:circle-soft");
+    second.destroy();
   });
 
   it("warns and stays inert when the scene is not on the WebGL renderer", async () => {
