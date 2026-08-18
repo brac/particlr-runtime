@@ -1,10 +1,13 @@
 {
-  "//": "Typecheck config for the Phaser adapter (needs DOM lib + phaser types). Separate so the core/format guard stays DOM-free.",
+  "//": "Typecheck config for the Phaser adapter (needs DOM lib + phaser types). Separate so the core/format guard stays DOM-free. `paths` maps the plugin's self-reference (`import { Effect } from \"@particlr/runtime\"`, D7 amendment) to source: without it tsc resolves the bare specifier through package.json `exports` to dist/index.d.ts, a SEPARATE nominal declaration of `Effect` from the one src/phaser imports elsewhere as a type, and structurally-private-member classes fail assignability across the two. Does not affect the JS emitted by tsconfig.build-phaser.json — `paths` only steers type resolution, the bare specifier is written to dist unchanged.",
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "noEmit": true,
-    "types": []
+    "types": [],
+    "paths": {
+      "@particlr/runtime": ["./src/index.ts"]
+    }
   },
   "include": ["src/phaser"]
 }

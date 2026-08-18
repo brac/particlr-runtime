@@ -7,3 +7,4 @@ export {
   ParticlrTrailLayer,
   type PhaserParticleRendererOptions,
 } from "./renderer.js";
+export { registerParticlr } from "./plugin.js";

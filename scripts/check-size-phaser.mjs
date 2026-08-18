@@ -17,7 +17,12 @@ const result = await build({
   platform: "neutral",
   minify: true,
   write: false,
-  external: ["phaser"],
+  // D7 amendment: plugin.ts's factory sugar imports `parseParticle`/`Effect`
+  // via the bare `@particlr/runtime` self-reference rather than a relative
+  // path, so a host that already loaded core dedupes it instead of paying
+  // for it twice. Externalizing it here means this gate measures the
+  // adapter's MARGINAL cost over core, matching that real deployment shape.
+  external: ["phaser", "@particlr/runtime"],
 });
 
 const js = result.outputFiles[0].contents;
