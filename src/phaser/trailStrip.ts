@@ -8,7 +8,9 @@
 // A. `core/trailGeometry.ts` (TrailGeometry, the producer)
 //   - positions: 2 floats/vertex (sim frame, y-down — same frame the quads use,
 //     so NO axis flip is needed for Phaser); uvs: 2 floats/vertex (u = t along
-//     the trail, v = 0/1 across); colors: 4 FLOATS/vertex (r,g,b,a straight
+//     the trail, v = 0/1 across, TOP-DOWN — which is NOT Phaser's texture
+//     convention; see the KNOWN BUG note at the uv copy in `copyRibbon`);
+//     colors: 4 FLOATS/vertex (r,g,b,a straight
 //     alpha, 0..1); indices: Uint32; `vertexCount`/`indexCount` are the live
 //     prefix written this frame — the buffers themselves are worst-case sized.
 //   - Layout: `emitStrip` writes 2 vertices per trail POINT, +normal first then
@@ -214,6 +216,20 @@ function emit(
     verts[dst2] = pos[src2]!;
     verts[dst2 + 1] = pos[src2 + 1]!;
     uv[dst2] = guv[src2]!;
+    // KNOWN BUG, deliberately unfixed. Core writes v TOP-DOWN (0 = the +normal
+    // edge) and this copies it verbatim into Phaser's texture space, which is
+    // BOTTOM-UP: `Textures.Frame.updateUVs` computes `v0 = 1 - cy/th` with a
+    // NEGATIVE height — the same trap `quadMath.frameUV` corrects for quads. So
+    // a ribbon samples its texture mirrored across the ribbon's WIDTH.
+    // Unfixed because nothing in the repo can see it, and a blind flip is an
+    // unverifiable change: `TrailConfig` has no texture of its own, so a ribbon
+    // always wears its layer's texture, and every trail-bearing preset's layer
+    // uses `circle-soft`, `circle-hard` or `spark` — all three are exactly
+    // vertically symmetric, so the mirror is a no-op in every golden frame.
+    // Unblocked by one fixture that puts a vertically ASYMMETRIC texture on a
+    // trail layer (`smoke` is the asymmetric built-in; a user sheet also does
+    // it). With that coverage in place the fix is `1 - guv[src2 + 1]!` here,
+    // then regenerate the trail goldens. See docs/BACKLOG.md.
     uv[dst2 + 1] = guv[src2 + 1]!;
     const o4 = (v0 + i) * 4;
     colors[i] = (to255(gcol[o4]!) << 16) | (to255(gcol[o4 + 1]!) << 8) | to255(gcol[o4 + 2]!);

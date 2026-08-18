@@ -26,7 +26,12 @@ describe("registerParticlr", () => {
     const installed: Record<string, unknown> = {};
     Phaser.Loader.FileTypesManager.install(installed as unknown as Phaser.Loader.LoaderPlugin);
     expect(typeof installed.particlr).toBe("function");
-  });
+    // Explicit generous timeout: this is the first test to `await import("phaser")`,
+    // which pays the whole library's module-init cost (it touches the jsdom canvas
+    // stub, builds the render-node registries, etc.). Measured ~4.0s standalone,
+    // against vitest's 5s default, close enough to flake on a loaded CI box, and
+    // the flake would look like a particlr bug rather than a cold import.
+  }, 20_000);
 
   it("the add factory throws a helpful error for an unloaded/misspelled key, not a bare TypeError", async () => {
     const Phaser = (await import("phaser")).default;

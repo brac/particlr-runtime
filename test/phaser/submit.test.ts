@@ -121,18 +121,23 @@ describe("submitLayerQuads", () => {
     expect(calls[0]![1]).toBeCloseTo(1);
   });
 
-  it("emits a whole-texture UV rect for a 1x1 grid and a sliced rect for a 2x2 sheet", () => {
+  it("slices a 2x2 sheet into a bottom-up UV window with a negative height", () => {
     const h = capture();
     const l = fakeLayer(false);
-    l.buffers.frame[0] = 3;
+    // Frame 1, NOT frame 3: frame 3 is row 1 of 2, whose texY is 0.5 under
+    // BOTH the old top-down formula (1*0.5) and the corrected bottom-up one
+    // (1 - 1*0.5) — it cannot tell them apart. Frame 1 is col 1, row 0 (the
+    // sheet's TOP-right tile), where top-down would say texY = 0 and bottom-up
+    // says texY = 1. This assertion is the regression guard for the flipbook
+    // v-orientation bug, so it has to be on a discriminating frame.
+    l.buffers.frame[0] = 1;
     submitLayerQuads(h, null, null, l as never, l.buffers, I, { aspect: 1, cols: 2, rows: 2 }, {}, packTint);
-    // args: 8 corners, then texX, texY, texW, texH. Frame 3 of a 2x2 sheet is
-    // col 1, row 1 — the BOTTOM-right tile in image space. V is bottom-up and
-    // texH negative (Phaser's own Frame convention; see quadMath.frameUV), so
-    // that tile's top edge is v = 1 - 1*0.5 = 0.5 and it extends DOWN to v = 0.
+    // args: 8 corners, then texX, texY, texW, texH. V is bottom-up and texH
+    // negative (Phaser's own Frame convention; see quadMath.frameUV), so the
+    // top-right tile's top edge is v = 1 and it extends DOWN to v = 0.5.
     const a = h.calls[0]!;
     expect(a[8]).toBeCloseTo(0.5);
-    expect(a[9]).toBeCloseTo(0.5);
+    expect(a[9]).toBeCloseTo(1);
     expect(a[10]).toBeCloseTo(0.5);
     expect(a[11]).toBeCloseTo(-0.5);
   });
