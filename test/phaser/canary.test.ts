@@ -28,6 +28,48 @@ describe("phaser canary (pinned 4.2.x)", () => {
     expect(typeof Phaser.Renderer.WebGL.RenderNodes.BatchHandlerQuad.prototype.batch).toBe("function");
     expect(typeof Phaser.Renderer.WebGL.RenderNodes.BatchHandlerStrip.prototype.batchStrip).toBe("function");
 
+    // Dissolve internals (Task 8) — the deepest reach into Phaser in this
+    // adapter, so every hook it depends on is pinned here by name.
+    const quadDefaults = Phaser.Renderer.WebGL.RenderNodes.BatchHandlerQuad.prototype.defaultConfig;
+    // The stock addition list our own addition is spliced into...
+    expect(Array.isArray(quadDefaults.shaderAdditions)).toBe(true);
+    // ...immediately before this entry, which is found BY TAG (its name moves
+    // with the alpha strategy, which is exactly what tags are for).
+    expect(
+      quadDefaults.shaderAdditions!.some((a) => a.tags !== undefined && a.tags.includes("ALPHA_DISCARD")),
+    ).toBe(true);
+    // ...and after this one, whose tinted colour the erosion consumes.
+    expect(quadDefaults.shaderAdditions!.some((a) => a.tags !== undefined && a.tags.includes("TINT"))).toBe(
+      true,
+    );
+    // The two methods `ParticlrDissolveBatch` overrides: the per-flush uniform
+    // hook, and the texture-count clamp that reserves the noise sampler's unit.
+    expect(typeof Phaser.Renderer.WebGL.RenderNodes.BatchHandlerQuad.prototype.setupUniforms).toBe("function");
+    expect(typeof Phaser.Renderer.WebGL.RenderNodes.BatchHandlerQuad.prototype.updateTextureCount).toBe(
+      "function",
+    );
+    // Registration surface. `RenderNodeManager` is NOT on the public namespace
+    // (`renderNodes/index.js` exports the nodes, not the manager) — it is only
+    // reachable as `game.renderer.renderNodes`, so its `addNodeConstructor`/
+    // `hasNode`/`getNode` cannot be pinned from a class here; the adapter's
+    // structural `RenderNodeManagerLike` plus `dissolve.test.ts` cover them.
+    // Pin the half that IS reachable: the Game Object side of the contract,
+    // which resolves a registered node name into `customRenderNodes[role]`.
+    // Note there is deliberately no `removeNode` anywhere to pin — its absence
+    // is why released node names are recycled instead of dropped.
+    expect(
+      typeof (Phaser.GameObjects.Components.RenderNodes as unknown as { setRenderNodeRole?: unknown })
+        .setRenderNodeRole,
+    ).toBe("function");
+    // The sanctioned texture-unit binder, and its `(texture, unit, force,
+    // forceActive)` arity — the adapter passes all four.
+    const unitsProto = Phaser.Renderer.WebGL.Wrappers.WebGLTextureUnitsWrapper.prototype;
+    expect(typeof unitsProto.bind).toBe("function");
+    expect(unitsProto.bind.length).toBe(4);
+    // LINEAR is 0 (`setTextureFilter` branches on `filter === 0`); the noise
+    // tile is forced to it to match the pixi and three adapters.
+    expect(Phaser.Textures.FilterMode.LINEAR).toBe(0);
+
     // Tint packing (Task 5).
     const tint = Phaser.Renderer.WebGL.Utils.getTintAppendFloatAlpha(0xffffff, 1);
     expect(tint >>> 0).toBe(tint); // packed uint

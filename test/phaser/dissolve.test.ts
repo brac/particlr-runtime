@@ -56,10 +56,13 @@ describe("dissolve", () => {
     // Plain layer: untouched, still on Phaser's stock BatchHandlerQuad.
     expect(gos[1]!.customRenderNodes?.BatchHandler).toBeUndefined();
 
-    // Exactly one node registered, named for the layer it serves.
+    // Exactly one node registered, named for the layer it serves, and it is
+    // THE node the manager holds under that name. (Asserting `.name` would be
+    // a fake-only truth: a real handler reports its config name,
+    // "ParticlrDissolve", not the registry key.)
     expect(scene.registeredNodes).toEqual(["particlr-dissolve-0"]);
-    expect((gos[0]!.customRenderNodes as { BatchHandler: { name: string } }).BatchHandler.name).toBe(
-      "particlr-dissolve-0",
+    expect((gos[0]!.customRenderNodes as { BatchHandler: unknown }).BatchHandler).toBe(
+      scene.customNode("particlr-dissolve-0"),
     );
   });
 
@@ -86,6 +89,53 @@ describe("dissolve", () => {
 
     expect(scene.registeredNodes).toHaveLength(2);
     expect(new Set(scene.registeredNodes).size).toBe(2);
+  });
+
+  it("recycles node names across create/destroy cycles instead of leaking one per renderer", async () => {
+    // Phaser's RenderNodeManager has no removeNode: every node registered is
+    // permanent, and each one owns a multi-megabyte vertex buffer. A host that
+    // rebuilds effects in a loop must not grow the registry without bound.
+    const PhaserParticleRenderer = await loadRenderer();
+    const scene = await makeFakeScene();
+    const doc = makeEffectDoc(1);
+    doc.layers[0]!.dissolve = DISSOLVE;
+
+    for (let i = 0; i < 8; i++) {
+      const view = new PhaserParticleRenderer(effectFrom(doc), { scene: scene as never, autoStep: false });
+      view.destroy();
+    }
+    expect(scene.registeredNodes).toEqual(["particlr-dissolve-0"]);
+
+    // Two CONCURRENT renderers still need two nodes — the bound is max
+    // concurrent dissolve layers, not "one forever".
+    const a = new PhaserParticleRenderer(effectFrom(doc), { scene: scene as never, autoStep: false });
+    const b = new PhaserParticleRenderer(effectFrom(doc), { scene: scene as never, autoStep: false });
+    expect(scene.registeredNodes).toHaveLength(2);
+    a.destroy();
+    b.destroy();
+    new PhaserParticleRenderer(effectFrom(doc), { scene: scene as never, autoStep: false });
+    expect(scene.registeredNodes).toHaveLength(2);
+  });
+
+  it("cuts a released handler loose from its effect, and re-points a recycled one", async () => {
+    const PhaserParticleRenderer = await loadRenderer();
+    const scene = await makeFakeScene();
+    const doc = makeEffectDoc(1);
+    doc.layers[0]!.dissolve = DISSOLVE;
+
+    const first = effectFrom(doc);
+    const view = new PhaserParticleRenderer(first, { scene: scene as never, autoStep: false });
+    const node = scene.customNode("particlr-dissolve-0")!;
+
+    view.destroy();
+    // Released: no longer holding the destroyed Effect (which owns the sim
+    // pools), so the node's permanence cannot pin them.
+    expect((node.layerRef as { owner: unknown }).owner).not.toBe(first);
+
+    const second = effectFrom(doc);
+    new PhaserParticleRenderer(second, { scene: scene as never, autoStep: false });
+    // Recycled: the same node now serves the new effect's layer.
+    expect((node.layerRef as { owner: unknown }).owner).toBe(second);
   });
 
   it("registers nothing for a document with no dissolve layer", async () => {
@@ -140,6 +190,39 @@ describe("dissolve", () => {
     expect(dissolveFragmentGl).toContain("(1.0 - a) * (1.0 + uEdgeWidth) - uEdgeWidth");
     expect(dissolveFragmentGl).toContain("smoothstep(t, t + ew, n)");
     expect(dissolveFragmentGl).toContain("uEdgeColor.rgb * uEdgeColor.a * (d * (1.0 - d) * 4.0)");
+  });
+
+  it("splices the addition immediately before Phaser's real alpha-discard entry", async () => {
+    const Phaser = (await import("phaser")).default;
+    const { dissolveShaderAdditions, DISSOLVE_ADDITION_NAME } = await loadDissolve();
+
+    const stock = Phaser.Renderer.WebGL.RenderNodes.BatchHandlerQuad.prototype.defaultConfig.shaderAdditions!;
+    const ours = dissolveShaderAdditions();
+
+    expect(ours).toHaveLength(stock.length + 1);
+    const at = ours.findIndex((a) => a.name === DISSOLVE_ADDITION_NAME);
+    expect(at).toBeGreaterThan(-1);
+    // Immediately before the alpha-discard step...
+    expect(ours[at + 1]!.tags).toContain("ALPHA_DISCARD");
+    // ...and after the tint, whose colour the erosion consumes.
+    const tint = ours.findIndex((a) => a.tags !== undefined && a.tags.includes("TINT"));
+    expect(tint).toBeGreaterThan(-1);
+    expect(tint).toBeLessThan(at);
+    // Phaser's own additions are otherwise untouched and in order.
+    expect(ours.filter((a) => a.name !== DISSOLVE_ADDITION_NAME).map((a) => a.name)).toEqual(
+      stock.map((a) => a.name),
+    );
+  });
+
+  it("reserves the top texture unit, with a floor that cannot yield a negative index", async () => {
+    const { reservedNoiseUnit } = await loadDissolve();
+    expect(reservedNoiseUnit(16)).toBe(15);
+    expect(reservedNoiseUnit(8)).toBe(7); // the WebGL1 guaranteed minimum
+    expect(reservedNoiseUnit(2)).toBe(1);
+    // Degenerate, unreachable on conforming hardware: the floor keeps the unit
+    // index >= 1 rather than letting the arithmetic go to 0 or negative.
+    expect(reservedNoiseUnit(1)).toBe(1);
+    expect(reservedNoiseUnit(0)).toBe(1);
   });
 
   it("maps the dissolve config onto the one-time uniform record", async () => {

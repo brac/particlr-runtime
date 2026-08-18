@@ -28,7 +28,7 @@ import {
   type TrailGeometry,
 } from "../core/trailGeometry.js";
 import { makeTrailScratch, submitTrailStrips, type StripBatchLike, type TrailScratch } from "./trailStrip.js";
-import { registerDissolveHandler } from "./dissolveBatch.js";
+import { registerDissolveHandler, releaseDissolveHandler } from "./dissolveBatch.js";
 import type { Mat2D } from "./quadMath.js";
 
 /**
@@ -304,6 +304,10 @@ export class PhaserParticleRenderer {
   private readonly tm: TextureManagerLike;
   private readonly views: LayerView[] = [];
   private readonly loadTexture: (dataUrl: string) => Promise<LayerTextureLike>;
+  /** Render-node names claimed for dissolve layers, released on `destroy()`.
+   * Phaser's RenderNodeManager cannot remove a node, so these are recycled
+   * rather than discarded (see `dissolveBatch.ts`'s `RegistryState`). */
+  private readonly dissolveNodes: string[] = [];
   private onUpdate: ((time: number, deltaMs: number) => void) | null = null;
   private destroyed = false;
 
@@ -362,7 +366,10 @@ export class PhaserParticleRenderer {
           dissolve: layer.dissolve,
           owner: effect,
         });
-        if (node !== null) go.setRenderNodeRole("BatchHandler", node);
+        if (node !== null) {
+          go.setRenderNodeRole("BatchHandler", node);
+          this.dissolveNodes.push(node);
+        }
       }
 
       this.gameObject.add(go);
@@ -443,6 +450,13 @@ export class PhaserParticleRenderer {
       this.scene.events.off(Phaser.Scenes.Events.UPDATE, this.onUpdate);
       this.onUpdate = null;
     }
+    // Dissolve handlers cannot be unregistered (Phaser's RenderNodeManager has
+    // no removeNode), so hand their names back for the next dissolve layer on
+    // this scene to claim and cut each handler loose from this Effect —
+    // otherwise every sim pool it references would stay alive for as long as
+    // the renderer does.
+    for (const node of this.dissolveNodes) releaseDissolveHandler(this.scene, node);
+    this.dissolveNodes.length = 0;
     // Destroys the layer children with it. Textures are NEVER destroyed:
     // built-ins and decoded user sheets are shared page-lifetime cache entries
     // in the TextureManager (same stance as every other adapter).

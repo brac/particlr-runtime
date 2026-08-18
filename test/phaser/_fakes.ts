@@ -89,13 +89,20 @@ export function makeFakeStripHandler() {
  */
 export function makeFakeDissolveHandler(name: string) {
   const calls: unknown[][] = [];
-  return {
+  const handler = {
     name,
     calls,
+    /** Whatever `registerDissolveHandler`/`releaseDissolveHandler` last
+     * re-pointed this node at; `null` until a reuse or release happens. */
+    layerRef: null as unknown,
     batch(...args: unknown[]) {
       calls.push(args);
     },
+    setLayerRef(ref: unknown) {
+      handler.layerRef = ref;
+    },
   };
+  return handler;
 }
 
 export type FakeScene = Awaited<ReturnType<typeof makeFakeScene>>;

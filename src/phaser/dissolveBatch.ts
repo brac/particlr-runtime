@@ -136,7 +136,11 @@ const FRAGMENT_PROCESS = `
 // particlr dissolve (0.3c). fragColor is PREMULTIPLIED here (ApplyTint returns
 // vec4(colour * alpha, alpha), alpha = texel.a * outTint.a). Un-premultiply,
 // erode on straight alpha exactly as src/three/dissolveMaterial.ts does, then
-// re-premultiply: at prtD == 1 the output is the un-eroded quad path verbatim.
+// re-premultiply. At prtD == 1 this reproduces the un-eroded quad path: exactly
+// when outTint.a == 1, and to within the un-premultiply round trip's float error
+// otherwise (prtStraight * prtTexA vs the tint's colour * texel.a * outTint.a).
+// That is the same tolerance three and pixi ship — intended parity, not a claim
+// of bit-identity at every alpha.
 float prtA = outTint.a;
 float prtTexA = prtA > 0.0 ? fragColor.a / prtA : 0.0;
 vec3 prtStraight = fragColor.a > 0.0 ? fragColor.rgb / fragColor.a : vec3(0.0);
@@ -189,8 +193,13 @@ export function dissolveUniformValues(
 
 const QuadBatch = Phaser.Renderer.WebGL.RenderNodes.BatchHandlerQuad;
 
-/** Quad additions + ours, spliced in ahead of the alpha-discard step. */
-function dissolveShaderAdditions(): Phaser.Types.Renderer.WebGL.ShaderAdditionConfig[] {
+/**
+ * Phaser's stock quad additions with ours spliced in immediately before the
+ * `ALPHA_DISCARD`-tagged entry (appended if that entry ever disappears).
+ * Exported so the splice position is unit-testable against the REAL
+ * `BatchHandlerQuad.prototype.defaultConfig` without a GL context.
+ */
+export function dissolveShaderAdditions(): Phaser.Types.Renderer.WebGL.ShaderAdditionConfig[] {
   const additions = (QuadBatch.prototype.defaultConfig.shaderAdditions ?? []).slice();
   const discard = additions.findIndex((a) => a.tags !== undefined && a.tags.indexOf("ALPHA_DISCARD") !== -1);
   additions.splice(discard < 0 ? additions.length : discard, 0, makeDissolveAddition());
@@ -198,12 +207,36 @@ function dissolveShaderAdditions(): Phaser.Types.Renderer.WebGL.ShaderAdditionCo
 }
 
 /**
+ * The texture unit reserved for `uParticlrNoise`: the top one the renderer
+ * reports. Exported for unit testing — the arithmetic is one line but it is
+ * the hinge the whole second-sampler strategy turns on.
+ *
+ * The `max(1, …)` floor only bites at `maxTextures === 1`, where unit 0 is both
+ * the reserved unit and the batch's only unit, so the noise and the layer sheet
+ * would fight. WebGL1 guarantees `MAX_TEXTURE_IMAGE_UNITS >= 8` and Phaser
+ * reads that hardware limit (not the tunable `maxParallelTextureUnits`, which
+ * `autoMobileTextures` may drop to 1), so the degenerate case is unreachable on
+ * conforming hardware; the floor exists so the arithmetic can never produce a
+ * negative unit index.
+ */
+export function reservedNoiseUnit(maxTextures: number): number {
+  return Math.max(1, maxTextures - 1);
+}
+
+/**
  * Phaser's quad batcher with the dissolve addition compiled in. One instance
- * per dissolve layer: the erosion uniforms are per-layer and are applied at
- * flush time, so two layers cannot share a handler.
+ * per LIVE dissolve layer: the erosion uniforms are per-layer and are applied
+ * at flush time, so two concurrent layers cannot share a handler.
+ *
+ * `RenderNodeManager` has no `removeNode`, so a node registered with it lives
+ * as long as the renderer does. `setLayerRef` is what makes that survivable:
+ * when a `PhaserParticleRenderer` is destroyed its handler is re-pointed at an
+ * inert ref (dropping the strong reference to the Effect and its sim pools) and
+ * its name is returned to a free list, so the next dissolve layer on the same
+ * scene re-points this same handler instead of leaking a new one.
  */
 export class ParticlrDissolveBatch extends QuadBatch {
-  private readonly layerRef: DissolveLayerRef;
+  private layerRef: DissolveLayerRef;
   private readonly noiseGlTexture: unknown;
   /** The texture unit reserved for `uParticlrNoise` (see finding D). */
   private readonly noiseUnit: number;
@@ -219,18 +252,30 @@ export class ParticlrDissolveBatch extends QuadBatch {
     });
     this.layerRef = layerRef;
     this.noiseGlTexture = noiseGlTexture;
-    this.noiseUnit = ParticlrDissolveBatch.reservedUnit(manager);
-
-    // One-time uniforms. `programManager.uniforms` is a persistent record
-    // re-applied to whichever program variant is current, so the sampler unit
-    // and the layer's dissolve parameters survive every shader rebuild.
-    const values = dissolveUniformValues(layerRef.dissolve, this.noiseUnit);
-    for (const name of Object.keys(values)) this.programManager.setUniform(name, values[name]!);
+    this.noiseUnit = reservedNoiseUnit(manager.renderer.maxTextures);
+    this.applyStaticUniforms();
   }
 
-  /** The top texture unit — never handed out to the batch (see below). */
-  private static reservedUnit(manager: Phaser.Renderer.WebGL.RenderNodes.RenderNodeManager): number {
-    return Math.max(1, manager.renderer.maxTextures - 1);
+  /**
+   * Re-point this handler at a different layer (free-list reuse) or at the
+   * inert ref (release). The static uniforms are re-applied because they are
+   * derived from `ref.dissolve`, which differs per layer.
+   */
+  setLayerRef(ref: DissolveLayerRef): void {
+    this.layerRef = ref;
+    this.applyStaticUniforms();
+  }
+
+  /**
+   * The uniforms that do not change while a layer owns this handler.
+   * `programManager.uniforms` is a persistent record re-applied to whichever
+   * program variant is current, so the sampler unit and the layer's dissolve
+   * parameters survive every shader rebuild — the same mechanism
+   * `BatchHandlerQuad` uses for `uMainSampler[0]`.
+   */
+  private applyStaticUniforms(): void {
+    const values = dissolveUniformValues(this.layerRef.dissolve, this.noiseUnit);
+    for (const name of Object.keys(values)) this.programManager.setUniform(name, values[name]!);
   }
 
   /**
@@ -245,7 +290,7 @@ export class ParticlrDissolveBatch extends QuadBatch {
    */
   override updateTextureCount(count?: number): void {
     const max = this.manager.renderer.maxTextures;
-    super.updateTextureCount(Math.min(count === undefined ? max : count, Math.max(1, max - 1)));
+    super.updateTextureCount(Math.min(count === undefined ? max : count, reservedNoiseUnit(max)));
   }
 
   /**
@@ -272,7 +317,63 @@ export class ParticlrDissolveBatch extends QuadBatch {
 interface RenderNodeManagerLike {
   hasNode(name: string, constructed?: boolean): boolean;
   addNodeConstructor(name: string, ctor: unknown): void;
+  getNode(name: string): unknown;
 }
+
+/** The node instance, as the register/release path pokes at it. The test
+ * double stands in for a real handler, so `setLayerRef` is optional. */
+interface DissolveNodeLike {
+  setLayerRef?(ref: DissolveLayerRef): void;
+}
+
+/**
+ * Per-manager registration bookkeeping.
+ *
+ * `RenderNodeManager` exposes `addNode`/`addNodeConstructor`/`getNode` and
+ * NOTHING that removes a node — a registered node is permanent for the
+ * renderer's life, holding its vertex buffer (~1.8 MB at Phaser's default
+ * `batchSize`), its index buffer, its ProgramManager and a
+ * `SET_PARALLEL_TEXTURE_UNITS` listener. Without reuse, a host that builds and
+ * destroys effects in a loop (VFX pooling, an editor rebuilding a preview on
+ * every keystroke) would accumulate one such node per dissolve layer forever.
+ *
+ * So: names released by `destroy()` go on a free list and are handed back out
+ * on the next registration, re-pointing the existing handler at the new layer.
+ * `next` makes minting a fresh name O(1) rather than rescanning the manager.
+ * Keyed weakly by the manager so a discarded Phaser Game takes its bookkeeping
+ * with it.
+ */
+interface RegistryState {
+  free: string[];
+  next: number;
+}
+const REGISTRIES = new WeakMap<object, RegistryState>();
+
+function registryFor(manager: RenderNodeManagerLike): RegistryState {
+  let state = REGISTRIES.get(manager as object);
+  if (state === undefined) {
+    state = { free: [], next: 0 };
+    REGISTRIES.set(manager as object, state);
+  }
+  return state;
+}
+
+function managerOf(scene: Phaser.Scene): RenderNodeManagerLike | null {
+  const renderer = scene.sys.renderer as unknown as { renderNodes?: RenderNodeManagerLike } | undefined;
+  const manager = renderer?.renderNodes;
+  return manager && typeof manager.addNodeConstructor === "function" ? manager : null;
+}
+
+/**
+ * The ref a released handler is re-pointed at. Its only job is to be inert and
+ * to hold no reference to a destroyed Effect or its particle pools — a
+ * released node stays registered with Phaser forever, so anything it still
+ * points at is retained forever too.
+ */
+const IDLE_LAYER_REF: DissolveLayerRef = {
+  dissolve: { frequency: 1, scroll: { x: 0, y: 0 }, edgeWidth: 0, edgeColor: null },
+  owner: { time: 0 },
+};
 
 /** The dissolve noise texture as this module consumes it. `setFilter` is
  * absent on the test double, hence optional. */
@@ -284,25 +385,40 @@ interface NoiseTextureLike {
 /** `Phaser.Textures.FilterMode.LINEAR`. `addUint8Array` uploads at NEAREST;
  * pixi and three both sample the noise LINEAR, so match them. */
 const FILTER_LINEAR = 0;
-/** Set-filter re-uploads the texture, so do it once per noise texture. */
+/**
+ * `TextureSource.setFilter` routes to `renderer.setTextureFilter`, which binds
+ * the texture to unit 0, calls `WebGLTextureWrapper.update(...)` to re-apply
+ * every `texParameteri` (wrap, filter) and restores the previous unit-0
+ * binding. No pixel re-upload — `update` reuses the wrapper's own `pixels` —
+ * but it does churn GL state and stomp unit 0, so do it once per texture.
+ */
 const LINEARISED = new WeakSet<object>();
 
 /**
  * Register a dissolve batch handler for one layer and return its node name, or
  * `null` if the scene has no render-node manager (Canvas renderer / headless).
  *
- * The name is `particlr-dissolve-<n>`, starting at the layer index and walking
- * forward past anything already registered — two renderers over the same scene
- * must not collide, and `addNodeConstructor` throws on a duplicate.
+ * A name released by a destroyed renderer is reused first (see `RegistryState`
+ * — the manager cannot remove nodes, so reuse is the only bound on growth);
+ * otherwise a fresh `particlr-dissolve-<n>` is minted. The `hasNode` loop is a
+ * guard against a name registered by someone else, not the primary mechanism.
  */
 export function registerDissolveHandler(
   scene: Phaser.Scene,
   layerIndex: number,
   layerRef: DissolveLayerRef,
 ): string | null {
-  const renderer = scene.sys.renderer as unknown as { renderNodes?: RenderNodeManagerLike } | undefined;
-  const manager = renderer?.renderNodes;
-  if (!manager || typeof manager.addNodeConstructor !== "function") return null;
+  const manager = managerOf(scene);
+  if (manager === null) return null;
+  const state = registryFor(manager);
+
+  // Reuse before minting: re-point a released handler at this layer.
+  const recycled = state.free.pop();
+  if (recycled !== undefined) {
+    const node = manager.getNode(recycled) as DissolveNodeLike | null;
+    if (node !== null && typeof node.setLayerRef === "function") node.setLayerRef(layerRef);
+    return recycled;
+  }
 
   const tm = scene.sys.textures as unknown as PhaserTextureManagerLike;
   const noise = ensureDissolveNoiseTexture(tm) as unknown as NoiseTextureLike;
@@ -312,9 +428,13 @@ export function registerDissolveHandler(
   }
   const noiseGlTexture = noise.get().source.glTexture;
 
-  let n = layerIndex;
-  let name = `particlr-dissolve-${n}`;
-  while (manager.hasNode(name)) name = `particlr-dissolve-${++n}`;
+  // Start at the layer index so the first dissolve layer of the first renderer
+  // reads `particlr-dissolve-0`, but never go backwards — `next` keeps minting
+  // O(1) instead of rescanning the manager on every registration.
+  let n = Math.max(layerIndex, state.next);
+  while (manager.hasNode(`particlr-dissolve-${n}`)) n++;
+  const name = `particlr-dissolve-${n}`;
+  state.next = n + 1;
 
   // A constructor, not an instance: `getNode` instantiates it on first use, so
   // registration itself never touches GL (and the test double can substitute a
@@ -326,4 +446,24 @@ export function registerDissolveHandler(
   });
 
   return name;
+}
+
+/**
+ * Hand a dissolve node name back for reuse and cut its handler loose from the
+ * effect it was serving. Called from `PhaserParticleRenderer.destroy()`.
+ *
+ * The node itself cannot be unregistered (no `removeNode` exists), so this is
+ * the whole of the cleanup story: the name becomes available again, and
+ * re-pointing the handler at `IDLE_LAYER_REF` releases the strong reference to
+ * the destroyed Effect — without which every sim pool it owns would be pinned
+ * for the renderer's lifetime.
+ */
+export function releaseDissolveHandler(scene: Phaser.Scene, name: string): void {
+  const manager = managerOf(scene);
+  if (manager === null) return;
+  const state = registryFor(manager);
+  if (state.free.indexOf(name) !== -1) return;
+  state.free.push(name);
+  const node = manager.getNode(name) as DissolveNodeLike | null;
+  if (node !== null && typeof node.setLayerRef === "function") node.setLayerRef(IDLE_LAYER_REF);
 }
