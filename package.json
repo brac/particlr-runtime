@@ -76,7 +76,7 @@
   },
   "peerDependencies": {
     "pixi.js": ">=7.2.0 <9",
-    "three": "^0.185.0",
+    "three": "^0.185.0 || ^0.186.0",
     "phaser": ">=4.2 <5"
   },
   "peerDependenciesMeta": {
@@ -92,13 +92,13 @@
   },
   "devDependencies": {
     "@types/node": "^22",
-    "@types/three": "^0.185.0",
+    "@types/three": "0.186.0",
     "esbuild": "^0.24.2",
     "jsdom": "^26",
     "phaser": "4.2.1",
-    "pixi.js": "8.19.0",
+    "pixi.js": "8.22.0",
     "pixi7": "npm:pixi.js@7.4.3",
-    "three": "0.185.1",
+    "three": "0.186.1",
     "ts-json-schema-generator": "^2.3.0",
     "tsx": "^4.19.2",
     "typescript": "^5.6.3",
