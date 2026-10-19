@@ -1,5 +1,30 @@
 # Changelog — @particlr/runtime
 
+## 0.8.1 — 2026-10-19
+
+Dependency refresh. No source, document, validator, or sim changes; goldens
+are byte-identical on the new renderer versions.
+
+### Changed
+
+- The `three` peer range widened from `^0.185.0` to `^0.185.0 || ^0.186.0`. A
+  caret on a 0.x version excludes the next minor, so three r186 users hit a
+  peer conflict under the old range.
+- Dev/test pins moved to `pixi.js` 8.22.0 and `three` 0.186.1. The Pixi peer
+  range is unchanged (`>=7.2.0 <9`).
+- Host-facing note: since Pixi 8.20 a `ParticleContainer` inherits its
+  ancestor render-group tint and alpha. The adapter sets per-particle
+  tint/alpha only, so standalone output is unchanged, but an effect parented
+  under a tinted container now shows that tint multiplied in.
+
+## 0.8.0 — 2026-08-18
+
+### Added
+
+- **`@particlr/runtime/phaser`** — a Phaser 4 rasterizer for the same 2D
+  simulation, with `registerParticlr()` loader and factory sugar. See the
+  root [`CHANGELOG.md`](../../CHANGELOG.md) for the full entry.
+
 ## 0.7.0 — 2026-08-17
 
 The Three.js adapter release. Additive — no document, validator, or sim
